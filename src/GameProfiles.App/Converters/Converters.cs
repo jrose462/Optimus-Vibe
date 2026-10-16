@@ -25,6 +25,19 @@ public sealed class VisibleWhenConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>
+/// Element height → CornerRadius of half that height: a true pill. WPF does not clamp oversized radii (999 renders
+/// as an oval), so pills bind to their own ActualHeight instead.
+/// </summary>
+public sealed class PillRadiusConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        new CornerRadius(value is double h && h > 0 ? h / 2 : 0);
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 public sealed class InverseBoolConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not true;

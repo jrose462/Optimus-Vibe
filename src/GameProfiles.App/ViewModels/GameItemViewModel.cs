@@ -44,6 +44,17 @@ public sealed class GameItemViewModel(GameSnapshot snapshot) : ObservableObject
     /// <summary>"device default" when nothing has been picked for this game yet.</summary>
     public string? BadgeSubText => _snapshot.Context is { IsSelected: false, Profile.IsEmpty: false } ? "device default" : null;
 
+    /// <summary>Muted line under the name in the list.</summary>
+    public string StatusLine => BadgeKind switch
+    {
+        BadgeKind.Error => "Config problem",
+        BadgeKind.None => "No presets for this device",
+        BadgeKind.Manual => BadgeText,
+        _ => BadgeText + " preset" + (BadgeSubText is null ? "" : " \u00b7 device default"),
+    };
+
+    public bool NeedsAttention => BadgeKind is BadgeKind.Error or BadgeKind.None;
+
     public GameDetailViewModel? Detail => _detail;
 
     public void EnsureDetail(IAppShell shell) => _detail ??= new GameDetailViewModel(shell, _snapshot);

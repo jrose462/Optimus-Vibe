@@ -83,8 +83,11 @@ public sealed class GamepadNavigator : IDisposable
         if (window.IsActive) Start();
     }
 
-    /// <summary>True once any controller has been seen.</summary>
+    /// <summary>True while at least one controller is connected.</summary>
     public bool HasController { get; private set; }
+
+    /// <summary>Raised (on the UI thread) when a controller appears or the last one goes away.</summary>
+    public event Action<bool>? ControllerChanged;
 
     private void Start()
     {
@@ -168,10 +171,11 @@ public sealed class GamepadNavigator : IDisposable
             }
             if (Math.Abs((int)g.ThumbRY) > Math.Abs((int)ry)) ry = g.ThumbRY;
         }
-        if (any && !HasController)
+        if (any != HasController)
         {
-            HasController = true;
-            Log.Info("Gamepad connected");
+            HasController = any;
+            Log.Info(any ? "Gamepad connected" : "Gamepad disconnected");
+            ControllerChanged?.Invoke(any);
         }
         return any;
     }

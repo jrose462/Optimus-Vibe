@@ -64,9 +64,12 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private string? _setupConfigRoot;
     private IReadOnlyList<LaunchOptionChange>? _steamChanges;
     private LibraryTileViewModel? _launching;
+    private bool _gamepad;
+    private GameDetailViewModel? _hookedDetail;
 
     public MainViewModel()
     {
+        ShowSavesCommand = new RelayCommand(ShowSaves, () => IsReady);
         _toastTimer.Tick += (_, _) => { _toastTimer.Stop(); ToastText = null; };
         RefreshCommand = new AsyncRelayCommand(() => LoadAsync(rescan: true), () => !IsBusy);
         SyncCommand = new AsyncRelayCommand(SyncAsync, () => !IsBusy && Session is not null);
@@ -148,6 +151,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         OnPropertyChanged(nameof(IsLibraryMode));
         OnPropertyChanged(nameof(ControllerHint));
         OnPropertyChanged(nameof(ShowConfigLine));
+        RaiseNav();
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -162,15 +166,62 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>The config path line under the title: useful in Manage, noise on the handheld library.</summary>
     public bool ShowConfigLine => !IsReady || Page == AppPage.Manage;
 
+    /// <summary>True while a gamepad is connected; the quiet hint line at the bottom only shows then.</summary>
+    public bool IsGamepadConnected
+    {
+        get => _gamepad;
+        set { if (Set(ref _gamepad, value)) OnPropertyChanged(nameof(ControllerHint)); }
+    }
+
     public string ControllerHint => !IsReady
         ? "A select  ·  B back"
         : Page switch
         {
-            AppPage.Library => "A play  ·  X presets  ·  Y sync  ·  LB/RB filter  ·  ☰ settings  ·  View rescan",
-            AppPage.Detail => "A select  ·  B library  ·  LB/RB tabs  ·  Y sync  ·  ☰ settings",
-            AppPage.Settings => "A select  ·  B back  ·  Y sync",
-            _ => "A select  ·  B back  ·  LB/RB tabs  ·  X launch  ·  Y sync  ·  ☰ settings  ·  View refresh",
+            AppPage.Library => "A play  ·  X presets  ·  LB RB filter  ·  Menu settings",
+            AppPage.Detail => "A select  ·  B back  ·  LB RB switch tabs",
+            AppPage.Settings => "A select  ·  B back",
+            _ => "A select  ·  B back  ·  LB RB switch tabs  ·  X launch",
         };
+
+    // ---------------------------------------------------------------- bottom navigation
+
+    private bool OnSavesTab => SelectedDetail is { SelectedTabIndex: GameDetailViewModel.ManualTab } && Page is AppPage.Manage or AppPage.Detail;
+
+    public bool NavLibrary => IsReady && (Page == AppPage.Library || (Page == AppPage.Detail && !OnSavesTab));
+    public bool NavManage => IsReady && Page == AppPage.Manage && !OnSavesTab;
+    public bool NavSaves => IsReady && OnSavesTab;
+    public bool NavSettings => IsReady && Page == AppPage.Settings;
+
+    public ICommand ShowSavesCommand { get; }
+
+    private void RaiseNav()
+    {
+        OnPropertyChanged(nameof(NavLibrary));
+        OnPropertyChanged(nameof(NavManage));
+        OnPropertyChanged(nameof(NavSaves));
+        OnPropertyChanged(nameof(NavSettings));
+    }
+
+    /// <summary>Saves: the open game's Manual saves tab (the Manage list when no game page is open).</summary>
+    private void ShowSaves()
+    {
+        if (Page is not (AppPage.Manage or AppPage.Detail)) SwitchMode(AppPage.Manage);
+        if (SelectedDetail is { HasGame: true } d) d.SelectedTabIndex = GameDetailViewModel.ManualTab;
+        RaiseNav();
+    }
+
+    private void HookDetail(GameDetailViewModel? detail)
+    {
+        if (_hookedDetail == detail) return;
+        if (_hookedDetail is not null) _hookedDetail.PropertyChanged -= OnDetailChanged;
+        _hookedDetail = detail;
+        if (detail is not null) detail.PropertyChanged += OnDetailChanged;
+    }
+
+    private void OnDetailChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(GameDetailViewModel.SelectedTabIndex) or "") RaiseNav();
+    }
 
     public AppSession? Session
     {
@@ -179,6 +230,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         {
             if (!Set(ref _session, value)) return;
             OnPropertyChanged(nameof(DeviceName));
+            OnPropertyChanged(nameof(DeviceFriendly));
             OnPropertyChanged(nameof(DeviceReason));
             OnPropertyChanged(nameof(DeviceDescription));
             OnPropertyChanged(nameof(ConfigRoot));
@@ -186,6 +238,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     }
 
     public string DeviceName => Session?.Device.Name ?? "no device";
+
+    /// <summary>"desktop", "Ally X" — for friendly sentences.</summary>
+    public string DeviceFriendly => DeviceName.Equals("ally-x", StringComparison.OrdinalIgnoreCase)
+        ? "Ally X"
+        : DeviceName.Replace('-', ' ');
     public string DeviceReason => Session?.Device.Reason ?? "";
     public string? DeviceDescription => Session?.Device.Def?.Description;
     public string ConfigRoot => Session?.Paths.ConfigRoot ?? _setupConfigRoot ?? "config folder not set";
@@ -199,7 +256,9 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         {
             if (!Set(ref _selectedGame, value)) return;
             value?.EnsureDetail(this);
+            HookDetail(value?.Detail);
             OnPropertyChanged(nameof(SelectedDetail));
+            RaiseNav();
         }
     }
 
@@ -263,7 +322,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public bool HasSteamBanner => SteamChanges is { Count: > 0 };
 
     public string SteamBannerText => SteamChanges is { Count: var n }
-        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update — Steam must be closed"
+        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update. Steam has to be closed first so your presets are used."
         : "";
 
     // ---------------------------------------------------------------- launch overlay

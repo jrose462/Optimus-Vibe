@@ -6,23 +6,26 @@
     <!-- DataContext: MainViewModel. Shown when no config folder resolves, or this machine matches no device.
          Primary path (handheld, no git): sign in with GitHub and use the config repo; alternative: a local checkout. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-        <Border Style="{StaticResource Card}" MaxWidth="820" Margin="32" Padding="36,32"
+        <Border Style="{StaticResource Card}" MaxWidth="820" Margin="32" Padding="40,36"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel>
-                <TextBlock Text="Set up GameProfiles on this machine" Style="{StaticResource Text.Title}" TextWrapping="Wrap" />
-                <TextBlock Style="{StaticResource Text.Dim}" FontSize="15" Margin="0,12,0,0"
-                           Text="GameProfiles reads its games, presets and manual saves from your GameProfiles config repo, and syncs them between your devices." />
+                <TextBlock Text="Let's set this device up" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
+                <TextBlock Style="{StaticResource Text.Lead}" Margin="0,8,0,0"
+                           Text="GameProfiles keeps your games, presets and saves in a config repo and syncs them between your devices." />
 
-                <Border Style="{StaticResource Badge.Warn}" CornerRadius="12" Padding="14,10" Margin="0,18,0,0" HorizontalAlignment="Stretch"
+                <Border Style="{StaticResource Card.Inset}" Margin="0,20,0,0"
                         Visibility="{Binding SetupMessage, Converter={StaticResource VisibleWhen}}">
-                    <TextBlock Text="{Binding SetupMessage}" TextWrapping="Wrap" FontWeight="Normal" FontSize="14" />
+                    <StackPanel Orientation="Horizontal">
+                        <Border Style="{StaticResource Dot.Attention}" Margin="0,0,12,0" VerticalAlignment="Top" />
+                        <TextBlock Text="{Binding SetupMessage}" Style="{StaticResource Text.Dim}" MaxWidth="660" />
+                    </StackPanel>
                 </Border>
 
                 <!-- ============================================ device (config is fine, device unknown) -->
-                <StackPanel Margin="0,24,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}}">
-                    <TextBlock Style="{StaticResource Text.H3}" Text="Which device is this?" />
-                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,12"
-                               Text="This machine matched no device in devices.yaml. Pick one to always use here (same as `gameprofiles setup --force-profile`), or add a match rule to devices.yaml." />
+                <StackPanel Margin="0,26,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}}">
+                    <TextBlock Style="{StaticResource Text.H2}" Text="Which device is this?" />
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,14"
+                               Text="This machine didn't match any device in your config. Pick the one to always use here." />
                     <ItemsControl ItemsSource="{Binding DeviceChoices}" Focusable="False">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -31,7 +34,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Button Content="{Binding}" Margin="0,0,10,10" MinWidth="140"
+                                <Button Content="{Binding}" Margin="0,0,8,8" MinWidth="140"
                                         Command="{Binding DataContext.ForceDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         CommandParameter="{Binding}" />
                             </DataTemplate>
@@ -40,17 +43,13 @@
                 </StackPanel>
 
                 <!-- ============================================ GitHub (primary) -->
-                <StackPanel Margin="0,26,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
-                    <TextBlock Style="{StaticResource Text.H2}">
-                        <Run Text="&#xE77B;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource AccentBrush}" />
-                        <Run Text="Sign in with GitHub" />
-                        <Run Text=" recommended" FontSize="14" FontWeight="Normal" Foreground="{StaticResource AccentTextBrush}" />
-                    </TextBlock>
-                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,14"
-                               Text="The app downloads your config repo and keeps it in sync through your GitHub account — no git or folder setup needed." />
+                <StackPanel Margin="0,28,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                    <TextBlock Style="{StaticResource Text.H2}" Text="Sign in with GitHub" />
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,16"
+                               Text="The app downloads your config repo and keeps it in sync through your account. No git or folders to set up." />
                     <views:GitHubSignInPanel x:Name="SignIn" DataContext="{Binding Account}" />
 
-                    <StackPanel DataContext="{Binding Account}" Margin="0,18,0,0" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
+                    <StackPanel DataContext="{Binding Account}" Margin="0,20,0,0" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="2*" />
@@ -58,43 +57,31 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="CONFIG REPOSITORY" Style="{StaticResource Text.Caption}" Margin="0,0,0,6" />
-                                <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="Cascadia Mono, Consolas" FontSize="16"
+                                <TextBlock Text="Config repository" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
                                          AutomationProperties.Name="Repository (owner/name)" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                <TextBlock Text="BRANCH" Style="{StaticResource Text.Caption}" Margin="0,0,0,6" />
-                                <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="Cascadia Mono, Consolas" FontSize="16"
+                                <TextBlock Text="Branch" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
                                          AutomationProperties.Name="Branch" />
                             </StackPanel>
                             <Button Grid.Column="2" Style="{StaticResource Button.Large}" Command="{Binding UseRepoCommand}" Margin="10,0,0,0"
-                                    VerticalAlignment="Bottom" input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Use this repo">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                    <TextBlock Text="Use this repo" />
-                                </StackPanel>
-                            </Button>
+                                    VerticalAlignment="Bottom" input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Use this repo" Content="Use this repo" />
                         </Grid>
                     </StackPanel>
 
                     <!-- ============================================ local checkout (alternative) -->
-                    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,20,0,0">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource Text.H3}" Text="Or use a local git checkout" />
-                            <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,0"
-                                       Text="Pick the config folder of a GameProfiles repo you cloned (the one with devices.yaml). It's remembered in %LOCALAPPDATA%\GameProfiles\settings.json and synced with git." />
-                            <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding ConfigRoot}" Margin="0,10,0,0" Foreground="{StaticResource TextFaintBrush}" />
-                            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                                <Button Command="{Binding PickConfigFolderCommand}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE8DA;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        <TextBlock Text="Choose config folder…" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Content="Retry" Style="{StaticResource Button.Ghost}" Command="{Binding RefreshCommand}" Margin="12,0,0,0" />
-                            </StackPanel>
+                    <StackPanel Margin="0,32,0,0">
+                        <TextBlock Style="{StaticResource Text.H3}" Text="Or use a local git folder" />
+                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,0"
+                                   Text="Pick the config folder of a repo you cloned yourself (the one with devices.yaml)." />
+                        <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding ConfigRoot}" Margin="0,8,0,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <Button Command="{Binding PickConfigFolderCommand}" Content="Choose config folder…" />
+                            <Button Content="Retry" Style="{StaticResource Button.Quiet}" Command="{Binding RefreshCommand}" Margin="6,0,0,0" />
                         </StackPanel>
-                    </Border>
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
         </Border>

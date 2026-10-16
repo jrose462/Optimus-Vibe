@@ -11,12 +11,22 @@ public enum LibraryFilter { All, Managed, NeedsPresets, OptedOut }
 
 public sealed class FilterPillViewModel(LibraryFilter filter, string label) : ObservableObject
 {
+    /// <summary>Segoe Fluent icon for the segmented filter strip.</summary>
+    public string Glyph { get; } = filter switch
+    {
+        LibraryFilter.Managed => "\uE73E",
+        LibraryFilter.NeedsPresets => "\uE916",
+        LibraryFilter.OptedOut => "\uE711",
+        _ => "\uE80F",
+    };
+    public string ToolTipText => Count > 0 || Filter == LibraryFilter.All ? $"{Label} · {Count}" : Label;
+
     private bool _isSelected;
     private int _count;
 
     public LibraryFilter Filter { get; } = filter;
     public string Label { get; } = label;
-    public int Count { get => _count; set => Set(ref _count, value); }
+    public int Count { get => _count; set { if (Set(ref _count, value)) OnPropertyChanged(nameof(ToolTipText)); } }
     public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
 }
 
@@ -42,7 +52,7 @@ public sealed class LibraryViewModel : ObservableObject
         Filters =
         [
             new(LibraryFilter.All, "All"),
-            new(LibraryFilter.Managed, "Managed"),
+            new(LibraryFilter.Managed, "Tuned"),
             new(LibraryFilter.NeedsPresets, "Needs presets"),
             new(LibraryFilter.OptedOut, "Opted out"),
         ];
@@ -66,19 +76,51 @@ public sealed class LibraryViewModel : ObservableObject
         private set { if (Set(ref _isScanning, value)) { OnPropertyChanged(nameof(ShowEmpty)); CommandManager.InvalidateRequerySuggested(); } }
     }
 
-    public bool HasScanned { get => _hasScanned; private set { if (Set(ref _hasScanned, value)) OnPropertyChanged(nameof(ShowEmpty)); } }
+    public bool HasScanned { get => _hasScanned; private set { if (Set(ref _hasScanned, value)) { OnPropertyChanged(nameof(ShowEmpty)); OnPropertyChanged(nameof(Lead)); } } }
 
     public bool ShowEmpty => Tiles.Count == 0 && !IsScanning && HasScanned;
 
     public string EmptyText => _filter switch
     {
-        LibraryFilter.Managed => "No managed games yet. Games get presets when Claude processes your queued requests.",
-        LibraryFilter.NeedsPresets => "Every installed game has presets for this device.",
+        LibraryFilter.Managed => "Nothing is tuned yet. Games get presets once Claude has processed the queue.",
+        LibraryFilter.NeedsPresets => "Every installed game already has presets for this device.",
         LibraryFilter.OptedOut => "You haven't opted any game out.",
-        _ => "No games found. Check which launchers are scanned in Settings (Start / ☰), or add a game with Claude.",
+        _ => "No games found. Check which launchers are scanned in Settings, or add a game with Claude.",
     };
 
     public IReadOnlyList<DetectedGame> Detected => _detected ?? [];
+
+    // ---------------------------------------------------------------- summary ("This device")
+
+    public int TunedCount => Filters[1].Count;
+    public int WaitingCount => Filters[2].Count;
+    public int OptedOutCount => Filters[3].Count;
+    public string DeviceFriendly => _main.DeviceFriendly;
+    public string DeviceName => _main.DeviceName;
+
+    /// <summary>The one friendly sentence under the page title.</summary>
+    public string Lead
+    {
+        get
+        {
+            var dev = _main.DeviceFriendly;
+            if (!HasScanned) return $"Looking for the games installed on this {dev}\u2026";
+            if (TunedCount == 0) return WaitingCount > 0
+                ? $"Nothing is tuned for this {dev} yet \u2014 {WaitingCount} {(WaitingCount == 1 ? "game is" : "games are")} waiting for presets."
+                : $"Nothing is tuned for this {dev} yet.";
+            return $"Ready to play. {TunedCount} {(TunedCount == 1 ? "game is" : "games are")} tuned for this {dev}.";
+        }
+    }
+
+    private void RaiseSummary()
+    {
+        OnPropertyChanged(nameof(TunedCount));
+        OnPropertyChanged(nameof(WaitingCount));
+        OnPropertyChanged(nameof(OptedOutCount));
+        OnPropertyChanged(nameof(DeviceFriendly));
+        OnPropertyChanged(nameof(DeviceName));
+        OnPropertyChanged(nameof(Lead));
+    }
 
     /// <summary>Requests waiting in config/requests.yaml for Claude.</summary>
     public int PendingRequests
@@ -132,6 +174,7 @@ public sealed class LibraryViewModel : ObservableObject
             else if (at != i) Tiles.Move(at, i);
         }
         foreach (var f in Filters) f.Count = _byKey.Values.Count(t => FilterMatches(f.Filter, t));
+        RaiseSummary();
         SelectedTile = keep is not null && Tiles.Contains(keep) ? keep : Tiles.FirstOrDefault();
         OnPropertyChanged(nameof(ShowEmpty));
     }
@@ -217,6 +260,12 @@ public sealed class LibraryViewModel : ObservableObject
         {
             var img = await Task.Run(() => CoverArt.Load(t.ArtPath));
             t.SetArt(img);
+        }
+        foreach (var t in _byKey.Values.Where(t => t.Art is null && t.Icon is null).ToList())
+        {
+            var det = t.Detected;
+            var icon = await Task.Run(() => CoverArt.LoadExeIcon(det));
+            t.SetIcon(icon);
         }
     }
 

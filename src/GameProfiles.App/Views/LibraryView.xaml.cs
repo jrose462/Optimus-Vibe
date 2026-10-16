@@ -13,8 +13,8 @@ namespace GameProfiles.App.Views;
 /// </summary>
 public partial class LibraryView : UserControl
 {
-    private const double TargetSlot = 236; // ~5 columns at 1280 DIPs (Ally 7" at 150%)
-    private const double CaptionHeight = 64;  // name + store under the art
+    private const double TargetSlot = 220; // ~5 columns at 1280 DIPs (Ally 7" at 150%)
+    private const double CaptionHeight = 58;  // name + status line under the art
     private const double SlotGap = 26;
 
     public static readonly DependencyProperty TileWidthProperty =
@@ -34,6 +34,7 @@ public partial class LibraryView : UserControl
     {
         InitializeComponent();
         TileList.SizeChanged += (_, _) => Layout();
+        Scroller.SizeChanged += (_, _) => Layout();
         TileList.PreviewKeyDown += OnTilesKeyDown;
         TileList.MouseDoubleClick += OnTilesDoubleClick;
         Pills.PreviewKeyDown += (_, e) =>
@@ -46,9 +47,9 @@ public partial class LibraryView : UserControl
 
     private void Layout()
     {
-        // ScrollViewer padding (14 each side) + a scroll bar's worth so tiles don't reflow when it appears.
+        // List padding (14 each side) + a scroll bar's worth so tiles don't reflow when it appears.
         double avail = TileList.ActualWidth - 28 - 14;
-        double viewport = TileList.ActualHeight;
+        double viewport = Scroller.ActualHeight;
         if (avail <= 0 || viewport <= 0) return;
 
         int cols = Math.Max(2, (int)Math.Floor(avail / TargetSlot));
@@ -87,6 +88,7 @@ public partial class LibraryView : UserControl
     {
         var vm = Vm;
         if (vm is null) return false;
+        Scroller.ScrollToTop();
         var idx = vm.Filters.ToList().FindIndex(f => f.IsSelected);
         if (Pills.ItemContainerGenerator.ContainerFromIndex(Math.Max(0, idx)) is ContentPresenter cp &&
             VisualTreeHelper.GetChildrenCount(cp) > 0 && VisualTreeHelper.GetChild(cp, 0) is Button b)

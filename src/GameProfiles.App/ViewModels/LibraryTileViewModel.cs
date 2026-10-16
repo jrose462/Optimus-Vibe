@@ -14,13 +14,13 @@ public sealed class LibraryTileViewModel : ObservableObject
     private LibraryEntry _entry;
     private GameItemViewModel? _gameItem;
     private ImageSource? _art;
+    private ImageSource? _icon;
 
     public LibraryTileViewModel(LibraryViewModel owner, LibraryEntry entry, GameItemViewModel? gameItem)
     {
         _owner = owner;
         _entry = entry;
         _gameItem = gameItem;
-        Fallback = CoverArt.Fallback(Store);
 
         bool Idle() => !owner.Shell.IsBusy;
         PlayCommand = new AsyncRelayCommand(() => owner.PlayAsync(this), () => Idle() && CanPlay);
@@ -55,14 +55,20 @@ public sealed class LibraryTileViewModel : ObservableObject
         _ => "Not installed",
     };
 
-    public string StatusIcon => Status switch
+    /// <summary>One short muted line under the title on a tile.</summary>
+    public string StatusLine => Status switch
     {
-        TileStatus.Managed => "",       // check
-        TileStatus.NeedsPresets => "",  // stopwatch
-        TileStatus.OptedOut => "",      // blocked-ish
-        TileStatus.Error => "",         // error
-        _ => "",                        // download
+        TileStatus.Managed => _gameItem?.BadgeText is { Length: > 0 } b
+            ? (b.StartsWith("Manual", StringComparison.OrdinalIgnoreCase) ? b : b + " preset")
+            : "Tuned",
+        TileStatus.NeedsPresets => "Needs presets",
+        TileStatus.OptedOut => "Opted out",
+        TileStatus.Error => "Config problem",
+        _ => "Not installed",
     };
+
+    /// <summary>Small orange dot: this game needs attention (waiting for presets, or a config problem).</summary>
+    public bool NeedsAttention => Status is TileStatus.NeedsPresets or TileStatus.Error;
 
     public bool IsInstalled => _entry.Detected is not null;
     public bool HasConfig => _entry.Game is not null;
@@ -88,11 +94,12 @@ public sealed class LibraryTileViewModel : ObservableObject
     public ImageSource? Art { get => _art; private set { if (Set(ref _art, value)) OnPropertyChanged(nameof(HasArt)); } }
     public bool HasArt => _art is not null;
     public string? ArtPath => _entry.Detected?.ArtPath;
-    public Brush Fallback { get; }
-    public string Glyph => CoverArt.Glyph(Store);
-    public string Initials => CoverArt.Initials(Name);
+    public ImageSource? Icon { get => _icon; private set { if (Set(ref _icon, value)) OnPropertyChanged(nameof(HasIcon)); } }
+    public bool HasIcon => _icon is not null;
+    public DetectedGame? Detected => _entry.Detected;
 
     public void SetArt(ImageSource? img) => Art = img;
+    public void SetIcon(ImageSource? img) => Icon = img;
 
     public ICommand PlayCommand { get; }
     public ICommand OpenCommand { get; }
@@ -106,7 +113,11 @@ public sealed class LibraryTileViewModel : ObservableObject
     }
 
     /// <summary>Re-read the game list badge (after Use / Apply in the detail page).</summary>
-    public void RefreshBadge() => OnPropertyChanged(nameof(StatusText));
+    public void RefreshBadge()
+    {
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(StatusLine));
+    }
 
     public override string ToString() => $"{Name}, {StatusText}"; // automation name
 }

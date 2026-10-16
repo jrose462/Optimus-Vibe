@@ -69,11 +69,50 @@ public sealed class GameDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>One friendly sentence under the game title.</summary>
+    public string Lead
+    {
+        get
+        {
+            var ctx = _snap.Context;
+            if (ctx is null) return "This game's config needs a fix before it can be used.";
+            if (ctx.Profile.IsEmpty) return $"No presets for this {DeviceFriendly} yet.";
+            var label = ActivePresetLabel;
+            return ctx.IsSelected
+                ? $"{label} is your pick for this {DeviceFriendly}."
+                : $"Using the {label} preset, the default for this {DeviceFriendly}.";
+        }
+    }
+
+    public string DeviceFriendly => DeviceName.Equals("ally-x", StringComparison.OrdinalIgnoreCase) ? "Ally X" : DeviceName.Replace('-', ' ');
+
+    /// <summary>"Quality", "Manual: Steady 40" — empty when the device has no presets.</summary>
+    public string ActivePresetLabel
+    {
+        get
+        {
+            var ctx = _snap.Context;
+            if (ctx is null || ctx.Profile.IsEmpty) return "None";
+            return ctx.Preset?.Kind == PresetKind.Manual ? $"Manual: {ctx.Save?.Name ?? ctx.Preset.Name}" : ctx.Profile.Label ?? ctx.Preset?.Name ?? "None";
+        }
+    }
+
+    public string TargetFpsValue => _snap.Context?.Profile.TargetFps is { } f ? f.ToString() : "\u2013";
+    public string SettingsCountValue => _snap.Context is { } c ? (c.Files.Sum(f => f.Targets.Count) + c.DriverTargets.Count).ToString() : "0";
+
     /// <summary>The preset in effect for this device (recommended name or manual save), for bug reports.</summary>
     public string? ActivePresetName => _snap.Context?.Preset?.Name;
 
-    public string? IntentText => _snap.Game?.Intent.GetValueOrDefault(DeviceName) is { Length: > 0 } t ? t.Trim() : null;
-    public bool HasIntent => IntentText is not null;
+    /// <summary>The user's stated goal for this device; null when unset or still the skill's "EDIT ME" placeholder.</summary>
+    public string? IntentText =>
+        _snap.Game?.Intent.GetValueOrDefault(DeviceName) is { Length: > 0 } t && !t.TrimStart().StartsWith("EDIT ME", StringComparison.OrdinalIgnoreCase)
+            ? t.Trim()
+            : null;
+
+    public string IntentDisplay => IntentText
+        ?? "Not set yet. Tell Claude what matters to you here, like “steady 60” or “quiet on battery”, and it will tune the presets.";
+
+    public bool HasIntent => _snap.Game is not null;
 
     public string? RecommendationText
     {

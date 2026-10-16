@@ -28,7 +28,8 @@ public partial class MainWindow : Window, IGamepadActions
 
         FocusCue.Attach(this);
         _focusKeeper = new FocusKeeper(this, FocusDefault);
-        _ = new GamepadNavigator(this, this);
+        var pad = new GamepadNavigator(this, this);
+        pad.ControllerChanged += connected => _vm.IsGamepadConnected = connected;
 
         PreviewKeyDown += OnPreviewKeyDown;
         vm.PropertyChanged += OnViewModelChanged;
@@ -169,7 +170,7 @@ public partial class MainWindow : Window, IGamepadActions
             switch (_vm.Page)
             {
                 case AppPage.Library:
-                    if (LibraryPage.FocusSelectedTile()) return;
+                    if (LibraryPage.FocusSelectedTile() || LibraryPage.FocusPills()) return;
                     break;
                 case AppPage.Detail:
                     LibraryDetail.FocusDefault(_vm.DetailHasConfig);
