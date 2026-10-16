@@ -1,0 +1,23 @@
+"libraryfolders"
+{
+	"0"
+	{
+		"path"		"__ROOT__"
+		"label"		""
+		"contentid"		"1234567890"
+		"apps"
+		{
+			"228980"		"123456"
+		}
+	}
+	// second library
+	"1"
+	{
+		"path"		"__LIB2__"
+		"label"		"Games"
+		"apps"
+		{
+			"1091500"		"70000000000"
+		}
+	}
+}

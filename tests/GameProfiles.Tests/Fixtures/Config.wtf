@@ -1,0 +1,4 @@
+SET locale "enUS"
+SET gxMaxFPS "60"
+SET gxResolution "1920x1080"
+SET graphicsQuality "7"

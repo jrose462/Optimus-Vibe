@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  // Cyberpunk-style settings
+  "data": [
+    {
+      "group_name": "/graphics/presets",
+      "options": [
+        { "name": "DLSS", "type": "name", "value": "DLSS_Quality", "default_value": "Off" },
+        { "name": "FSR2", "type": "name", "value": "Off" },
+        { "name": "MaxFPS", "type": "int", "value": 60 },
+        { "name": "Sharpness", "type": "float", "value": 0.5 },
+        { "name": "VSync", "type": "bool", "value": true },
+      ]
+    },
+    {
+      "group_name": "/video/display",
+      "options": [
+        { "name": "Resolution", "type": "name", "value": "2560x1440" },
+        { "name": "WindowMode", "type": "name", "value": "Fullscreen" }
+      ]
+    }
+  ],
+  "graphics": { "quality": 3, "hdr": false, "preset": "High" },
+  "a.b": { "c": 1 },
+  "items": [ { "value": 10 }, { "value": 20 }, { "value": 30 } ],
+}

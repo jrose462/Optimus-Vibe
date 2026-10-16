@@ -1,0 +1,4 @@
+DisplayModeWindowed "0"
+DisplayModeResolution "1920x1080"
+TextureQuality "2"
+FrameLimit "60"

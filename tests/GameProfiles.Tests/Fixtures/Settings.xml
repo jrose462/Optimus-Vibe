@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Settings version="3">
+  <!-- graphics -->
+  <Graphics>
+    <Setting name="Resolution" value="2560x1440" />
+    <Setting name="Quality" value="High" />
+    <Fullscreen>true</Fullscreen>
+    <FrameLimit>165</FrameLimit>
+  </Graphics>
+</Settings>
