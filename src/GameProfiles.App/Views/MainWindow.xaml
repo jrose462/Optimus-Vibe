@@ -13,12 +13,14 @@
 
     <Window.InputBindings>
         <KeyBinding Key="F5" Command="{Binding RefreshCommand}" />
+        <KeyBinding Key="OemComma" Modifiers="Control" Command="{Binding OpenSettingsCommand}" />
     </Window.InputBindings>
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="3" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -52,7 +54,8 @@
                         </Border>
                     </StackPanel>
                     <TextBlock Style="{StaticResource Text.Caption}" FontWeight="Normal" Margin="0,5,0,0" TextWrapping="NoWrap"
-                               TextTrimming="CharacterEllipsis" ToolTip="{Binding ConfigRoot}">
+                               TextTrimming="CharacterEllipsis" ToolTip="{Binding ConfigRoot}"
+                               Visibility="{Binding ShowConfigLine, Converter={StaticResource VisibleWhen}}">
                         <Run Text="&#xE8B7;" FontFamily="{StaticResource IconFont}" />
                         <Run Text="Config:" />
                         <Run Text="{Binding ConfigRoot, Mode=OneWay}" />
@@ -60,7 +63,27 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button AutomationProperties.Name="Refresh" Command="{Binding RefreshCommand}" ToolTip="Reload config and re-detect the device (F5 / View button)" Margin="0,0,10,0">
+                    <!-- Library | Manage -->
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="13"
+                            Padding="3" Margin="0,0,16,0" Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsLibraryMode}" Command="{Binding ShowLibraryCommand}"
+                                    AutomationProperties.Name="Library view" ToolTip="Cover grid for playing — made for a controller">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xF0E2;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Text="Library" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsLibraryMode, Converter={StaticResource Not}}" Command="{Binding ShowManageCommand}"
+                                    AutomationProperties.Name="Manage view" ToolTip="Game list with presets side by side">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE8FD;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Text="Manage" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                    <Button AutomationProperties.Name="Refresh" Command="{Binding RefreshCommand}" ToolTip="Reload config, rescan launchers and re-detect the device (F5 / View button)" Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <TextBlock Text="Refresh" />
@@ -75,6 +98,11 @@
                             </Border>
                         </StackPanel>
                     </Button>
+                    <Button AutomationProperties.Name="Settings" Command="{Binding OpenSettingsCommand}" Margin="10,0,0,0" Padding="13,8"
+                            ToolTip="Settings — sync, GitHub, launchers, device (Start / ☰ button, Ctrl+,)"
+                            Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="18" VerticalAlignment="Center" />
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -82,8 +110,33 @@
         <ProgressBar Grid.Row="1" Style="{StaticResource BusyBar}"
                      Visibility="{Binding IsBusy, Converter={StaticResource VisibleWhen}}" />
 
+        <!-- ============================================================ steam banner (non-modal) -->
+        <Border Grid.Row="2" Background="{StaticResource WarnSoftBrush}" BorderBrush="#5A4A2A" BorderThickness="0,0,0,1" Padding="22,10"
+                Visibility="{Binding HasSteamBanner, Converter={StaticResource VisibleWhen}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" FontSize="15.5" TextWrapping="Wrap" Margin="0,0,16,0">
+                    <Run Text="&#xE7BA;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource WarnBrush}" />
+                    <Run Text="{Binding SteamBannerText, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource WarnBrush}" />
+                    <Run Text="— they make games started from Steam use your presets." Foreground="{StaticResource TextDimBrush}" />
+                </TextBlock>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="ApplySteamButton" Style="{StaticResource Button.Primary}" Command="{Binding ApplySteamCommand}" AutomationProperties.Name="Close Steam and apply">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Close Steam &amp; apply" />
+                        </StackPanel>
+                    </Button>
+                    <Button Content="Later" Style="{StaticResource Button.Ghost}" Command="{Binding DismissSteamCommand}" Margin="8,0,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <!-- ============================================================ content -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <!-- loading -->
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                         Visibility="{Binding IsLoading, Converter={StaticResource VisibleWhen}}">
@@ -95,8 +148,20 @@
             <!-- first run / setup -->
             <views:SetupView Visibility="{Binding IsSetup, Converter={StaticResource VisibleWhen}}" />
 
-            <!-- ready -->
-            <Grid Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
+            <!-- library -->
+            <views:LibraryView x:Name="LibraryPage" DataContext="{Binding Library}"
+                               Visibility="{Binding DataContext.IsLibraryPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhen}}" />
+
+            <!-- one library game -->
+            <views:LibraryDetailView x:Name="LibraryDetail"
+                                     Visibility="{Binding IsDetailPage, Converter={StaticResource VisibleWhen}}" />
+
+            <!-- settings -->
+            <views:SettingsView x:Name="SettingsPage" DataContext="{Binding Settings}"
+                                Visibility="{Binding DataContext.IsSettingsPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhen}}" />
+
+            <!-- manage (list + detail) -->
+            <Grid Visibility="{Binding IsManagePage, Converter={StaticResource VisibleWhen}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="340" />
                     <ColumnDefinition Width="*" />
@@ -170,6 +235,34 @@
                 </Border>
             </Grid>
 
+            <!-- starting a game -->
+            <Grid DataContext="{Binding Launching}"
+                  Visibility="{Binding DataContext.IsLaunching, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhen}}">
+                <Border Background="#E60A0C10" />
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid Width="200" Height="300">
+                        <Border CornerRadius="16" Background="{Binding Fallback}">
+                            <TextBlock Text="{Binding Initials}" FontSize="60" FontWeight="Bold" Foreground="#E6FFFFFF"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Border CornerRadius="16" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
+                            <Border.Background>
+                                <ImageBrush ImageSource="{Binding Art}" Stretch="UniformToFill" />
+                            </Border.Background>
+                        </Border>
+                        <Grid.Effect>
+                            <DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.7" Color="#7C6CFF" />
+                        </Grid.Effect>
+                    </Grid>
+                    <TextBlock HorizontalAlignment="Center" Margin="0,26,0,0" FontSize="26" FontWeight="SemiBold">
+                        <Run Text="Starting" />
+                        <Run Text="{Binding Name, Mode=OneWay}" /><Run Text="…" />
+                    </TextBlock>
+                    <TextBlock Text="{Binding PlayHint}" Style="{StaticResource Text.Dim}" FontSize="16" HorizontalAlignment="Center" Margin="0,8,0,0" />
+                    <ProgressBar Style="{StaticResource BusyBar}" Width="260" Margin="0,22,0,0" />
+                </StackPanel>
+            </Grid>
+
             <!-- toast -->
             <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="24" MaxWidth="560"
                     Background="{StaticResource CardRaisedBrush}" CornerRadius="14" BorderThickness="1"
@@ -202,7 +295,7 @@
         </Grid>
 
         <!-- ============================================================ status bar -->
-        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
+        <Border Grid.Row="4" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
                 Padding="20,8">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -222,8 +315,8 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-                <TextBlock Grid.Column="1" Style="{StaticResource Text.Caption}" FontWeight="Normal" VerticalAlignment="Center" Margin="16,0,0,0"
-                           Text="A select  ·  B back  ·  LB/RB tabs  ·  Y sync  ·  Start launch  ·  View refresh" />
+                <TextBlock Grid.Column="1" Style="{StaticResource Text.Caption}" FontWeight="Normal" FontSize="14" VerticalAlignment="Center" Margin="16,0,0,0"
+                           Text="{Binding ControllerHint}" />
             </Grid>
         </Border>
     </Grid>

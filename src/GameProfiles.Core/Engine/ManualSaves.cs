@@ -103,19 +103,27 @@ public static class ManualSaves
         return sync ? SyncChange(store.Paths, $"chore(saves): delete {gameId}/{device}/{slug}") : null;
     }
 
-    /// <summary>Commit config/saves and push, if AutoSync is on and the config folder is in a git repo.</summary>
+    /// <summary>
+    /// Publish config/saves through the configured sync provider (git CLI or GitHub API), if AutoSync is on.
+    /// Null when sync is off or the git provider has no repo; never throws.
+    /// </summary>
     public static GitResult? SyncChange(AppPaths paths, string message)
     {
-        if (!AppPaths.LoadSettings(paths.DataDir).AutoSync) return null;
-        var git = new GitSync(paths.RepoRoot);
-        if (!git.IsRepo) return null;
         try
         {
-            return git.CommitAndSync(message, paths.SavesDir);
+            if (!AppPaths.LoadSettings(paths.DataDir).AutoSync) return null;
+            var provider = GameProfiles.Sync.SyncProviders.For(paths);
+            if (!provider.IsReady(out var why))
+            {
+                if (provider.Name == GameProfiles.Sync.SyncProviders.Git) return null; // config folder simply isn't a checkout
+                Log.Warn($"sync skipped: {why}");
+                return new GitResult(false, why);
+            }
+            return provider.CommitAndSync(message, paths.SavesDir);
         }
         catch (Exception ex)
         {
-            Log.Warn($"git sync failed: {ex.Message}");
+            Log.Warn($"sync failed: {ex.Message}");
             return new GitResult(false, ex.Message);
         }
     }

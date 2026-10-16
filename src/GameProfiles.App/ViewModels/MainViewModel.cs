@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using GameProfiles.App.Services;
 using GameProfiles.Config;
 using GameProfiles.Engine;
+using GameProfiles.Library;
 using GameProfiles.Logging;
 using Microsoft.Win32;
 
@@ -23,16 +26,29 @@ public interface IAppShell
 
     /// <summary>Re-reads one game (after use/apply/save...) and updates its list entry and detail in place.</summary>
     Task ReloadGameAsync(string gameId);
+
+    /// <summary>Whether the game can be started (its yaml or a detected install knows how).</summary>
+    bool CanPlay(GameDef game);
+
+    /// <summary>Start the game the library way (detected install, overlay, minimize).</summary>
+    Task PlayAsync(GameDef game);
 }
 
 public enum AppState { Loading, Setup, Ready }
+
+/// <summary>Pages inside the Ready state.</summary>
+public enum AppPage { Library, Manage, Detail, Settings }
 
 public sealed class MainViewModel : ObservableObject, IAppShell
 {
     private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private AppState _state = AppState.Loading;
+    private AppPage _page = AppPage.Manage;
+    private AppPage _pageBeforeSettings = AppPage.Manage;
+    private bool _pageChosen;
     private AppSession? _session;
     private GameItemViewModel? _selectedGame;
+    private LibraryTileViewModel? _detailTile;
     private bool _isBusy;
     private string? _busyText;
     private string _statusText = "Starting…";
@@ -41,18 +57,39 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private bool _toastIsError;
     private string? _setupMessage;
     private string? _setupConfigRoot;
+    private IReadOnlyList<LaunchOptionChange>? _steamChanges;
+    private LibraryTileViewModel? _launching;
 
     public MainViewModel()
     {
         _toastTimer.Tick += (_, _) => { _toastTimer.Stop(); ToastText = null; };
-        RefreshCommand = new AsyncRelayCommand(() => LoadAsync(), () => !IsBusy);
+        RefreshCommand = new AsyncRelayCommand(() => LoadAsync(rescan: true), () => !IsBusy);
         SyncCommand = new AsyncRelayCommand(SyncAsync, () => !IsBusy && Session is not null);
         PickConfigFolderCommand = new AsyncRelayCommand(PickConfigFolderAsync, () => !IsBusy);
         ForceDeviceCommand = new AsyncRelayCommand(p => ForceDeviceAsync(p as string), _ => !IsBusy);
         LaunchCommand = new AsyncRelayCommand(() => SelectedGame?.Detail?.LaunchAsync() ?? Task.CompletedTask,
             () => !IsBusy && SelectedGame?.Detail?.CanLaunch == true);
         DismissToastCommand = new RelayCommand(() => ToastText = null);
+        ShowLibraryCommand = new RelayCommand(() => SwitchMode(AppPage.Library), () => IsReady);
+        ShowManageCommand = new RelayCommand(() => SwitchMode(AppPage.Manage), () => IsReady);
+        OpenSettingsCommand = new RelayCommand(OpenSettings, () => IsReady);
+        CloseSettingsCommand = new RelayCommand(CloseSettings);
+        BackToLibraryCommand = new RelayCommand(CloseDetail);
+        ApplySteamCommand = new AsyncRelayCommand(ApplySteamAsync, () => !IsBusy && HasSteamBanner);
+        DismissSteamCommand = new RelayCommand(() => SteamChanges = null);
+
+        Account = new GitHubAccountViewModel(this);
+        Library = new LibraryViewModel(this);
+        Settings = new SettingsViewModel(this, Account);
     }
+
+    public LibraryViewModel Library { get; }
+    public SettingsViewModel Settings { get; }
+    public GitHubAccountViewModel Account { get; }
+
+    /// <summary>The window minimizes after a launch and comes back when the game (our wrapper) exits.</summary>
+    public event Action? MinimizeRequested;
+    public event Action? RestoreRequested;
 
     // ---------------------------------------------------------------- state
 
@@ -65,12 +102,55 @@ public sealed class MainViewModel : ObservableObject, IAppShell
             OnPropertyChanged(nameof(IsLoading));
             OnPropertyChanged(nameof(IsSetup));
             OnPropertyChanged(nameof(IsReady));
+            OnPageChanged();
         }
     }
 
     public bool IsLoading => State == AppState.Loading;
     public bool IsSetup => State == AppState.Setup;
     public bool IsReady => State == AppState.Ready;
+
+    public AppPage Page
+    {
+        get => _page;
+        private set
+        {
+            if (Set(ref _page, value)) OnPageChanged();
+        }
+    }
+
+    private void OnPageChanged()
+    {
+        OnPropertyChanged(nameof(IsLibraryPage));
+        OnPropertyChanged(nameof(IsManagePage));
+        OnPropertyChanged(nameof(IsDetailPage));
+        OnPropertyChanged(nameof(IsSettingsPage));
+        OnPropertyChanged(nameof(IsLibraryMode));
+        OnPropertyChanged(nameof(ControllerHint));
+        OnPropertyChanged(nameof(ShowConfigLine));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    public bool IsLibraryPage => IsReady && Page == AppPage.Library;
+    public bool IsManagePage => IsReady && Page == AppPage.Manage;
+    public bool IsDetailPage => IsReady && Page == AppPage.Detail;
+    public bool IsSettingsPage => IsReady && Page == AppPage.Settings;
+
+    /// <summary>Header toggle: Library (grid + its detail pages) vs. Manage (list).</summary>
+    public bool IsLibraryMode => Page is AppPage.Library or AppPage.Detail || (Page == AppPage.Settings && _pageBeforeSettings != AppPage.Manage);
+
+    /// <summary>The config path line under the title: useful in Manage, noise on the handheld library.</summary>
+    public bool ShowConfigLine => !IsReady || Page == AppPage.Manage;
+
+    public string ControllerHint => !IsReady
+        ? "A select  ·  B back"
+        : Page switch
+        {
+            AppPage.Library => "A play  ·  X presets  ·  Y sync  ·  LB/RB filter  ·  ☰ settings  ·  View rescan",
+            AppPage.Detail => "A select  ·  B library  ·  LB/RB tabs  ·  Y sync  ·  ☰ settings",
+            AppPage.Settings => "A select  ·  B back  ·  Y sync",
+            _ => "A select  ·  B back  ·  LB/RB tabs  ·  X launch  ·  Y sync  ·  ☰ settings  ·  View refresh",
+        };
 
     public AppSession? Session
     {
@@ -105,6 +185,16 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
     public GameDetailViewModel? SelectedDetail => SelectedGame?.Detail;
 
+    /// <summary>The library tile whose page is open (Detail page).</summary>
+    public LibraryTileViewModel? DetailTile
+    {
+        get => _detailTile;
+        private set { if (Set(ref _detailTile, value)) OnPropertyChanged(nameof(DetailHasConfig)); }
+    }
+
+    /// <summary>The open library game has a config here: show the presets (else the "queued for Claude" card).</summary>
+    public bool DetailHasConfig => DetailTile?.GameItem is not null;
+
     public bool IsBusy
     {
         get => _isBusy;
@@ -134,12 +224,49 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public ObservableCollection<string> DeviceChoices { get; } = new();
     public bool HasDeviceChoices => DeviceChoices.Count > 0;
 
+    // ---------------------------------------------------------------- steam banner
+
+    public IReadOnlyList<LaunchOptionChange>? SteamChanges
+    {
+        get => _steamChanges;
+        private set
+        {
+            if (!Set(ref _steamChanges, value)) return;
+            OnPropertyChanged(nameof(HasSteamBanner));
+            OnPropertyChanged(nameof(SteamBannerText));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool HasSteamBanner => SteamChanges is { Count: > 0 };
+
+    public string SteamBannerText => SteamChanges is { Count: var n }
+        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update — Steam must be closed"
+        : "";
+
+    // ---------------------------------------------------------------- launch overlay
+
+    public LibraryTileViewModel? Launching
+    {
+        get => _launching;
+        private set { if (Set(ref _launching, value)) OnPropertyChanged(nameof(IsLaunching)); }
+    }
+
+    public bool IsLaunching => Launching is not null;
+
     public ICommand RefreshCommand { get; }
     public ICommand SyncCommand { get; }
     public ICommand PickConfigFolderCommand { get; }
     public ICommand ForceDeviceCommand { get; }
     public ICommand LaunchCommand { get; }
     public ICommand DismissToastCommand { get; }
+    public ICommand ShowLibraryCommand { get; }
+    public ICommand ShowManageCommand { get; }
+    public ICommand OpenSettingsCommand { get; }
+    public ICommand CloseSettingsCommand { get; }
+    public ICommand BackToLibraryCommand { get; }
+    public ICommand ApplySteamCommand { get; }
+    public ICommand DismissSteamCommand { get; }
 
     // ---------------------------------------------------------------- shell
 
@@ -158,7 +285,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         catch (Exception ex)
         {
             Log.Error($"{busyText} failed", ex);
-            Notify($"{busyText} failed: {ex.Message}", error: true);
+            Notify($"{busyText} failed: {Friendly(ex)}", error: true);
             return false;
         }
         finally
@@ -167,6 +294,10 @@ public sealed class MainViewModel : ObservableObject, IAppShell
             BusyText = null;
         }
     }
+
+    private static string Friendly(Exception ex) => ex is NotImplementedException
+        ? "this feature isn't available in this build yet."
+        : ex.Message;
 
     public void Notify(string message, bool error = false)
     {
@@ -192,14 +323,99 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         var item = Games.FirstOrDefault(g => string.Equals(g.Id, gameId, StringComparison.OrdinalIgnoreCase));
         item?.Update(snap);
         if (item == SelectedGame) OnPropertyChanged(nameof(SelectedDetail));
+        Library.RefreshBadges();
     }
 
-    /// <summary>B / Escape: close whatever transient panel is open. False when nothing was open.</summary>
-    public bool CancelTransient() => SelectedDetail?.CancelTransient() ?? false;
+    /// <summary>B / Escape: close whatever is open on the current page. False when nothing was (manage list: B then focuses the list).</summary>
+    public bool CancelTransient()
+    {
+        if (!IsReady) return Account.CancelTransient();
+        switch (Page)
+        {
+            case AppPage.Settings:
+                if (!Settings.CancelTransient()) CloseSettings();
+                return true;
+            case AppPage.Detail:
+                if (!(SelectedDetail?.CancelTransient() ?? false)) CloseDetail();
+                return true;
+            case AppPage.Library:
+                return false;
+            default:
+                return SelectedDetail?.CancelTransient() ?? false;
+        }
+    }
+
+    // ---------------------------------------------------------------- pages
+
+    private void SwitchMode(AppPage page)
+    {
+        if (page == AppPage.Library && Page == AppPage.Detail)
+        {
+            CloseDetail();
+            return;
+        }
+        if (Page == AppPage.Settings) Account.CancelTransient();
+        Page = page;
+        var mode = page == AppPage.Library ? "grid" : "list";
+        _ = SettingsStore.UpdateAsync(s => s.LibraryMode = mode);
+    }
+
+    /// <summary>Settings → view mode changed (auto / grid / list): that's where B returns to.</summary>
+    public void ApplyLibraryMode(string mode)
+    {
+        _pageBeforeSettings = ResolveMode(mode);
+        OnPropertyChanged(nameof(IsLibraryMode));
+    }
+
+    /// <summary>auto: the library grid on the handheld (ally-x) or a small work area, the list otherwise.</summary>
+    private AppPage ResolveMode(string? mode)
+    {
+        switch ((mode ?? "auto").ToLowerInvariant())
+        {
+            case "grid": return AppPage.Library;
+            case "list": return AppPage.Manage;
+        }
+        var area = SystemParameters.WorkArea;
+        bool handheld = string.Equals(Session?.Device.Name, "ally-x", StringComparison.OrdinalIgnoreCase);
+        return handheld || area.Width < 1600 || area.Height < 900 ? AppPage.Library : AppPage.Manage;
+    }
+
+    public void OpenSettings()
+    {
+        if (!IsReady) return;
+        if (Page != AppPage.Settings) _pageBeforeSettings = Page;
+        Page = AppPage.Settings;
+        _ = Settings.RefreshAsync();
+    }
+
+    public void CloseSettings()
+    {
+        if (Page != AppPage.Settings) return;
+        Account.CancelTransient();
+        Page = _pageBeforeSettings == AppPage.Settings ? AppPage.Manage : _pageBeforeSettings;
+        if (Settings.ConsumeLibraryDirty()) _ = Library.ScanAsync(rescanLaunchers: true);
+    }
+
+    public void OpenLibraryDetail(LibraryTileViewModel tile)
+    {
+        Library.SelectedTile = tile;
+        DetailTile = tile;
+        if (tile.GameItem is { } item) SelectedGame = item;
+        OnPropertyChanged(nameof(DetailHasConfig));
+        Page = AppPage.Detail;
+    }
+
+    public void CloseDetail()
+    {
+        SelectedDetail?.CancelTransient();
+        Page = AppPage.Library;
+    }
 
     // ---------------------------------------------------------------- loading
 
-    public async Task LoadAsync()
+    public Task ReloadAllAsync() => LoadAsync(rescan: true);
+
+    public async Task LoadAsync(bool rescan = true)
     {
         var keepId = SelectedGame?.Id;
         var firstLoad = Session is null;
@@ -218,18 +434,35 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         {
             EnterSetup(result.SetupMessage, result.DeviceChoices, result.ConfigRoot);
             SetStatus(result.SetupMessage ?? "Setup needed", error: true);
+            _ = Account.RefreshAsync();
             return;
         }
 
+        if (Session is not null && Session.Paths.ConfigRoot != result.Session.Paths.ConfigRoot) Library.Clear();
         Session = result.Session;
         Games.Clear();
         foreach (var snap in result.Games.OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase))
             Games.Add(new GameItemViewModel(snap));
+
+        if (!_pageChosen)
+        {
+            AppSettings settings;
+            try { settings = await SettingsStore.LoadAsync(); }
+            catch (Exception) { settings = new AppSettings(); }
+            Page = ResolveMode(settings.LibraryMode);
+            _pageChosen = true;
+        }
         State = AppState.Ready;
         SelectedGame = Games.FirstOrDefault(g => g.Id == keepId) ?? Games.FirstOrDefault();
+        Library.RefreshBadges();
+        if (Page == AppPage.Detail && DetailTile?.GameItem is { } detailItem) SelectedGame = detailItem;
+        OnPropertyChanged(nameof(DetailHasConfig));
+
         var errors = Games.Count(g => g.HasError);
         SetStatus($"{Games.Count} game(s) for {Session.Device.Name}{(errors > 0 ? $" — {errors} with config errors" : "")}", errors > 0);
         Log.Info($"App loaded: device {Session.Device.Name} ({Session.Device.Reason}), config {Session.Paths.ConfigRoot}, {Games.Count} game(s)");
+
+        _ = Library.ScanAsync(rescanLaunchers: rescan || Library.Detected.Count == 0);
     }
 
     private void EnterSetup(string? message, List<string> deviceChoices, string? configRoot)
@@ -242,8 +475,17 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         foreach (var d in deviceChoices) DeviceChoices.Add(d);
         OnPropertyChanged(nameof(HasDeviceChoices));
         Games.Clear();
+        Library.Clear();
         SelectedGame = null;
+        DetailTile = null;
         State = AppState.Setup;
+    }
+
+    /// <summary>Library scan finished: launch buttons in detail pages may have become possible.</summary>
+    public void OnLibraryChanged()
+    {
+        foreach (var g in Games) g.Detail?.RefreshLaunch();
+        OnPropertyChanged(nameof(DetailHasConfig));
     }
 
     // ---------------------------------------------------------------- setup
@@ -253,7 +495,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         var dialog = new OpenFolderDialog
         {
             Title = "Pick the config folder of your GameProfiles repo (the one with devices.yaml)",
-            InitialDirectory = _setupConfigRoot ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            InitialDirectory = _setupConfigRoot ?? Session?.Paths.RepoRoot ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };
         if (dialog.ShowDialog() != true) return;
 
@@ -267,25 +509,45 @@ public sealed class MainViewModel : ObservableObject, IAppShell
             return;
         }
 
-        var dataDir = AppPaths.DefaultDataDir;
-        var settings = AppPaths.LoadSettings(dataDir);
-        settings.ConfigRoot = Path.GetFullPath(folder);
-        AppPaths.SaveSettings(dataDir, settings);
-        Log.Info($"Config root set to {settings.ConfigRoot}");
+        var root = Path.GetFullPath(folder);
+        try
+        {
+            await SettingsStore.UpdateAsync(s =>
+            {
+                s.ConfigRoot = root;
+                s.SyncProvider = "git"; // a local checkout is synced with the git CLI
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Saving settings failed", ex);
+            Notify($"Couldn't save settings: {ex.Message}", error: true);
+            return;
+        }
+        Log.Info($"Config root set to {root} (git checkout)");
         if (Environment.GetEnvironmentVariable("GAMEPROFILES_CONFIG") is { Length: > 0 } env)
             Notify($"Saved, but GAMEPROFILES_CONFIG ({env}) overrides it for this session.", error: true);
+        if (Page == AppPage.Settings) CloseSettings();
         await LoadAsync();
     }
 
-    private async Task ForceDeviceAsync(string? device)
+    /// <summary>Force a device profile (null = auto-detect again), then reload.</summary>
+    public async Task ForceDeviceAsync(string? device)
     {
-        if (string.IsNullOrEmpty(device)) return;
-        var dataDir = AppPaths.DefaultDataDir;
-        var settings = AppPaths.LoadSettings(dataDir);
-        settings.ForcedProfile = device;
-        AppPaths.SaveSettings(dataDir, settings);
-        Log.Info($"Forced device profile set to {device}");
-        await LoadAsync();
+        if (device is { Length: 0 }) return;
+        try
+        {
+            await SettingsStore.UpdateAsync(s => s.ForcedProfile = device);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Saving settings failed", ex);
+            Notify($"Couldn't save settings: {ex.Message}", error: true);
+            return;
+        }
+        Log.Info(device is null ? "Forced device profile cleared" : $"Forced device profile set to {device}");
+        await LoadAsync(rescan: false);
+        if (Page == AppPage.Settings) _ = Settings.RefreshAsync();
     }
 
     // ---------------------------------------------------------------- sync
@@ -294,20 +556,100 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     {
         var session = Session;
         if (session is null) return;
-        string message = "";
-        bool ok = false;
+        GitResult? result = null;
         var ran = await RunAsync("Syncing config repo", () => Task.Run(() =>
         {
-            // Same as `gameprofiles sync`.
-            var git = new GitSync(session.Paths.RepoRoot);
-            var commit = git.Commit("chore(saves): sync manual saves", session.Paths.SavesDir);
-            var sync = git.Sync();
-            ok = commit.Ok && sync.Ok;
-            message = $"Sync: {commit.Message}; {sync.Message}";
-            Log.Info(message);
+            result = SyncService.CommitAndSync(session.Paths, "chore(sync): sync manual saves and library", SyncService.SharedPaths(session.Paths));
+            Log.Info($"Sync: {result.Message}");
         }));
-        if (!ran) return;
-        Notify(message, error: !ok);
-        if (ok) await LoadAsync(); // a pull may have brought presets or saves from the other device
+        if (!ran || result is null) return;
+        Notify($"Sync: {result.Message}", error: !result.Ok);
+        if (result.Ok) await LoadAsync(rescan: false); // a pull may have brought presets, saves or opt-outs from the other device
+    }
+
+    /// <summary>Publish a few changed files (request queue, library.yaml) without a success toast. Skipped while busy.</summary>
+    public async Task SyncFilesQuietlyAsync(string message, params string[] files)
+    {
+        var session = Session;
+        if (session is null) return;
+        if (IsBusy)
+        {
+            Log.Info($"Sync skipped (busy): {message} — published with the next sync");
+            return;
+        }
+        GitResult? result = null;
+        await RunAsync("Syncing", () => Task.Run(() => result = SyncService.CommitAndSync(session.Paths, message, files)));
+        if (result is { Ok: false }) Notify($"Sync failed: {result.Message}", error: true);
+        else if (result is not null) Log.Info($"Synced: {message} ({result.Message})");
+    }
+
+    // ---------------------------------------------------------------- steam launch options
+
+    /// <summary>Changes that need Steam closed: show the banner (never a modal).</summary>
+    public void OfferSteamChanges(IReadOnlyList<LaunchOptionChange> changes) => SteamChanges = changes.Count > 0 ? changes : null;
+
+    private async Task ApplySteamAsync()
+    {
+        var changes = SteamChanges;
+        if (changes is null || changes.Count == 0) return;
+        var ok = await RunAsync("Closing Steam and updating launch options", () => Task.Run(() =>
+        {
+            if (SteamLaunchOptions.IsSteamRunning() && !SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(30)))
+                throw new InvalidOperationException("Steam didn't close within 30 seconds — close it yourself, then try again.");
+            SteamLaunchOptions.Apply(changes);
+        }));
+        if (!ok) return;
+        SteamChanges = null;
+        Notify($"Steam launch options updated for {changes.Count} game(s). You can start Steam again.");
+    }
+
+    // ---------------------------------------------------------------- play
+
+    public bool CanPlay(GameDef game) =>
+        Library.FindByGameId(game.Id)?.CanPlay ?? GameLauncher.CanLaunch(game);
+
+    public async Task PlayAsync(GameDef game)
+    {
+        if (Library.FindByGameId(game.Id) is { } tile)
+        {
+            await PlayTileAsync(tile);
+            return;
+        }
+        string? message = null;
+        var ok = await RunAsync($"Launching {game.Name}", () => Task.Run(() => message = GameLauncher.Launch(game)));
+        if (ok && message is not null) Notify(message);
+    }
+
+    /// <summary>Managed → headless `run` (preset applied, restored after); otherwise a plain launcher start. Then minimize.</summary>
+    public async Task PlayTileAsync(LibraryTileViewModel tile)
+    {
+        var managed = tile.Status == TileStatus.Managed && tile.Entry.Game is not null;
+        LaunchHandle? handle = null;
+        var ok = await RunAsync($"Starting {tile.Name}", () => Task.Run(() =>
+            handle = GameLauncher.Play(tile.Name, tile.Entry.Game, tile.Entry.Detected, managed)));
+        if (!ok || handle is null) return;
+
+        Launching = tile;
+        Notify(handle.Message);
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        Launching = null;
+        MinimizeRequested?.Invoke();
+        if (handle.Process is { } p) _ = RestoreWhenExitedAsync(p, tile.Name);
+    }
+
+    private async Task RestoreWhenExitedAsync(Process process, string name)
+    {
+        try
+        {
+            using (process)
+                await process.WaitForExitAsync();
+            Log.Info($"{name}: launch process exited — restoring the window");
+            RestoreRequested?.Invoke();
+            Notify($"Welcome back from {name}.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Waiting for {name}: {ex.Message}");
+        }
     }
 }

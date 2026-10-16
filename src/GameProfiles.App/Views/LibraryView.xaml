@@ -1,0 +1,216 @@
+<UserControl x:Class="GameProfiles.App.Views.LibraryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:GameProfiles.App.ViewModels"
+             x:Name="Root">
+    <!-- DataContext: LibraryViewModel. Full-screen cover grid made for a controller on a 7" screen. -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="Tile" DataType="{x:Type vm:LibraryTileViewModel}">
+            <StackPanel Width="{Binding TileWidth, ElementName=Root}">
+                <Grid Height="{Binding ArtHeight, ElementName=Root}">
+                    <!-- generated fallback: accent → store gradient, glyph, initials, name -->
+                    <Border CornerRadius="14" Background="{Binding Fallback}">
+                        <Grid>
+                            <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="22" Foreground="#CCFFFFFF"
+                                       Margin="16,14" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                            <StackPanel VerticalAlignment="Center" Margin="14,0,14,30">
+                                <TextBlock Text="{Binding Initials}" FontSize="60" FontWeight="Bold" Foreground="#E6FFFFFF"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" Foreground="White" TextAlignment="Center"
+                                           TextWrapping="Wrap" MaxHeight="72" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <!-- cover art -->
+                    <Border CornerRadius="14" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
+                        <Border.Background>
+                            <ImageBrush ImageSource="{Binding Art}" Stretch="UniformToFill" />
+                        </Border.Background>
+                    </Border>
+                    <!-- dimmed when not installed -->
+                    <Border CornerRadius="14" Background="#99000000">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                    <!-- bottom shade + status chip -->
+                    <Border CornerRadius="0,0,14,14" VerticalAlignment="Bottom" Height="70" IsHitTestVisible="False">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0" />
+                                <GradientStop Color="#CC000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10" CornerRadius="999" Padding="10,4"
+                            MaxWidth="{Binding TileWidth, ElementName=Root}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#E6252A37" />
+                                <Setter Property="TextElement.Foreground" Value="{StaticResource TextDimBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Status}" Value="Managed">
+                                        <Setter Property="Background" Value="#F0163A2F" />
+                                        <Setter Property="TextElement.Foreground" Value="{StaticResource SuccessBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Status}" Value="NeedsPresets">
+                                        <Setter Property="Background" Value="#F03B2F1C" />
+                                        <Setter Property="TextElement.Foreground" Value="{StaticResource WarnBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Status}" Value="Error">
+                                        <Setter Property="Background" Value="#F045212A" />
+                                        <Setter Property="TextElement.Foreground" Value="{StaticResource DangerBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding StatusIcon, Mode=OneWay}" FontFamily="{StaticResource IconFont}" FontSize="12" />
+                            <Run Text="{Binding StatusText, Mode=OneWay}" />
+                        </TextBlock>
+                    </Border>
+                    <!-- mouse: context buttons on hover (the controller uses A / X) -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <Button Style="{StaticResource Button.Primary}" Focusable="False" Command="{Binding PlayCommand}" MinWidth="130"
+                                ToolTip="{Binding PlayHint}" AutomationProperties.Name="Play">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE768;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="Play" />
+                            </StackPanel>
+                        </Button>
+                        <Button Focusable="False" Command="{Binding OpenCommand}" MinWidth="130" Margin="0,10,0,0" AutomationProperties.Name="Presets">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="Presets" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+                <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" Margin="4,10,4,0" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding StoreText}" FontSize="14" Foreground="{StaticResource TextFaintBrush}" Margin="4,2,4,0" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Margin="28,18,28,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- filters + scan status -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Border Style="{StaticResource Badge}" Padding="8,2" Margin="0,0,10,0" Background="#33FFFFFF">
+                    <TextBlock Text="LB" Foreground="{StaticResource TextDimBrush}" />
+                </Border>
+                <ItemsControl x:Name="Pills" ItemsSource="{Binding Filters}" Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:FilterPillViewModel}">
+                            <Button Style="{StaticResource Button.Pill}" Tag="{Binding IsSelected}" Margin="0,0,10,0"
+                                    AutomationProperties.Name="{Binding Label}"
+                                    Command="{Binding DataContext.SetFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Label}" />
+                                    <TextBlock Text="{Binding Count}" Margin="10,0,0,0" Opacity="0.75" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Style="{StaticResource Badge}" Padding="8,2" Background="#33FFFFFF">
+                    <TextBlock Text="RB" Foreground="{StaticResource TextDimBrush}" />
+                </Border>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                        Visibility="{Binding IsScanning, Converter={StaticResource VisibleWhen}}">
+                <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource AccentTextBrush}"
+                           VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Text="Scanning launchers…" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- queued note -->
+        <Border Grid.Row="1" Margin="0,14,0,0" HorizontalAlignment="Left" CornerRadius="12" Padding="14,8"
+                Background="{StaticResource WarnSoftBrush}" Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}"
+                ToolTip="They are listed in config\requests.yaml (synced). Claude's game-settings skill researches each game and writes presets for your devices.">
+            <TextBlock FontSize="15" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}">
+                <Run Text="&#xE946;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource WarnBrush}" />
+                <Run Text="{Binding QueuedNote, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource WarnBrush}" />
+                <Run Text="— ask Claude to" Foreground="{StaticResource TextDimBrush}" />
+                <Run Text="“process GameProfiles requests”" FontWeight="SemiBold" />
+                <Run Text="to get presets for them. They start normally until then." Foreground="{StaticResource TextDimBrush}" />
+            </TextBlock>
+        </Border>
+
+        <!-- the grid -->
+        <ListBox x:Name="TileList" Grid.Row="2" Margin="-14,8,-14,0" Padding="14,0,14,24"
+                 Style="{StaticResource TileGrid}" ItemContainerStyle="{StaticResource LibraryTile}"
+                 ItemsSource="{Binding Tiles}" SelectedItem="{Binding SelectedTile}" ItemTemplate="{StaticResource Tile}"
+                 AutomationProperties.Name="Games">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel ItemWidth="{Binding SlotWidth, ElementName=Root}" />
+                </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+        </ListBox>
+
+        <!-- empty -->
+        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="32,26" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="640"
+                Visibility="{Binding ShowEmpty, Converter={StaticResource VisibleWhen}}">
+            <StackPanel>
+                <TextBlock Text="&#xE7FC;" FontFamily="{StaticResource IconFont}" FontSize="34" Foreground="{StaticResource AccentBrush}" />
+                <TextBlock Text="Nothing here" Style="{StaticResource Text.H2}" Margin="0,10,0,0" />
+                <TextBlock Text="{Binding EmptyText}" Style="{StaticResource Text.Dim}" FontSize="15" Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- first scan -->
+        <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding IsScanning}" Value="True" />
+                                <Condition Binding="{Binding Tiles.Count}" Value="0" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Visibility" Value="Visible" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <TextBlock Text="&#xE9F5;" FontFamily="{StaticResource IconFont}" FontSize="44" HorizontalAlignment="Center"
+                       Foreground="{StaticResource AccentBrush}" />
+            <TextBlock Text="Looking for installed games…" Style="{StaticResource Text.H3}" Margin="0,14,0,0" />
+        </StackPanel>
+    </Grid>
+</UserControl>

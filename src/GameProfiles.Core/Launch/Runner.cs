@@ -8,17 +8,62 @@ using GameProfiles.Ui;
 
 namespace GameProfiles.Launch;
 
+/// <summary>Extra launch inputs that do not come from the game yaml (e.g. from an auto-detected install).</summary>
+public sealed class RunOptions
+{
+    /// <summary>
+    /// What to start when there is no `-- command`: a URI / shell target (steam://rungameid/..., com.epicgames.launcher://...,
+    /// shell:AppsFolder\PFN!App) or a launcher/game exe. Takes precedence over the game's `launch:` block.
+    /// </summary>
+    public string? Launch { get; init; }
+
+    /// <summary>Arguments for an exe <see cref="Launch"/> (ignored for URI / shell targets).</summary>
+    public IReadOnlyList<string> LaunchArgs { get; init; } = [];
+
+    /// <summary>
+    /// The game's install folder. With no `processes:` and a URI launch, the wrapper waits for new processes running
+    /// from here. Defaults to the Steam install dir for games with a steamAppId.
+    /// </summary>
+    public string? InstallDir { get; init; }
+}
+
 /// <summary>
 /// Launch wrapper (Apollo-style do/undo): apply settings → launch → wait for the game → undo temporary changes
 /// → offer to capture anything changed in-game. Settings failures never stop the game from launching.
+/// A run holds the named mutex <see cref="MutexName"/>; a second run of the same game while it is held (Steam
+/// starting our launch option after the app or an outer wrapper asked Steam to launch the game) is a pass-through.
 /// </summary>
 public static class Runner
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan StartupTimeout = TimeSpan.FromMinutes(3);
 
-    public static int Run(GameContext ctx, string[] command, bool prompt = true)
+    /// <summary>Named mutex held while a run of this game manages the launch.</summary>
+    public static string MutexName(string gameId)
     {
+        var safe = new string(gameId.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? char.ToLowerInvariant(c) : '_').ToArray());
+        return $@"Local\GameProfiles.run.{safe}";
+    }
+
+    /// <summary>
+    /// Take the run mutex for a game; null when another run (or the app) already holds it. Dispose on the same thread
+    /// to release. Hold it while launching a game yourself so Steam's nested wrapper run is a pass-through.
+    /// </summary>
+    public static IDisposable? TryAcquireRunGuard(string gameId) => RunGuard.TryAcquire(MutexName(gameId));
+
+    /// <summary>True when a URI or shell target (not an exe path): "://" inside or a "shell:" prefix.</summary>
+    public static bool IsShellTarget(string target) =>
+        target.Contains("://", StringComparison.Ordinal) || target.StartsWith("shell:", StringComparison.OrdinalIgnoreCase);
+
+    public static int Run(GameContext ctx, string[] command, bool prompt = true, RunOptions? options = null)
+    {
+        using var guard = RunGuard.TryAcquire(MutexName(ctx.Game.Id));
+        if (guard is null)
+        {
+            Log.Info($"nested run: pass-through ({ctx.Game.Id} is already being managed by another run)");
+            return LaunchPlain(command.Length > 0 ? command : LaunchCommand(options));
+        }
+
         RunState.RecoverStale(ctx.Paths.StateFile);
         Log.Info($"=== run {ctx.Game.Id} as '{ctx.Device.Name}' ({ctx.Device.Reason}), preset {ctx.Preset?.ToString() ?? "(none)"} ===");
 
@@ -45,7 +90,7 @@ public static class Runner
         int exitCode;
         try
         {
-            exitCode = LaunchAndWait(ctx, command);
+            exitCode = LaunchAndWait(ctx, command, options);
         }
         finally
         {
@@ -57,6 +102,35 @@ public static class Runner
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
     }
+
+    /// <summary>
+    /// Start a command line without applying anything and wait for it: an exe (+ args) → its exit code; a single URI /
+    /// shell target → 0 right after handing it to the shell. Empty command → 0. Start failures → 2.
+    /// </summary>
+    public static int LaunchPlain(IReadOnlyList<string> command)
+    {
+        if (command.Count == 0)
+        {
+            Log.Warn("Nothing to launch");
+            return 0;
+        }
+        try
+        {
+            Log.Info($"Launching: {string.Join(' ', command)}");
+            using var p = StartCommand(command);
+            if (p is null) return 0;
+            p.WaitForExit();
+            return p.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not start {command[0]}", ex);
+            return 2;
+        }
+    }
+
+    private static string[] LaunchCommand(RunOptions? options) =>
+        string.IsNullOrWhiteSpace(options?.Launch) ? [] : [options.Launch, .. options.LaunchArgs];
 
     private static void ApplyDisplay(GameContext ctx, RunState state)
     {
@@ -96,32 +170,57 @@ public static class Runner
         }
     }
 
-    private static int LaunchAndWait(GameContext ctx, string[] command)
+    private static int LaunchAndWait(GameContext ctx, string[] command, RunOptions? options)
     {
-        using var started = Start(ctx, command);
         var watched = ctx.Game.Processes.Select(p => Path.GetFileNameWithoutExtension(p)).ToArray();
 
+        // No `processes:` → after a URI launch, watch for new processes running from the install folder.
+        string? installDir = null;
+        HashSet<int>? baseline = null;
         if (watched.Length == 0)
         {
-            if (started is null)
-            {
-                Log.Warn("Launched via URI with no `processes:` configured — cannot tell when the game exits; display/driver changes are undone now");
-                return 0;
-            }
+            installDir = InstallDir(ctx, options);
+            if (installDir is not null) baseline = ProcessWatch.PidsUnder(installDir);
+        }
+
+        using var started = Start(ctx, command, options);
+
+        Func<bool> isRunning;
+        string what;
+        if (watched.Length > 0)
+        {
+            isRunning = () => watched.Any(IsRunning);
+            what = string.Join(", ", ctx.Game.Processes);
+        }
+        else if (started is null && installDir is not null)
+        {
+            var dir = installDir;
+            var before = baseline!;
+            isRunning = () => ProcessWatch.PidsUnder(dir).Any(pid => !before.Contains(pid));
+            what = $"a process from {dir}";
+            Log.Info($"No `processes:` configured — waiting for {what}");
+        }
+        else if (started is null)
+        {
+            Log.Warn("Launched via URI with no `processes:` or install folder — cannot tell when the game exits; display/driver changes are undone now");
+            return 0;
+        }
+        else
+        {
             started.WaitForExit();
             return started.ExitCode;
         }
 
-        // Launchers and Steam stubs often exit before (or while) the real game runs: wait on the game's process names.
+        // Launchers and Steam stubs often exit before (or while) the real game runs: wait on the game's processes.
         var deadline = DateTime.UtcNow + StartupTimeout;
         bool seen = false;
         int quietPolls = 0;
         while (true)
         {
-            bool running = watched.Any(IsRunning);
+            bool running = SafeProbe(isRunning);
             if (running)
             {
-                if (!seen) Log.Info($"Game process detected ({string.Join(", ", ctx.Game.Processes)})");
+                if (!seen) Log.Info($"Game process detected ({what})");
                 seen = true;
                 quietPolls = 0;
             }
@@ -130,12 +229,7 @@ public static class Runner
                 // two quiet polls in a row, so a game that restarts itself (e.g. after an anti-cheat bootstrap) is not missed
                 if (++quietPolls >= 2) break;
             }
-            else if (started is { HasExited: true } && DateTime.UtcNow > deadline)
-            {
-                Log.Warn($"Game process never appeared within {StartupTimeout.TotalMinutes:0} minutes");
-                break;
-            }
-            else if (started is null && DateTime.UtcNow > deadline)
+            else if ((started is null || started.HasExited) && DateTime.UtcNow > deadline)
             {
                 Log.Warn($"Game process never appeared within {StartupTimeout.TotalMinutes:0} minutes");
                 break;
@@ -148,6 +242,33 @@ public static class Runner
         return started.ExitCode;
     }
 
+    private static bool SafeProbe(Func<bool> probe)
+    {
+        try { return probe(); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Process check failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static string? InstallDir(GameContext ctx, RunOptions? options)
+    {
+        if (!string.IsNullOrWhiteSpace(options?.InstallDir))
+            return Directory.Exists(options.InstallDir) ? Path.GetFullPath(options.InstallDir) : null;
+        if (ctx.Game.SteamAppId is not { } appId) return null;
+        try
+        {
+            var dir = new SteamLocator().InstallDir(appId);
+            return dir is not null && Directory.Exists(dir) ? dir : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not find the Steam install folder of {appId}: {ex.Message}");
+            return null;
+        }
+    }
+
     private static bool IsRunning(string processName)
     {
         var procs = Process.GetProcessesByName(processName);
@@ -155,28 +276,54 @@ public static class Runner
         return procs.Length > 0;
     }
 
-    private static Process? Start(GameContext ctx, string[] command)
+    /// <summary>
+    /// Precedence: `-- command` (Steam's %command%) → <see cref="RunOptions.Launch"/> → the game's launch.exe / launch.uri
+    /// → steam://rungameid/&lt;steamAppId&gt;. Returns null for URI / shell targets.
+    /// </summary>
+    private static Process? Start(GameContext ctx, string[] command, RunOptions? options)
     {
         if (command.Length > 0)
         {
             Log.Info($"Launching: {string.Join(' ', command)}");
-            return StartExe(command[0], command.Skip(1));
+            return StartCommand(command);
+        }
+
+        var fromOptions = LaunchCommand(options);
+        if (fromOptions.Length > 0)
+        {
+            Log.Info($"Launching: {string.Join(' ', fromOptions)}");
+            return StartCommand(fromOptions);
         }
 
         var launch = ctx.Game.Launch;
         if (!string.IsNullOrEmpty(launch?.Exe))
         {
-            var exe = new PathResolver().Expand(launch.Exe);
+            var exe = IsShellTarget(launch.Exe) ? launch.Exe : new PathResolver().Expand(launch.Exe);
             Log.Info($"Launching: {exe} {string.Join(' ', launch.Args)}");
-            return StartExe(exe, launch.Args);
+            return StartCommand([exe, .. launch.Args]);
         }
 
         var uri = launch?.Uri ?? (ctx.Game.SteamAppId is { } id ? $"steam://rungameid/{id}" : null)
                   ?? throw new ConfigException($"{ctx.Game.Id}: nothing to launch — pass `-- %command%` or set launch.exe/launch.uri");
         Log.Info($"Launching: {uri}");
-        Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true })?.Dispose();
+        ShellOpen(uri);
         return null;
     }
+
+    /// <summary>A single URI / shell target is shell-opened (null process); otherwise exe + args.</summary>
+    internal static Process? StartCommand(IReadOnlyList<string> command)
+    {
+        if (IsShellTarget(command[0]))
+        {
+            if (command.Count > 1) Log.Warn($"Arguments ignored for {command[0]}: {string.Join(' ', command.Skip(1))}");
+            ShellOpen(command[0]);
+            return null;
+        }
+        return StartExe(command[0], command.Skip(1));
+    }
+
+    private static void ShellOpen(string target) =>
+        Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
 
     private static Process StartExe(string exe, IEnumerable<string> args)
     {
@@ -206,5 +353,39 @@ public static class Runner
             ? ManualSaves.SaveCurrent(ctx, s.Name, updateSlug: s.Slug)
             : ManualSaves.SaveCurrent(ctx, $"Tuned {DateTime.Now:MMM d HH:mm}");
         Log.Info($"Saved '{result.Save.Name}' ({result.KeysSaved} setting(s)){(result.Sync is { } g ? $"; sync: {g.Message}" : "")}");
+    }
+
+    /// <summary>Holds a named mutex; released (on the acquiring thread) when disposed.</summary>
+    private sealed class RunGuard : IDisposable
+    {
+        private Mutex? _mutex;
+
+        private RunGuard(Mutex mutex) => _mutex = mutex;
+
+        public static RunGuard? TryAcquire(string name)
+        {
+            var mutex = new Mutex(initiallyOwned: false, name);
+            bool owned;
+            try
+            {
+                owned = mutex.WaitOne(0);
+            }
+            catch (AbandonedMutexException)
+            {
+                owned = true; // previous holder died without releasing: it is ours now
+            }
+            if (owned) return new RunGuard(mutex);
+            mutex.Dispose();
+            return null;
+        }
+
+        public void Dispose()
+        {
+            if (_mutex is null) return;
+            try { _mutex.ReleaseMutex(); }
+            catch (ApplicationException) { /* not owned by this thread */ }
+            _mutex.Dispose();
+            _mutex = null;
+        }
     }
 }

@@ -9,6 +9,7 @@ using GameProfiles.Engine;
 using GameProfiles.Handlers;
 using GameProfiles.Launch;
 using GameProfiles.Logging;
+using GameProfiles.Sync;
 using GameProfiles.Ui;
 
 namespace GameProfiles;
@@ -46,6 +47,9 @@ public static class Program
             RunCommand(), ApplyCommand(), PresetsCommand(), UseCommand(), SaveCommand(), DeleteSaveCommand(),
             RestoreCommand(), DetectCommand(), InspectCommand(), ListCommand(), ValidateCommand(),
             SyncCommand(), UpdateCommand(), ShortcutCommand(), SetupCommand(),
+            GitHubCommand(), SyncProviderCommand(),
+            SteamCommands.SteamOptionsCommand(),
+            LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
         };
         return root.Parse(args).Invoke();
     }
@@ -57,7 +61,7 @@ public static class Program
         {
             return action(pr);
         }
-        catch (Exception ex) when (ex is ConfigException or PathResolveException)
+        catch (Exception ex) when (ex is ConfigException or PathResolveException or GitHubException)
         {
             Log.Error(ex.Message);
             return 2;
@@ -177,7 +181,7 @@ public static class Program
             foreach (var s in result.Snapshots) Console.WriteLine($"  whole-file snapshot: {s}");
             foreach (var s in result.Skipped) Console.WriteLine($"  skipped {s}");
             if (!pr.GetValue(noActivate)) Console.WriteLine("  now the active preset for this game on this device");
-            if (result.Sync is { } g) Console.WriteLine($"  git: {g.Message}");
+            if (result.Sync is { } g) Console.WriteLine($"  sync: {g.Message}");
             return 0;
         }));
         return cmd;
@@ -254,15 +258,15 @@ public static class Program
 
     private static Command SyncCommand()
     {
-        var cmd = new Command("sync", "Commit manual saves, pull, and push the config repo.");
+        var cmd = new Command("sync", "Publish manual saves and pull config changes (git checkout or GitHub, per `sync-provider`).");
         cmd.SetAction(Guard(pr =>
         {
             var paths = Paths(pr);
-            var git = new GitSync(paths.RepoRoot);
-            var commit = git.Commit("chore(saves): sync manual saves", paths.SavesDir);
-            var sync = git.Sync();
-            Console.WriteLine($"commit: {commit.Message}; {sync.Message}");
-            return commit.Ok && sync.Ok ? 0 : 1;
+            var provider = SyncProviders.For(paths);
+            if (!provider.IsReady(out var why)) throw new ConfigException($"Can't sync ({provider.Name}): {why}");
+            var result = provider.CommitAndSync("chore(saves): sync manual saves", paths.SavesDir);
+            Console.WriteLine($"{provider.Describe()}: {result.Message}");
+            return result.Ok ? 0 : 1;
         }));
         return cmd;
     }
@@ -435,15 +439,201 @@ public static class Program
 
     private static Command UpdateCommand()
     {
-        var cmd = new Command("update", "git pull the config repo (fast-forward only).");
+        var cmd = new Command("update", "Pull config changes from the repo (git checkout or GitHub, per `sync-provider`).");
         cmd.SetAction(Guard(pr =>
         {
-            var root = Paths(pr).ConfigRoot;
-            var psi = new ProcessStartInfo("git") { UseShellExecute = false };
-            foreach (var a in new[] { "-C", root, "pull", "--ff-only" }) psi.ArgumentList.Add(a);
-            using var p = Process.Start(psi) ?? throw new InvalidOperationException("git not found on PATH");
-            p.WaitForExit();
-            return p.ExitCode;
+            var provider = SyncProviders.For(Paths(pr));
+            if (!provider.IsReady(out var why)) throw new ConfigException($"Can't update ({provider.Name}): {why}");
+            var result = provider.Pull();
+            Console.WriteLine($"{provider.Describe()}: {result.Message}");
+            return result.Ok ? 0 : 1;
+        }));
+        return cmd;
+    }
+
+    // ---------------------------------------------------------------- github / sync-provider
+
+    private static Command GitHubCommand()
+    {
+        var gh = new Command("github", "Sign in to GitHub and sync the config repo through the GitHub API (no git needed).");
+
+        var clientId = new Option<string?>("--client-id") { Description = "Client id of a GitHub OAuth App with Device Flow enabled (remembered in settings)." };
+        var login = new Command("login", "Sign in with a one-time code (GitHub device flow).") { clientId };
+        login.SetAction(Guard(pr =>
+        {
+            var dataDir = AppPaths.DefaultDataDir;
+            var settings = AppPaths.LoadSettings(dataDir);
+            var id = pr.GetValue(clientId) ?? settings.GitHubClientId ?? Environment.GetEnvironmentVariable("GAMEPROFILES_GITHUB_CLIENT_ID");
+            if (string.IsNullOrWhiteSpace(id))
+                throw new ConfigException("No GitHub OAuth App client id. Register one (github.com/settings/developers, enable Device Flow) and pass " +
+                                          "--client-id <id>, or store a personal access token with `github token <pat>`.");
+
+            using var cts = new CancellationTokenSource();
+            ConsoleCancelEventHandler onCancel = (_, e) => { e.Cancel = true; cts.Cancel(); };
+            Console.CancelKeyPress += onCancel;
+            try
+            {
+                var code = GitHubAuth.StartDeviceFlowAsync(id, cts.Token).GetAwaiter().GetResult();
+                Console.WriteLine($"Open {code.VerificationUri} and enter the code:  {code.UserCode}");
+                Console.WriteLine($"Waiting for approval (expires in {code.ExpiresInSeconds / 60} min; Ctrl+C to cancel)...");
+                var token = GitHubAuth.PollForTokenAsync(id, code, cts.Token).GetAwaiter().GetResult();
+                var user = new GitHubApi(token).GetLoginAsync().GetAwaiter().GetResult();
+                GitHubAuth.SaveToken(token);
+                settings.GitHubLogin = user;
+                settings.GitHubClientId = id;
+                AppPaths.SaveSettings(dataDir, settings);
+                Console.WriteLine($"Signed in as {user}. Pick the config repo with `github use <owner/name>` (default {settings.GitHubRepo}).");
+                return 0;
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("Sign-in cancelled.");
+                return 1;
+            }
+            finally
+            {
+                Console.CancelKeyPress -= onCancel;
+            }
+        }));
+
+        var patArg = new Argument<string>("pat") { Description = "A GitHub personal access token with access to the config repo (classic: 'repo' scope; fine-grained: Contents read/write)." };
+        var token = new Command("token", "Store a personal access token instead of signing in with a code.") { patArg };
+        token.SetAction(Guard(pr =>
+        {
+            var pat = pr.GetValue(patArg)!.Trim();
+            var user = new GitHubApi(pat).GetLoginAsync().GetAwaiter().GetResult();
+            GitHubAuth.SaveToken(pat);
+            var dataDir = AppPaths.DefaultDataDir;
+            var settings = AppPaths.LoadSettings(dataDir);
+            settings.GitHubLogin = user;
+            AppPaths.SaveSettings(dataDir, settings);
+            Console.WriteLine($"Token saved to Windows Credential Manager; signed in as {user}.");
+            return 0;
+        }));
+
+        var repos = new Command("repos", "List repos the signed-in account can push to (most recently pushed first).");
+        repos.SetAction(Guard(_ =>
+        {
+            var settings = AppPaths.LoadSettings(AppPaths.DefaultDataDir);
+            var list = RequireApi().ListReposAsync().GetAwaiter().GetResult();
+            if (list.Count == 0) Console.WriteLine("No repos with push access.");
+            foreach (var r in list)
+            {
+                var mark = r.FullName.Equals(settings.GitHubRepo, StringComparison.OrdinalIgnoreCase) ? "*" : " ";
+                Console.WriteLine($"{mark} {r.FullName,-40} {r.DefaultBranch,-10} {(r.Private ? "private" : "public "),-8} {r.Description}");
+            }
+            return 0;
+        }));
+
+        var repoArg = new Argument<string>("repo") { Description = $"owner/name of the config repo (default {AppSettings.DefaultGitHubRepo})." };
+        var branch = new Option<string?>("--branch") { Description = "Branch to sync (default: the repo's default branch)." };
+        var use = new Command("use", "Download the repo's config/ folder and switch this machine to GitHub sync.") { repoArg, branch };
+        use.SetAction(Guard(pr =>
+        {
+            var repo = pr.GetValue(repoArg)!.Trim();
+            if (!GitHubApi.IsValidRepoName(repo)) throw new ConfigException($"'{repo}' is not a repo name — use owner/name.");
+            var api = RequireApi();
+            var info = api.GetRepoAsync(repo).GetAwaiter().GetResult();
+            var br = pr.GetValue(branch) ?? info.DefaultBranch;
+            var dataDir = AppPaths.DefaultDataDir;
+            var result = GitHubMirror.Clone(dataDir, info.FullName, br, api.Token);
+            Console.WriteLine($"{info.FullName} ({br}): {result.Message}");
+            if (!result.Ok) return 1;
+            var settings = AppPaths.LoadSettings(dataDir);
+            settings.SyncProvider = SyncProviders.GitHub;
+            settings.GitHubRepo = info.FullName;
+            settings.GitHubBranch = br;
+            AppPaths.SaveSettings(dataDir, settings);
+            Console.WriteLine($"Sync provider: github. Config folder: {Path.Combine(AppPaths.MirrorDir(dataDir, info.FullName), "config")}");
+            if (pr.GetValue(ConfigOption) is not null || Environment.GetEnvironmentVariable("GAMEPROFILES_CONFIG") is not null)
+                Log.Warn("--config / GAMEPROFILES_CONFIG overrides the GitHub copy; drop it to use the synced config.");
+            return 0;
+        }));
+
+        var logout = new Command("logout", "Forget the stored GitHub token.");
+        logout.SetAction(Guard(_ =>
+        {
+            GitHubAuth.ClearToken();
+            var dataDir = AppPaths.DefaultDataDir;
+            var settings = AppPaths.LoadSettings(dataDir);
+            settings.GitHubLogin = null;
+            AppPaths.SaveSettings(dataDir, settings);
+            Console.WriteLine("Signed out of GitHub.");
+            if (SyncProviders.IsGitHub(settings))
+                Console.WriteLine("Sync provider is still github: the local copy keeps working, but won't sync until you sign in again.");
+            return 0;
+        }));
+
+        var status = new Command("status", "Show the sync provider, GitHub account and repo.");
+        status.SetAction(Guard(pr =>
+        {
+            var dataDir = AppPaths.DefaultDataDir;
+            var settings = AppPaths.LoadSettings(dataDir);
+            var tokenValue = GitHubAuth.LoadToken();
+            Console.WriteLine($"Sync provider: {settings.SyncProvider}");
+            Console.WriteLine($"GitHub repo:   {settings.GitHubRepo} ({settings.GitHubBranch})");
+            Console.Write("Signed in:     ");
+            if (tokenValue is null) Console.WriteLine("no");
+            else
+            {
+                try { Console.WriteLine($"yes, as {new GitHubApi(tokenValue).GetLoginAsync().GetAwaiter().GetResult()}"); }
+                catch (GitHubException ex) { Console.WriteLine($"token stored{(settings.GitHubLogin is { } l ? $" ({l})" : "")}, but: {ex.Message}"); }
+            }
+            var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, settings.GitHubRepo), settings.GitHubRepo, settings.GitHubBranch, null);
+            var at = mirror.BaseCommit is { } sha ? sha[..Math.Min(7, sha.Length)] : "?";
+            Console.WriteLine($"Local copy:    {(mirror.IsCloned ? $"{mirror.ConfigDir} @ {at}" : "(none)")}" +
+                              $"{(mirror.LastSyncUtc is { } t ? $", last synced {t.ToLocalTime():g}" : "")}");
+            try
+            {
+                var provider = SyncProviders.For(Paths(pr));
+                Console.WriteLine($"Active:        {provider.Describe()} — {(provider.IsReady(out var why) ? "ready" : why)}");
+            }
+            catch (ConfigException ex)
+            {
+                Console.WriteLine($"Active:        {ex.Message}");
+            }
+            return 0;
+        }));
+
+        gh.Subcommands.Add(login);
+        gh.Subcommands.Add(token);
+        gh.Subcommands.Add(repos);
+        gh.Subcommands.Add(use);
+        gh.Subcommands.Add(logout);
+        gh.Subcommands.Add(status);
+        return gh;
+    }
+
+    private static GitHubApi RequireApi() =>
+        GitHubAuth.LoadToken() is { } t ? new GitHubApi(t) : throw new ConfigException("Not signed in to GitHub — run `gameprofiles github login` or `github token <pat>`.");
+
+    private static Command SyncProviderCommand()
+    {
+        var which = new Argument<string>("provider") { Description = "git (this machine's git checkout) or github (the app's GitHub copy)." };
+        var cmd = new Command("sync-provider", "Choose how the config repo syncs on this machine.") { which };
+        cmd.SetAction(Guard(pr =>
+        {
+            var value = pr.GetValue(which)!.Trim().ToLowerInvariant();
+            var dataDir = AppPaths.DefaultDataDir;
+            var settings = AppPaths.LoadSettings(dataDir);
+            switch (value)
+            {
+                case SyncProviders.Git:
+                    settings.SyncProvider = SyncProviders.Git;
+                    AppPaths.SaveSettings(dataDir, settings);
+                    Console.WriteLine($"Sync provider: git. Config folder: {settings.ConfigRoot ?? "(auto: next to the exe / --config)"}");
+                    return 0;
+                case SyncProviders.GitHub:
+                    var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, settings.GitHubRepo), settings.GitHubRepo, settings.GitHubBranch, null);
+                    if (!mirror.IsCloned)
+                        throw new ConfigException($"No GitHub copy of {settings.GitHubRepo} yet — run `gameprofiles github use {settings.GitHubRepo}`.");
+                    settings.SyncProvider = SyncProviders.GitHub;
+                    AppPaths.SaveSettings(dataDir, settings);
+                    Console.WriteLine($"Sync provider: github ({settings.GitHubRepo}, {settings.GitHubBranch}). Config folder: {mirror.ConfigDir}");
+                    return 0;
+                default:
+                    throw new ConfigException($"Unknown sync provider '{value}' — use git or github.");
+            }
         }));
         return cmd;
     }

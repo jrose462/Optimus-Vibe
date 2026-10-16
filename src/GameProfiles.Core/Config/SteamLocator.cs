@@ -72,9 +72,11 @@ public sealed class SteamLocator
             .FirstOrDefault();
     }
 
-    private string? MostRecentAccountId()
+    /// <summary>Account id (userdata folder name) of the Steam login marked MostRecent in loginusers.vdf, or null.</summary>
+    public string? MostRecentAccountId()
     {
-        var path = Path.Combine(_steamRoot!, "config", "loginusers.vdf");
+        if (_steamRoot is null) return null;
+        var path = Path.Combine(_steamRoot, "config", "loginusers.vdf");
         if (!File.Exists(path)) return null;
         var users = Vdf.Load(path).Child("users");
         if (users is null) return null;

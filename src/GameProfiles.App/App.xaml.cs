@@ -27,6 +27,10 @@ public partial class App : Application
 
         Log.Info("GameProfiles app starting");
 
+        // Troubleshooting / remote sessions where GPU composition shows a blank window.
+        if (Environment.GetEnvironmentVariable("GAMEPROFILES_SOFTWARE_RENDER") == "1")
+            System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+
         // Never crash: log, tell the user in the status bar, keep running.
         DispatcherUnhandledException += (_, args) =>
         {

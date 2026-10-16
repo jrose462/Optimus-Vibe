@@ -7,7 +7,8 @@ using GameProfiles.Logging;
 namespace GameProfiles.App.Services;
 
 /// <summary>
-/// `GameProfilesApp.exe run &lt;game&gt; [--preset p] [--profile d] [--config dir] [--no-prompt] [-- %command%]`:
+/// `GameProfilesApp.exe run &lt;game&gt; [--preset p] [--profile d] [--config dir] [--no-prompt]
+/// [--launch &lt;uri-or-exe&gt; [--launch-arg a]... [--install-dir d]] [-- %command%]`:
 /// the Steam launch-option wrapper, without a window or console. Same behaviour as `gameprofiles run`.
 /// </summary>
 public static class HeadlessRun
@@ -17,7 +18,8 @@ public static class HeadlessRun
 
     public static int Execute(string[] args)
     {
-        string? game = null, preset = null, profile = null, config = null;
+        string? game = null, preset = null, profile = null, config = null, launch = null, installDir = null;
+        var launchArgs = new List<string>();
         bool prompt = true;
         var command = new List<string>();
 
@@ -35,6 +37,9 @@ public static class HeadlessRun
                 case "--profile" when i + 1 < args.Length: profile = args[++i]; break;
                 case "--config" when i + 1 < args.Length: config = args[++i]; break;
                 case "--no-prompt": prompt = false; break;
+                case "--launch" when i + 1 < args.Length: launch = args[++i]; break;           // app library: uri or exe when no %command%
+                case "--launch-arg" when i + 1 < args.Length: launchArgs.Add(args[++i]); break;
+                case "--install-dir" when i + 1 < args.Length: installDir = args[++i]; break; // to wait on a URI-launched game
                 default:
                     if (game is null && !a.StartsWith("--")) game = a;
                     else command.Add(a); // tolerate a missing "--" before the game command line
@@ -45,7 +50,7 @@ public static class HeadlessRun
         if (game is null)
         {
             Log.Error("run: missing game id. Usage: GameProfilesApp.exe run <game> -- %command%");
-            return LaunchUnmanaged(command);
+            return command.Count == 0 && launch is not null ? Runner.LaunchPlain([launch, .. launchArgs]) : LaunchUnmanaged(command);
         }
 
         GameContext ctx;
@@ -57,9 +62,10 @@ public static class HeadlessRun
         {
             // Never block playing: if config is broken, still launch what Steam asked for.
             Log.Error($"Settings not applied for {game}: {ex.Message}");
-            return LaunchUnmanaged(command);
+            return command.Count == 0 && launch is not null ? Runner.LaunchPlain([launch, .. launchArgs]) : LaunchUnmanaged(command);
         }
-        return Runner.Run(ctx, command.ToArray(), prompt);
+        return Runner.Run(ctx, command.ToArray(), prompt,
+            new RunOptions { Launch = launch, LaunchArgs = launchArgs, InstallDir = installDir });
     }
 
     private static int LaunchUnmanaged(List<string> command)

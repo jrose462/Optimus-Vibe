@@ -1,0 +1,141 @@
+# Cut a release: push a tag vX.Y.Z (or run manually with a version). Tests, publishes GameProfilesApp.exe and
+# gameprofiles.exe as single-file self-contained win-x64 exes stamped with that version, writes a .sha256 per exe
+# and creates the GitHub Release with generated notes. The in-app updater looks for exactly these asset names.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, without the v (e.g. 0.3.0). Creates tag v<version> on the selected ref.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') { $v = $env:INPUT_VERSION.Trim() -replace '^v', '' }
+          else { $v = $env:REF_NAME -replace '^v', '' }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Output "::error::Version '$v' is not X.Y.Z (tags must look like v1.2.3)."
+            exit 1
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v"    >> $env:GITHUB_OUTPUT
+          Write-Output "Releasing v$v"
+
+      - name: Fail if the release already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false   # non-zero exit from gh is the expected "not found"
+          gh release view $env:TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Output "::error::Release $env:TAG already exists."; exit 1 }
+          $global:LASTEXITCODE = 0
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore GameProfiles.sln
+
+      - name: Build and test
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          dotnet build GameProfiles.sln -c Release --no-restore "-p:Version=$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test GameProfiles.sln -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results-${{ github.run_id }}
+          path: TestResults/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Publish single-file exes
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $common = @('-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
+                      '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true',
+                      "-p:Version=$env:VERSION")
+          dotnet publish src/GameProfiles.App/GameProfiles.App.csproj @common -o out/app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish src/GameProfiles/GameProfiles.csproj @common -o out/cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item out/app/GameProfilesApp.exe dist/GameProfilesApp.exe
+          Copy-Item out/cli/gameprofiles.exe    dist/gameprofiles.exe
+
+          foreach ($exe in Get-ChildItem dist -Filter *.exe) {
+            $pv = $exe.VersionInfo.ProductVersion
+            Write-Output "$($exe.Name): $([math]::Round($exe.Length / 1MB, 1)) MB, ProductVersion $pv"
+            if (-not $pv.StartsWith($env:VERSION)) {
+              Write-Output "::error::$($exe.Name) ProductVersion '$pv' does not start with $env:VERSION."
+              exit 1
+            }
+          }
+
+      - name: Write SHA256 files
+        run: |
+          foreach ($exe in Get-ChildItem dist -Filter *.exe) {
+            $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            # sha256sum format: "<hex>  <file name>", LF, no BOM
+            [IO.File]::WriteAllText("$($exe.FullName).sha256", "$hash  $($exe.Name)`n")
+            Write-Output "$hash  $($exe.Name)"
+          }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          TARGET: ${{ github.sha }}
+        run: |
+          # On a tag push the tag already exists; on workflow_dispatch gh creates it at the run's commit.
+          gh release create $env:TAG `
+            dist/GameProfilesApp.exe dist/GameProfilesApp.exe.sha256 `
+            dist/gameprofiles.exe dist/gameprofiles.exe.sha256 `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:TARGET `
+            --title $env:TAG `
+            --generate-notes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

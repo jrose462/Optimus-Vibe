@@ -1,0 +1,67 @@
+"UserLocalConfigStore"
+{
+	"Broadcast"
+	{
+		"Permissions"		"1"
+	}
+	"streaming_v2"
+	{
+		"EnableStreaming"		"1"
+		"DefaultAudioDevice"		"{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}"
+	}
+	"friends"
+	{
+		"PersonaName"		"Player \"One\""
+		"communitypreferences"		"0a0208011001"
+	}
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"SteamDefaultDialog"		"#app_games"
+				"ShaderCacheManager"
+				{
+					"HasCurrentBucket"		"1"
+				}
+				"apps"
+				{
+					"1091500"
+					{
+						"LastPlayed"		"1760000000"
+						"Playtime"		"1234"
+						"cloud"
+						{
+							"last_sync_state"		"synchronized"
+						}
+						"autocloud"
+						{
+							"lastlaunch"		"1760000000"
+							"lastexit"		"1760003600"
+						}
+						"BadgeData"		"0a0208011001"
+						"LaunchOptions"		"-skipStartScreen"
+					}
+					"1245620"
+					{
+						"LastPlayed"		"1750000000"
+						"LaunchOptions"		"\"C:\\Old Place\\GameProfilesApp.exe\" run eldenring -- %command%"
+					}
+					"570"
+					{
+						"LastPlayed"		"1740000000"
+						"LaunchOptions"		""
+					}
+				}
+				"LastPlayedTimesSyncTime"		"1760000000"
+			}
+		}
+	}
+	"WebStorage"
+	{
+		"FriendStoreLocalPrefs_0"		"{\"ePerFriendRunningGame\":1,\"bRunningGameCountsAsOnline\":true}"
+		"Path"		"D:\\SteamLibrary\\steamapps\\common"
+		"Multi"		"line\nvalue\twith tab"
+	}
+}

@@ -40,6 +40,19 @@ public sealed class GameDef
     public string Name { get; set; } = "";
     public string Store { get; set; } = "steam";
     public int? SteamAppId { get; set; }
+
+    /// <summary>
+    /// Ids in other launchers, used to match auto-detected installs: battlenet (product code, e.g. Fen),
+    /// ea (offer id), epic (AppName), gog (game id), xbox (package family name). Steam uses <see cref="SteamAppId"/>.
+    /// </summary>
+    public Dictionary<string, string> StoreIds { get; set; } = new();
+
+    /// <summary>
+    /// Whether the game's graphics settings travel between machines (e.g. Steam Cloud). false = each machine keeps
+    /// its own, so the app suggests opting the game out. Null = unknown. Filled in by the skill.
+    /// </summary>
+    public bool? CloudSyncsSettings { get; set; }
+
     public LaunchDef? Launch { get; set; }
 
     /// <summary>Process names (e.g. Game.exe) the wrapper waits on; launcher stubs often exit early.</summary>
@@ -110,6 +123,58 @@ public sealed class AppSettings
 
     /// <summary>Commit and push manual saves to the config repo automatically.</summary>
     public bool AutoSync { get; set; } = true;
+
+    /// <summary>
+    /// How the config repo is synced: "git" = ConfigRoot is a git checkout synced with the git CLI (desktop default);
+    /// "github" = the app keeps its own copy under %LOCALAPPDATA%\GameProfiles\repos and syncs through the GitHub
+    /// API after a device-code sign-in (no git needed — for the Ally).
+    /// </summary>
+    public string SyncProvider { get; set; } = "git";
+
+    /// <summary>owner/name of the config repo for the github provider.</summary>
+    public string GitHubRepo { get; set; } = DefaultGitHubRepo;
+    public string GitHubBranch { get; set; } = "main";
+
+    /// <summary>Login of the signed-in GitHub account (display only; the token lives in Windows Credential Manager).</summary>
+    public string? GitHubLogin { get; set; }
+
+    /// <summary>Client id of the GitHub OAuth App used for device-code sign-in (public, not a secret).</summary>
+    public string? GitHubClientId { get; set; }
+
+    /// <summary>Launchers to scan for installed games: steam, battlenet, ea, xbox, epic, gog.</summary>
+    public List<string> ScanStores { get; set; } = ["steam", "battlenet", "ea", "xbox", "epic", "gog"];
+
+    /// <summary>Write `GameProfilesApp.exe run` into Steam launch options for managed games.</summary>
+    public bool WriteSteamLaunchOptions { get; set; } = true;
+
+    /// <summary>App start view: auto (grid on the handheld / small screens), grid, or list.</summary>
+    public string LibraryMode { get; set; } = "auto";
+
+    public const string DefaultGitHubRepo = "jrose462/GameProfiles";
+}
+
+/// <summary>config/library.yaml — shared library choices (git-synced).</summary>
+public sealed class LibraryFile
+{
+    /// <summary>Detected games the user opted out of ("store:id", e.g. steam:1285190): not managed, launched plainly.</summary>
+    public List<string> OptOut { get; set; } = new();
+}
+
+/// <summary>config/requests.yaml — detected games without presets, queued for Claude's game-settings-recommender skill.</summary>
+public sealed class RequestsFile
+{
+    public List<GameRequest> Requests { get; set; } = new();
+}
+
+public sealed class GameRequest
+{
+    public string Store { get; set; } = "";
+    public string StoreId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? InstallDir { get; set; }
+    public List<string> Exes { get; set; } = new();
+    public string? Requested { get; set; }
+    public string? Device { get; set; }
 }
 
 public enum PresetKind { Recommended, Manual }

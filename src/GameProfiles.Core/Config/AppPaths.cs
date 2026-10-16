@@ -15,6 +15,12 @@ public sealed class AppPaths
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string StateFile => Path.Combine(DataDir, "state.json");
     public string SelectionsFile => Path.Combine(DataDir, "selections.json");
+    public string LibraryFile => Path.Combine(ConfigRoot, "library.yaml");
+    public string RequestsFile => Path.Combine(ConfigRoot, "requests.yaml");
+
+    /// <summary>Local copy of a repo for the github sync provider: %LOCALAPPDATA%\GameProfiles\repos\&lt;owner&gt;\&lt;name&gt;.</summary>
+    public static string MirrorDir(string dataDir, string repo) =>
+        Path.Combine(dataDir, "repos", Path.Combine(repo.Split('/', 2, StringSplitOptions.TrimEntries)));
 
     /// <summary>The git working tree that holds the config folder (config/ sits at the repo root).</summary>
     public string RepoRoot => Directory.GetParent(ConfigRoot)?.FullName ?? ConfigRoot;
@@ -52,8 +58,12 @@ public sealed class AppPaths
     {
         var dataDir = DefaultDataDir;
         var settings = LoadSettings(dataDir);
+        var mirror = settings.SyncProvider.Equals("github", StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(MirrorDir(dataDir, settings.GitHubRepo), "config")
+            : null;
         var root = configOption
                    ?? Environment.GetEnvironmentVariable("GAMEPROFILES_CONFIG")
+                   ?? (mirror is not null && File.Exists(Path.Combine(mirror, "devices.yaml")) ? mirror : null)
                    ?? settings.ConfigRoot
                    ?? FindConfigNear(AppContext.BaseDirectory)
                    ?? FindConfigNear(Environment.CurrentDirectory)

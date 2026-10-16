@@ -87,13 +87,18 @@ public sealed class GameDetailViewModel : ObservableObject
     public bool HasRecommendation => RecommendationText is not null;
     public IReadOnlyList<string> Sources => _snap.Game?.Recommendation?.Sources ?? [];
 
-    public bool CanLaunch => _snap.Game is { } g && GameLauncher.CanLaunch(g);
+    public bool CanLaunch => _snap.Game is { } g && Shell.CanPlay(g);
+
+    /// <summary>A library scan found (or lost) this game's install.</summary>
+    public void RefreshLaunch()
+    {
+        OnPropertyChanged(nameof(CanLaunch));
+        OnPropertyChanged(nameof(LaunchHint));
+    }
     public bool CanUseDefault => _snap.Context?.IsSelected == true && GameContext.DefaultFor(_snap.Context.Game, Session.Device) is not null;
     public string? DefaultPresetName => _snap.Context is { } c ? GameContext.DefaultFor(c.Game, Session.Device) : null;
 
-    public string LaunchHint => _snap.Game?.SteamAppId is not null
-        ? "Steam launch options apply the active preset"
-        : "Settings are applied, then restored after you quit";
+    public string LaunchHint => "Settings are applied, then restored after you quit";
 
     public ObservableCollection<PresetCardViewModel> Recommended { get; } = new();
     public ObservableCollection<PresetCardViewModel> Manual { get; } = new();
@@ -320,9 +325,7 @@ public sealed class GameDetailViewModel : ObservableObject
     internal async Task LaunchAsync()
     {
         if (_snap.Game is not { } game) return;
-        string? message = null;
-        var ok = await Shell.RunAsync($"Launching {game.Name}", () => Task.Run(() => message = GameLauncher.Launch(game)));
-        if (ok && message is not null) Shell.Notify(message);
+        await Shell.PlayAsync(game);
     }
 
     private static string SyncText(GitResult? git) =>

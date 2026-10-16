@@ -16,6 +16,30 @@ source of truth). It covers identification, research, confirming keys with `game
 the four presets, validation, dry runs and the commit. Its `references/` hold the device specs, preset rules,
 and engine notes. Do not hand-roll a game file without following it.
 
+Every game file must carry `cloudSyncsSettings` (true/false from the Steam `remotecache.vdf` / store cloud check;
+null only if truly unknown — `false` makes the app suggest opting the game out) and, for non-Steam games,
+`storeIds` (battlenet / ea / epic / gog / xbox) so the library scan can match the install.
+
+## The library, the request queue and opt-outs
+
+The app auto-detects installed games (Steam, Battle.net, EA app, Xbox app, Epic, GOG; `Library/` in Core) and
+manages every detected game that has presets, unless the user opted it out. For managed Steam games it writes the
+launch option `"<path>\GameProfilesApp.exe" run <id> -- %command%` itself while Steam is closed
+(`writeSteamLaunchOptions` in settings.json turns that off).
+
+- **`config/requests.yaml` is your work queue.** The app appends every installed game that has no config
+  (`store`, `storeId`, `name`, `installDir`, `exes`, `requested`, `device`). When the user says "process
+  GameProfiles requests" / "work through the game queue" (or at the start of a session where they ask what to do
+  next and the queue is non-empty), process it with the skill's "process the request queue" workflow: one
+  commit per game that adds `config/games/<id>.yaml` and removes that entry. Leave entries you could not map and
+  tell the user why. Only ever remove handled entries; never reorder or rewrite the rest.
+- **`config/library.yaml` is user-owned.** Its `optOut:` list (`store:id` keys) records games the user does not
+  want managed. Never add or remove entries unless the user explicitly asks; suggest `gameprofiles opt-out <key>`
+  instead.
+- Sync: `git` provider = a checkout synced with the git CLI (desktop); `github` provider = a managed copy under
+  `%LOCALAPPDATA%\GameProfiles\repos\` synced through the GitHub API after device-code/PAT sign-in (the Ally; no
+  git). Both push to `jrose462/GameProfiles` by default, so pull before editing the queue.
+
 ## Devices
 
 | Device id | Hardware | Display | Driver | defaultPreset |
@@ -51,18 +75,23 @@ a game file would break a save (renamed file id, removed key), tell the user and
 | `games/<id>.yaml` | **Claude** (via the skill) | One file per game. `_template.yaml` documents every field and handler syntax |
 | `schema/game.schema.json` | Claude | JSON Schema for game YAML; keep it in sync with `Config/Models.cs` |
 | `saves/<game>/<device>/<slug>/` | **User** (app / `save`) | Manual saves, git-synced |
+| `library.yaml` | **User** (app / `opt-out` / `opt-in`) | `optOut:` list of `store:id` keys not to manage. Never edit unless asked |
+| `requests.yaml` | App appends, **Claude** removes handled entries | Queue of installed games without a config (work it with the skill) |
 
 ## Store-specific launch notes
 
-- **Steam**: no `launch:` needed. The user sets the game's launch option to
-  `"C:\Tools\GameProfiles\GameProfilesApp.exe" run <id> -- %command%`.
+- **Steam**: no `launch:` needed. The app writes the launch option
+  `"C:\Tools\GameProfiles\GameProfilesApp.exe" run <id> -- %command%` for managed games (or the user sets it).
 - **Battle.net**: there is no %command%, so set `launch.exe` to `{ProgramFilesX86}/Battle.net/Battle.net.exe`
-  with `args: ["--exec=launch <code>"]`. Product codes: `Pro` = Overwatch, `Fen` = Diablo IV (look up others).
+  with `args: ["--exec=launch <code>"]` and `storeIds.battlenet: <code>`. Product codes: `Pro` = Overwatch,
+  `Fen` = Diablo IV (look up others).
   Battle.net.exe exits right away, so `processes:` must list the game exe (e.g. `Overwatch.exe`,
   `Diablo IV.exe`). Some Blizzard settings are synced server-side and can overwrite local files. Note this in
   `notes:`. The user runs `gameprofiles shortcut <id>` to get a .lnk, which can be added to Steam as a non-Steam game.
 - **EA app**: launch through the EA app URI or the game exe (the EA app must be running/signed in). Find the exact
-  form for the game and record it in `notes:`. Use `shortcut` as for Battle.net.
+  form for the game and record it in `notes:`. Use `shortcut` as for Battle.net. Set `storeIds.ea` (offer id).
+- **Epic / GOG / Xbox**: `store: other` (until `Validator.cs` accepts these names) with `storeIds.epic` (AppName),
+  `storeIds.gog` (game id) or `storeIds.xbox` (package family name); the app launches them through their launcher.
 
 ## Caveats to record in `notes:`
 

@@ -7,6 +7,9 @@ description: >-
   validates, dry-runs and commits. Use whenever the user says "add <game> to GameProfiles", "generate/recommend
   graphics settings for <game>", "make presets for <game>", "set up <game> for the Ally/desktop",
   "refresh recommendations" / "the game patched, update its presets", or runs /game-settings-recommender <game>.
+  Also works through the app's queue of detected games without a config (config/requests.yaml) when the user says
+  "process GameProfiles requests", "work through the game queue", "add the queued games", or runs
+  /game-settings-recommender queue.
 ---
 
 # Game settings recommender
@@ -14,15 +17,17 @@ description: >-
 GameProfiles (repo `<repo>`, C# .NET 8) writes per-device settings into a game's config files
 on every launch. This skill produces the **Recommended** tab content in the app: `presets:` in
 `config/games/<id>.yaml`. The user's own tweaks live in the **Manual saves** tab (`config/saves/`), which you
-never touch. If invoked outside the repo, work in `<repo>` anyway.
-
-Source of truth for this skill: `<repo>\.claude\skills\game-settings-recommender\`. The copy in
-`~/.claude/skills/` is a mirror for use from any session; edit the repo copy and re-copy it.
+never touch. If invoked outside the repo, work in `<repo>` anyway. The app scans Steam,
+Battle.net, EA, Xbox, Epic and GOG for installed games, matches them to configs by `steamAppId`/`storeIds`, and
+queues games without a config in `config/requests.yaml` for you. `config/library.yaml` `optOut:` (user-owned)
+lists games not to manage; `cloudSyncsSettings: false` makes the app suggest opting a game out.
+Source of truth: this repo's `.claude\skills\game-settings-recommender\`; `~/.claude/skills/` holds a mirror
+(edit the repo copy, then re-copy it).
 
 Read before writing presets: `references/hardware.md` (what the two devices can do),
 `references/preset-guidelines.md` (rules per preset, cost of settings, research sources),
 `references/engine-notes.md` (where UE/Unity/Frostbite/etc. keep settings and the real key names),
-`references/awkward-stores.md` (binary/opaque files, composite struct values, research fallbacks, Steam Cloud).
+`references/awkward-stores.md` (binary/opaque files, composite values, research fallbacks, store ids, cloud sync).
 `scripts/strings.js` (strings view of binary files and exes). `<skill>` below = this skill's folder.
 Repo docs: `CLAUDE.md`, `config/games/_template.yaml` (every field and handler syntax),
 `config/games/cyberpunk2077.yaml` (worked example).
@@ -36,7 +41,8 @@ Repo docs: `CLAUDE.md`, `config/games/_template.yaml` (every field and handler s
    **behaviour**: a confirmed key the game may ignore or override (a duplicate in a second store, a key with no
    menu option such as UE `FrameRateLimit`, a quick-preset key that re-applies its own values on boot).
 2. **Never touch `config/saves/`** (user-owned manual saves, git-synced by the app) — not even to "fix" them. If
-   a save would conflict with your change (e.g. you renamed a file id), tell the user.
+   a save would conflict with your change (e.g. you renamed a file id), tell the user. Likewise never edit
+   `config/library.yaml` unless the user asks; in `config/requests.yaml` only remove entries you have handled.
 3. **Never change** FOV, gameplay/difficulty, controls/keybinds, HUD/subtitles/accessibility, audio, language,
    brightness/HDR calibration, or account/online settings. Graphics, display mode and framerate only.
 4. `intent:` is the user's words only. If they gave none, write `EDIT ME (placeholder): ...` lines.
@@ -75,10 +81,16 @@ Run commands from the repo root. `gp` below means the CLI: use `gameprofiles` if
 
 ### (a) Identify the game
 
-- Exact name, store (validator accepts `steam`, `battlenet`, `ea`, `other`), and for Steam the app id:
+- Exact name, store, and for Steam the app id:
   look for `appmanifest_<id>.acf` in each library's `steamapps\` (libraries are listed in
   `C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf`; `grep -l '"name".*<Game>' .../appmanifest_*.acf`),
-  or search steamdb.info / the store URL.
+  or search steamdb.info / the store URL. `store:` takes what `Validator.cs` `Stores` accepts (today `steam`,
+  `battlenet`, `ea`, `other`; Epic/GOG/Xbox games use `other` until it accepts their names).
+- **`storeIds:`** (required for every non-Steam game; also add ids for other launchers a Steam game shows up in,
+  e.g. a Steam EA game's EA offer id): keys `battlenet` (product code), `ea` (offer id), `epic` (AppName), `gog`
+  (game id, quoted), `xbox` (package family name). Without the right id the library scan cannot match the install
+  to your config and keeps queueing it. Where to find each: `references/awkward-stores.md` ("Store ids");
+  `gp library` lists what the scanner detected, with each `store:id` key and exes.
 - The engine (PCGamingWiki infobox, or the install folder: `Engine\` + `<Proj>\Binaries\Win64\` = Unreal;
   `*_Data\` + `UnityPlayer.dll` = Unity).
 - Process names for `processes:` — the real game exe, not only the launcher stub. Unreal games are often NOT
@@ -100,13 +112,16 @@ Run commands from the repo root. `gp` below means the CLI: use `gameprofiles` if
   `{Documents}/My Games/<Game>/Saved/Config/Windows/` (and `{SavedGames}`); see `references/engine-notes.md`.
 - Sites often 403 to WebFetch (PCGamingWiki, TechSpot, Nexus): use WebSearch snippets, other mirrors, or the
   game exe's string table (names only) — and record what could not be fetched (`references/awkward-stores.md`).
-- Steam Cloud: read `<Steam>\userdata\<id>\<appid>\remotecache.vdf` to see whether the settings file is synced;
-  record the answer in `notes:`.
+- **`cloudSyncsSettings:`** (required, every game): is any graphics settings store cloud-synced? Steam: is it
+  listed in `<Steam>\userdata\<id>\<appid>\remotecache.vdf`; other stores: `references/awkward-stores.md`
+  ("Cloud sync check"). `true`/`false`; `null` only if truly uncheckable (say why). Evidence (file + date) goes in
+  a comment above the key and in `notes:`. `false` makes the app suggest opting the game out (each machine
+  already keeps its own settings), so get it right.
 
 ### (c) Confirm the real keys on the machine
 
-1. Write a minimal `config/games/<id>.yaml`: header comment, identity, `processes`, `files:` (correct handler and
-   path tokens), no presets yet.
+1. Write a minimal `config/games/<id>.yaml`: header comment, identity (incl. `storeIds`, `cloudSyncsSettings`),
+   `processes`, `files:` (correct handler and path tokens), no presets yet.
 2. Run `gp inspect <id>` — it prints the resolved path and the file's contents (`--full` for long files). If the
    file is MISSING, the game has not been launched on this machine yet: ask the user to start it once (reach the
    main menu, change any graphics option, quit) and re-run. You may also read the file directly.
@@ -151,7 +166,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
   known (Steam: `buildid` in the appmanifest, or the version on the main menu; else `"unknown"`), `sources:` one
   string per source (title + URL, plus "`gameprofiles inspect <id>` on <device>, <date>").
   Name sources you could not fetch (e.g. "PCGamingWiki: 403 to WebFetch, used search snippet").
-- `notes:` Steam Cloud result (from `remotecache.vdf`), settings that need a restart, files the game resets on
+- `notes:` cloud-sync result (matches `cloudSyncsSettings`), settings that need a restart, files the game resets on
   boot (`readOnlyAfterApply`), per-device in-game steps for binary-store settings, anything left unverified.
 
 ### (f) Validate and dry-run
@@ -184,8 +199,8 @@ Do not create, edit, or delete anything under `config/saves/`. Do not run `gp sa
 
 ### (h) Commit and push
 
-Stage only the game file (and any doc you were asked to change):
-`git add config/games/<id>.yaml`, commit `feat(games): add <id> recommendations` (refresh:
+Stage only the game file (plus `config/requests.yaml` when the game came from the queue, and any doc you were
+asked to change): `git add config/games/<id>.yaml`, commit `feat(games): add <id> recommendations` (refresh:
 `feat(games): refresh <id> recommendations`, fix: `fix(games): ...`). End the message with whatever attribution
 trailers the session requires (e.g. `Co-Authored-By:` / `Claude-Session:` lines from the system reminder). Then
 `git pull --rebase` and `git push`. If the push fails, report it; never force-push. If you were told someone
@@ -206,4 +221,33 @@ in-game, and the sources.
 5. Bump `recommendation.generated`/`gameVersion`, update `sources`, then (f) and (h) with
    `feat(games): refresh <id> recommendations`.
 
-If the user asks to refresh all games, do one game per commit.
+If the user asks to refresh all games, do one game per commit. Existing configs missing `cloudSyncsSettings` or
+(non-Steam) `storeIds` get them filled in on refresh.
+
+## Workflow: process the request queue
+
+`config/requests.yaml` is written by the app's library scan: one entry per installed game with no config
+(`store`, `storeId`, `name`, `installDir`, `exes`, `requested` date, `device` it was seen on).
+
+1. `git pull --rebase` first (other machines queue games too), then read `config/requests.yaml`. Empty → say
+   so and stop. Otherwise list the queue (name, store, device) before starting.
+2. For each entry, in file order, run **Workflow: add a game** with the entry as step (a):
+   - Identity: steam → `store: steam` + `steamAppId: <storeId>`; else the validator-accepted `store:` (see (a))
+     + `storeIds.<store>: "<storeId>"` copied **exactly** (the scanner matches on it). Add other launchers' ids too.
+   - `installDir`: where to find the engine (`Engine\`, `*_Data\`) and the exe string table; `exes` seeds
+     `processes:` (still check launcher stub vs real game exe).
+   - `device` other than the one you run on: `gp inspect` cannot see its file, so confirm keys from sources and
+     the exe, mark the rest `# TODO verify`, and tell the user to run `gp inspect <id>` on that device.
+   - A config for the game already exists but lacks this id: add the `steamAppId`/`storeIds` to it instead of
+     creating a duplicate.
+3. In the **same commit** as the game file, delete exactly that entry from `config/requests.yaml` (keep the
+   header and other entries; `requests: []` when empty). One game per commit
+   (`feat(games): add <id> recommendations`), then pull --rebase and push.
+4. **Cannot be mapped** (no identifiable settings store, settings only server-side, no confirmable keys, not a
+   game — e.g. a tool or launcher): write no config and leave the entry untouched (`GameRequest` has no note
+   field). Stop and report to the user: which entry, why, and options (skip it and continue; for non-games
+   `gp opt-out <store>:<id>`, which you run only if they say so). Also stop on an unfixable validation error or a
+   failed push.
+
+Final report: games added (id, presets/targets, `cloudSyncsSettings` + evidence, TODO-verify items, which device
+must run `inspect`), entries still queued with the reason, and suggested opt-outs.

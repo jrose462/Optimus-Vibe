@@ -32,6 +32,12 @@ public partial class MainWindow : Window, IGamepadActions
 
         PreviewKeyDown += OnPreviewKeyDown;
         vm.PropertyChanged += OnViewModelChanged;
+        vm.Library.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(LibraryViewModel.Filter) && _vm.IsLibraryPage) LibraryPage.RefocusAfterFilter();
+        };
+        vm.MinimizeRequested += () => WindowState = WindowState.Minimized;
+        vm.RestoreRequested += RestoreFromGame;
         SourceInitialized += (_, _) => UseDarkTitleBar();
     }
 
@@ -46,6 +52,16 @@ public partial class MainWindow : Window, IGamepadActions
         catch (Exception) { /* older Windows: keep the default caption */ }
     }
 
+    private void RestoreFromGame()
+    {
+        if (WindowState != WindowState.Minimized) return;
+        WindowState = SystemParameters.PrimaryScreenWidth < 1600 || SystemParameters.PrimaryScreenHeight < 900
+            ? WindowState.Maximized
+            : WindowState.Normal;
+        Activate();
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDefault);
+    }
+
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -54,6 +70,7 @@ public partial class MainWindow : Window, IGamepadActions
                 _focusKeeper.RestoreSoon();
                 break;
             case nameof(MainViewModel.State):
+            case nameof(MainViewModel.Page):
                 Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDefault);
                 break;
         }
@@ -67,8 +84,13 @@ public partial class MainWindow : Window, IGamepadActions
         }
         else if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && !IsInDetail())
         {
-            // Ctrl+Tab from anywhere switches tabs (the TabControl only handles it when focus is inside).
+            // Ctrl+Tab from anywhere switches tabs / filters (the TabControl only handles it when focus is inside).
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) PreviousTab(); else NextTab();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Back && _vm.IsDetailPage && Keyboard.FocusedElement is not TextBox)
+        {
+            _vm.CloseDetail();
             e.Handled = true;
         }
     }
@@ -80,21 +102,55 @@ public partial class MainWindow : Window, IGamepadActions
 
     private void SwitchTab(int delta)
     {
+        if (_vm.IsLibraryPage)
+        {
+            if (delta > 0) _vm.Library.NextFilter(); else _vm.Library.PreviousFilter();
+            return;
+        }
+        if (!_vm.IsManagePage && !_vm.IsDetailPage) return;
+        if (_vm.IsDetailPage && !_vm.DetailHasConfig) return;
         if (_vm.SelectedDetail is not { HasGame: true } detail || detail.IsPreviewOpen) return;
         bool wasInDetail = IsInDetail();
         detail.SelectedTabIndex = (detail.SelectedTabIndex + delta + 2) % 2;
-        if (wasInDetail) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, Detail.FocusSelectedTab);
+        if (wasInDetail || _vm.IsDetailPage) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ActiveGameDetail.FocusSelectedTab());
     }
 
     public void Sync() => Execute(_vm.SyncCommand);
-    public void Launch() => Execute(_vm.LaunchCommand);
+
+    public void Menu()
+    {
+        if (_vm.IsSettingsPage) _vm.CloseSettings();
+        else Execute(_vm.OpenSettingsCommand);
+    }
+
+    /// <summary>X: library → open the focused game's presets; manage → launch the selected game.</summary>
+    public void Secondary()
+    {
+        if (_vm.IsLibraryPage)
+        {
+            var tile = (Keyboard.FocusedElement as ListBoxItem)?.DataContext as LibraryTileViewModel ?? _vm.Library.SelectedTile;
+            if (tile is not null) Execute(tile.OpenCommand);
+        }
+        else if (_vm.IsManagePage)
+        {
+            Execute(_vm.LaunchCommand);
+        }
+    }
+
     public void Refresh() => Execute(_vm.RefreshCommand);
 
     public bool Back() => _vm.CancelTransient();
 
+    /// <summary>B with nothing to close: manage → the game list; library → the selected tile.</summary>
     public void FocusGameList()
     {
         if (!_vm.IsReady) return;
+        if (_vm.IsLibraryPage)
+        {
+            LibraryPage.FocusSelectedTile();
+            return;
+        }
+        if (!_vm.IsManagePage) return;
         if (GameList.SelectedItem is { } item && GameList.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem lbi)
         {
             lbi.Focus();
@@ -108,10 +164,29 @@ public partial class MainWindow : Window, IGamepadActions
 
     public void FocusDefault()
     {
-        if (_vm.IsReady && GameList.Items.Count > 0)
+        if (_vm.IsReady)
         {
-            FocusGameList();
-            if (GameList.IsKeyboardFocusWithin) return;
+            switch (_vm.Page)
+            {
+                case AppPage.Library:
+                    if (LibraryPage.FocusSelectedTile()) return;
+                    break;
+                case AppPage.Detail:
+                    LibraryDetail.FocusDefault(_vm.DetailHasConfig);
+                    if (LibraryDetail.IsKeyboardFocusWithin) return;
+                    break;
+                case AppPage.Settings:
+                    SettingsPage.FocusDefault();
+                    if (SettingsPage.IsKeyboardFocusWithin) return;
+                    break;
+                default:
+                    if (GameList.Items.Count > 0)
+                    {
+                        FocusGameList();
+                        if (GameList.IsKeyboardFocusWithin) return;
+                    }
+                    break;
+            }
         }
         MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
     }
@@ -123,10 +198,26 @@ public partial class MainWindow : Window, IGamepadActions
             lbi.IsSelected = true;
     }
 
+    public bool TryMove(UIElement focused, FocusNavigationDirection direction) =>
+        _vm.IsLibraryPage && LibraryPage.TryMove(focused, direction);
+
+    /// <summary>A on a library tile plays it.</summary>
+    public bool TryActivate(UIElement focused)
+    {
+        if (_vm.IsLibraryPage && LibraryPage.IsTile(focused) && focused is ListBoxItem { DataContext: LibraryTileViewModel tile })
+        {
+            Execute(tile.PlayCommand);
+            return true;
+        }
+        return false;
+    }
+
     // ---------------------------------------------------------------- helpers
 
+    private GameDetailView ActiveGameDetail => _vm.IsDetailPage ? LibraryDetail.GameDetail : Detail;
+
     private bool IsInDetail() =>
-        Keyboard.FocusedElement is DependencyObject d && IsDescendant(Detail, d);
+        Keyboard.FocusedElement is DependencyObject d && IsDescendant(ActiveGameDetail, d);
 
     private static bool IsDescendant(DependencyObject ancestor, DependencyObject node)
     {

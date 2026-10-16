@@ -1,4 +1,4 @@
-# Awkward stores, composite values, research fallbacks, Steam Cloud
+# Awkward stores, composite values, research fallbacks, store ids, cloud sync
 
 ## Binary / opaque settings files
 
@@ -51,14 +51,47 @@ properties in general look like `Key=(A=1,B=(C="x"))` or repeated `+Key=...` lin
   `"PCGamingWiki Jedi Survivor (403 to WebFetch; file paths taken from search snippet)"`. Repeat any material
   gap in `notes:`.
 
-## Steam Cloud check
+## Store ids
 
-Steam lists the files it syncs for a game in `<Steam>\userdata\<accountid>\<appid>\remotecache.vdf`. `<Steam>`
-is usually `C:\Program Files (x86)\Steam`, and `<accountid>` is the numeric folder; there may be several.
+The library scan matches an installed game to a config by `steamAppId`, then `storeIds.<store>`, then a
+normalised name. A wrong or missing id means the game shows as "needs presets" and gets queued again. The id a
+queued request carries (`storeId`) is exactly what the scanner saw, so copy it verbatim; `gp library` shows the
+`store:id` keys of everything installed. To look ids up by hand:
 
-- `grep -i -E 'ini|json|sav|cfg|settings' remotecache.vdf`. If the settings file (or its folder) is listed, it
-  is cloud-synced between the desktop and the Ally X.
-- Record the result in `notes:`: "Steam Cloud syncs GameUserSettings.ini (remotecache.vdf, <date>)" or "not in
-  remotecache.vdf, so not cloud-synced". If the file has not been checked (game never launched, no userdata),
-  say so.
-- If it is synced, every per-device difference must be set in every preset, which is already the rule.
+| Key | Id | Where to find it |
+|---|---|---|
+| (steam) | app id → `steamAppId` | `appmanifest_<id>.acf` in `steamapps\`, steamdb.info |
+| `battlenet` | product code (`Pro` Overwatch, `Fen` Diablo IV, `WTCG` Hearthstone, `OSI` Diablo II: Resurrected) | the code used in `Battle.net.exe --exec="launch <code>"`; community lists |
+| `ea` | offer id (`Origin.OFR.50.0005114`) | EA app logs `%LOCALAPPDATA%\Electronic Arts\EA Desktop\Logs\EADesktop.log` / `EASteamProxy.log` (`offerId=[...]`), `__Installer\installerdata.xml` in the install dir |
+| `epic` | AppName (not the display name or catalog id) | `C:\ProgramData\Epic\EpicGamesLauncher\Data\Manifests\*.item` → `"AppName"` |
+| `gog` | numeric game id, quoted as a string | `goggame-<id>.info` in the install dir, or `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games\<id>` |
+| `xbox` | package family name (`Publisher.Game_8wekyb3d8bbwe`) | `Get-AppxPackage *<name>* \| Select PackageFamilyName` |
+
+Games sold through several launchers: add every id you can confirm. A Steam game that runs through another
+launcher (EA titles via EASteamProxy, Ubisoft Connect) may also be detected by that launcher's scanner, so add
+its id there too (e.g. jedi-survivor has `storeIds.ea`). `store:` must be a value `Validator.cs` accepts (today
+steam, battlenet, ea, other); Epic, GOG and Xbox games use `store: other` with their `storeIds` until it accepts
+those names.
+
+## Cloud sync check (`cloudSyncsSettings`)
+
+The question is whether any **graphics settings store** of the game travels between the desktop and the Ally X.
+Saves syncing does not count; settings files (or a binary save that holds graphics options, like Jedi: Survivor's
+`GameUserSettings.sav`) do.
+
+- **Steam**: Steam lists the files it syncs in `<Steam>\userdata\<accountid>\<appid>\remotecache.vdf` (`<Steam>`
+  usually `C:\Program Files (x86)\Steam`; there may be several account folders). `grep -i -E
+  'ini|json|sav|cfg|settings' remotecache.vdf`. Listed → synced. No `<appid>` folder at all after the game has been
+  played → Steam Cloud is not used for it (check the game's own launcher next). Auto-Cloud games also leave a
+  `steam_autocloud.vdf` in the synced folder: a settings file outside that folder is not synced.
+- **EA app**: `EADesktop.log` / `EADesktopVerbose.log` log `[CloudSync] New file added to the LocalState filesMap.
+  File path [...]` for every synced file; `cloudsync\<contentId>_.*` exist for games with cloud saves.
+- **Epic / GOG / Xbox / Battle.net**: no reliable local list. Use PCGamingWiki's "Cloud" row (Epic Games Store
+  cloud, GOG Galaxy cloud, Xbox cloud) and whether the settings file sits in the synced save folder. Battle.net
+  games often keep some settings server-side (account-bound): that counts as synced.
+- Value: `true` if any graphics store travels, `false` if none does, `null` only when it could not be checked
+  (game never run, sources disagree) with the reason in a comment. Put the evidence in a comment above the key
+  and in `notes:`, e.g. "Steam Cloud syncs only SaveGames/*.sav, not Config (remotecache.vdf, 2026-10-16)".
+- `false` makes the app suggest that the user opt the game out (each machine keeps its own settings anyway); the
+  presets still work if they keep it managed. `true` keeps the rule that every per-device difference is set in
+  every preset.

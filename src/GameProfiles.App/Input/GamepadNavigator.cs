@@ -13,10 +13,20 @@ namespace GameProfiles.App.Input;
 /// <summary>What the window does for the non-navigation buttons.</summary>
 public interface IGamepadActions
 {
+    /// <summary>LB / RB: previous / next tab or filter.</summary>
     void NextTab();
     void PreviousTab();
+
+    /// <summary>Y.</summary>
     void Sync();
-    void Launch();
+
+    /// <summary>Start / Menu: settings.</summary>
+    void Menu();
+
+    /// <summary>X: context action (open a game's presets in the library, launch in the manage view).</summary>
+    void Secondary();
+
+    /// <summary>View button: refresh / rescan.</summary>
     void Refresh();
 
     /// <summary>B: close a confirm panel / form; false when nothing was open.</summary>
@@ -30,12 +40,18 @@ public interface IGamepadActions
 
     /// <summary>Called after a gamepad focus move (e.g. so the game list selection follows focus).</summary>
     void OnFocusMoved(IInputElement? focused);
+
+    /// <summary>Custom directional move (e.g. the library grid's row/column navigation). True = handled.</summary>
+    bool TryMove(UIElement focused, FocusNavigationDirection direction);
+
+    /// <summary>Custom A action for the focused element (e.g. play the focused library tile). True = handled.</summary>
+    bool TryActivate(UIElement focused);
 }
 
 /// <summary>
 /// Polls XInput at ~60 Hz while the window is active and turns it into focus navigation:
 /// D-pad / left stick move focus (repeat after 400 ms, then every 120 ms), A activates, B goes back,
-/// LB/RB switch tabs, Y syncs, Start launches, View refreshes, right stick scrolls.
+/// LB/RB switch tabs/filters, X context action, Y syncs, Start opens settings, View refreshes, right stick scrolls.
 /// </summary>
 public sealed class GamepadNavigator : IDisposable
 {
@@ -116,7 +132,8 @@ public sealed class GamepadNavigator : IDisposable
             if (pressed.HasFlag(GamepadButtons.LeftShoulder)) _actions.PreviousTab();
             if (pressed.HasFlag(GamepadButtons.RightShoulder)) _actions.NextTab();
             if (pressed.HasFlag(GamepadButtons.Y)) _actions.Sync();
-            if (pressed.HasFlag(GamepadButtons.Start)) _actions.Launch();
+            if (pressed.HasFlag(GamepadButtons.X)) _actions.Secondary();
+            if (pressed.HasFlag(GamepadButtons.Start)) _actions.Menu();
             if (pressed.HasFlag(GamepadButtons.Back)) _actions.Refresh();
 
             HandleDirection(Direction(buttons, lx, ly));
@@ -204,6 +221,7 @@ public sealed class GamepadNavigator : IDisposable
             _actions.FocusDefault();
             return;
         }
+        if (_actions.TryMove(el, dir)) return;
         if (el.MoveFocus(new TraversalRequest(dir)))
         {
             var focused = Keyboard.FocusedElement;
@@ -222,6 +240,7 @@ public sealed class GamepadNavigator : IDisposable
             return;
         }
         if (!el.IsEnabled) return;
+        if (_actions.TryActivate(el)) return;
         switch (el)
         {
             case ListBoxItem item:
@@ -230,8 +249,9 @@ public sealed class GamepadNavigator : IDisposable
             case TabItem tab:
                 tab.IsSelected = true;
                 return;
-            case TextBox:
-                return; // typing needs the touch keyboard; defaults are prefilled so A is not required here
+            case TextBox or PasswordBox:
+                TouchKeyboard.Show(); // type with the on-screen keyboard; defaults are prefilled where possible
+                return;
         }
         var peer = UIElementAutomationPeer.CreatePeerForElement(el);
         switch (peer?.GetPattern(PatternInterface.Invoke))

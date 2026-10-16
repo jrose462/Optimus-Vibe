@@ -1,0 +1,258 @@
+<UserControl x:Class="GameProfiles.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:GameProfiles.App.Views"
+             xmlns:vm="clr-namespace:GameProfiles.App.ViewModels"
+             x:Name="Root">
+    <!-- DataContext: SettingsViewModel. One column of cards; every control reachable with the D-pad, B goes back. -->
+    <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
+        <StackPanel MaxWidth="980" Margin="28,20,28,32" HorizontalAlignment="Stretch">
+
+            <!-- title -->
+            <Grid Margin="0,0,0,18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="BackButton" Style="{StaticResource Button.Ghost}" Command="{Binding CloseCommand}" AutomationProperties.Name="Back">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE72B;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <TextBlock Text="Back" FontSize="16" />
+                        <Border Style="{StaticResource Badge}" Margin="10,0,0,0" Padding="7,0" Background="#33FFFFFF">
+                            <TextBlock Text="B" Foreground="{StaticResource DangerBrush}" />
+                        </Border>
+                    </StackPanel>
+                </Button>
+                <TextBlock Grid.Column="1" Text="Settings" Style="{StaticResource Text.Title}" Margin="16,0,0,0" VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- ======================================================== sync -->
+            <Border Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="SYNC" Style="{StaticResource Text.Caption}" />
+                    <TextBlock Style="{StaticResource Text.Body}" FontSize="16" Margin="0,8,0,0" TextWrapping="Wrap">
+                        <Run Text="Syncing with" Foreground="{StaticResource TextDimBrush}" />
+                        <Run Text="{Binding ProviderText, Mode=OneWay}" FontWeight="SemiBold" />
+                    </TextBlock>
+
+                    <UniformGrid Columns="2" Margin="0,14,0,0">
+                        <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsGitHub}" Margin="0,0,8,0"
+                                Command="{Binding FocusRepoCommand, ElementName=Root}" AutomationProperties.Name="GitHub account">
+                            <StackPanel>
+                                <TextBlock FontSize="16" FontWeight="SemiBold">
+                                    <Run Text="&#xE77B;" FontFamily="{StaticResource IconFont}" />
+                                    <Run Text="GitHub account" />
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0" Text="The app keeps its own copy of the repo. No git needed — best for the handheld." />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsGitHub, Converter={StaticResource Not}}" Margin="8,0,0,0"
+                                Command="{Binding UseLocalGitCommand}" AutomationProperties.Name="Use local git checkout instead">
+                            <StackPanel>
+                                <TextBlock FontSize="16" FontWeight="SemiBold">
+                                    <Run Text="&#xE8B7;" FontFamily="{StaticResource IconFont}" />
+                                    <Run Text="Local git checkout…" />
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0" Text="Use a folder you cloned yourself; synced with the git command line." />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+
+                    <WrapPanel Margin="0,14,0,0">
+                        <CheckBox Content="Sync automatically (manual saves, opt-outs, queued games)" IsChecked="{Binding AutoSync}" Margin="0,0,24,0" />
+                        <Button Command="{Binding SyncNowCommand}" AutomationProperties.Name="Sync now">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="Sync now" />
+                                <Border Style="{StaticResource Badge}" Margin="10,0,0,0" Padding="7,0" Background="#33FFFFFF">
+                                    <TextBlock Text="Y" Foreground="{StaticResource WarnBrush}" />
+                                </Border>
+                            </StackPanel>
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ======================================================== github account -->
+            <Border Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="GITHUB ACCOUNT" Style="{StaticResource Text.Caption}" Margin="0,0,0,12" />
+                    <views:GitHubSignInPanel DataContext="{Binding Account}" />
+                </StackPanel>
+            </Border>
+
+            <!-- ======================================================== repository -->
+            <Border x:Name="RepoCard" Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16" DataContext="{Binding Account}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="CONFIG REPOSITORY" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Style="{StaticResource Button.Ghost}" Command="{Binding LoadReposCommand}" AutomationProperties.Name="Reload repositories"
+                                Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock>
+                                <Run Text="&#xE72C;" FontFamily="{StaticResource IconFont}" />
+                                <Run Text="Reload list" />
+                            </TextBlock>
+                        </Button>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,6,0,0">
+                        <Run Text="Current:" Foreground="{StaticResource TextDimBrush}" />
+                        <Run Text="{Binding CurrentRepo, Mode=OneWay}" FontWeight="SemiBold" />
+                    </TextBlock>
+
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,10,0,0" Text="Sign in to GitHub above to pick a repository."
+                               Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
+
+                    <StackPanel Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
+                        <TextBox x:Name="RepoSearch" Text="{Binding RepoFilter, UpdateSourceTrigger=PropertyChanged}" Margin="0,14,0,0"
+                                 AutomationProperties.Name="Search repositories" ToolTip="Search your repositories" />
+                        <TextBlock Text="Loading your repositories…" Style="{StaticResource Text.Dim}" Margin="4,10,0,0"
+                                   Visibility="{Binding IsLoadingRepos, Converter={StaticResource VisibleWhen}}" />
+                        <ListBox x:Name="RepoList" ItemsSource="{Binding FilteredRepos}" SelectedItem="{Binding SelectedRepo}"
+                                 Style="{StaticResource GameList}" ItemContainerStyle="{StaticResource GameListItem}"
+                                 MaxHeight="300" Margin="-4,10,-4,0"
+                                 AutomationProperties.Name="Repositories">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:RepoItemViewModel}">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding FullName}" FontSize="16" FontWeight="SemiBold" />
+                                            <Border Style="{StaticResource Badge}" Margin="10,0,0,0" Visibility="{Binding IsPrivate, Converter={StaticResource VisibleWhen}}">
+                                                <TextBlock Text="private" />
+                                            </Border>
+                                            <Border Style="{StaticResource Badge.Active}" Visibility="{Binding IsCurrent, Converter={StaticResource VisibleWhen}}">
+                                                <TextBlock Text="current" />
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Text.Dim}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                                                   Margin="0,3,0,0" Visibility="{Binding HasDescription, Converter={StaticResource VisibleWhen}}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="REPOSITORY" Style="{StaticResource Text.Caption}" Margin="0,0,0,6" />
+                                <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="Cascadia Mono, Consolas"
+                                         AutomationProperties.Name="Repository (owner/name)" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="BRANCH" Style="{StaticResource Text.Caption}" Margin="0,0,0,6" />
+                                <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="Cascadia Mono, Consolas"
+                                         AutomationProperties.Name="Branch" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Style="{StaticResource Button.Primary}" Command="{Binding UseRepoCommand}" Margin="10,0,0,0"
+                                    VerticalAlignment="Bottom" AutomationProperties.Name="Use this repo">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Text="Use this repo" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <TextBlock Style="{StaticResource Text.Caption}" FontWeight="Normal" FontSize="13.5" Margin="2,8,0,0" TextWrapping="Wrap"
+                                   Text="Downloads the repo into the app's own copy and syncs through your account from then on. Switching to a different branch replaces that copy — Sync first if you have unsynced saves." />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ======================================================== library -->
+            <Border Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="LIBRARY" Style="{StaticResource Text.Caption}" />
+                    <TextBlock Text="Launchers to look for installed games in" Style="{StaticResource Text.H3}" Margin="0,10,0,4" />
+                    <ItemsControl ItemsSource="{Binding Stores}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="3" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                <CheckBox Content="{Binding Label}" IsChecked="{Binding IsOn}" Margin="0,0,12,0" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <CheckBox IsChecked="{Binding WriteSteamLaunchOptions}" Margin="0,12,0,0">
+                        <TextBlock TextWrapping="Wrap">
+                            <Run Text="Keep Steam launch options up to date" FontWeight="SemiBold" />
+                            <LineBreak />
+                            <Run Text="Managed games start through GameProfiles even from Steam or Big Picture; opted-out games are left alone. Steam must be closed to write them."
+                                 Foreground="{StaticResource TextDimBrush}" FontSize="14" />
+                        </TextBlock>
+                    </CheckBox>
+
+                    <TextBlock Text="Start in" Style="{StaticResource Text.H3}" Margin="0,16,0,8" />
+                    <ItemsControl ItemsSource="{Binding Modes}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="3" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,10,0" VerticalAlignment="Stretch"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Command="{Binding DataContext.SetModeCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Label}" FontSize="16" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Hint}" Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- ======================================================== device -->
+            <Border Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="DEVICE" Style="{StaticResource Text.Caption}" />
+                    <TextBlock Style="{StaticResource Text.Body}" FontSize="17" Margin="0,8,0,0">
+                        <Run Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" />
+                        <Run Text="{Binding DeviceName, Mode=OneWay}" FontWeight="SemiBold" />
+                        <Run Text="·" Foreground="{StaticResource TextFaintBrush}" />
+                        <Run Text="{Binding DeviceReason, Mode=OneWay}" Foreground="{StaticResource TextDimBrush}" />
+                    </TextBlock>
+                    <TextBlock Text="{Binding DeviceDescription}" Style="{StaticResource Text.Dim}" Margin="0,4,0,0"
+                               Visibility="{Binding DeviceDescription, Converter={StaticResource VisibleWhen}}" />
+                    <TextBlock Text="Force a device profile (same as `gameprofiles setup --force-profile`):" Style="{StaticResource Text.Dim}" Margin="0,12,0,8" />
+                    <WrapPanel>
+                        <ItemsControl ItemsSource="{Binding DeviceChoices}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding}" Margin="0,0,10,10" MinWidth="130"
+                                            Command="{Binding DataContext.ForceDeviceCommand, ElementName=Root}" CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="Auto-detect" Style="{StaticResource Button.Ghost}" Command="{Binding AutoDetectDeviceCommand}" Margin="0,0,10,10"
+                                ToolTip="Forget the forced profile and match devices.yaml again" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Style="{StaticResource Text.Caption}" FontWeight="Normal" Margin="4,0,0,0" TextWrapping="Wrap">
+                <Run Text="Config:" />
+                <Run Text="{Binding ConfigRoot, Mode=OneWay}" />
+                <Run Text="  ·  GameProfiles" />
+                <Run Text="{Binding AppVersion, Mode=OneWay}" />
+            </TextBlock>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
