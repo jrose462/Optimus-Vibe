@@ -81,7 +81,7 @@ public static class Program
     {
         var commandArg = new Argument<string[]>("command")
         {
-            Description = "The game command line. In Steam launch options use: run <game> -- %command%",
+            Description = "The game command line. For Steam launch options prefer GameProfilesApp.exe run <game> -- %command% (no console window).",
             Arity = ArgumentArity.ZeroOrMore,
         };
         var noPrompt = new Option<bool>("--no-prompt") { Description = "Don't offer to save settings changed in-game." };
@@ -460,7 +460,10 @@ public static class Program
             var ctx = Context(pr);
             var dir = pr.GetValue(outDir) ?? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             var lnk = Path.Combine(dir, $"{ctx.Game.Name} (GameProfiles).lnk");
-            var exe = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot determine own exe path");
+            var self = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot determine own exe path");
+            // Prefer the windowed app next to us: its headless `run` has no console flash.
+            var app = Path.Combine(Path.GetDirectoryName(self)!, "GameProfilesApp.exe");
+            var exe = File.Exists(app) ? app : self;
 
             var shellType = Type.GetTypeFromProgID("WScript.Shell") ?? throw new InvalidOperationException("WScript.Shell unavailable");
             dynamic shell = Activator.CreateInstance(shellType)!;

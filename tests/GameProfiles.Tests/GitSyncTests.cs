@@ -44,7 +44,7 @@ public sealed class GitSyncTests : IDisposable
     }
 
     /// <summary>`git init` with a local identity and no signing so commits work on any machine.</summary>
-    public static void InitRepo(string dir)
+    internal static void InitRepo(string dir)
     {
         Directory.CreateDirectory(dir);
         Git(dir, "init", "-q");

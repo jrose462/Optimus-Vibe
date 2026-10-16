@@ -11,25 +11,29 @@ It works like Apollo/Sunshine prep commands: apply before launch, undo the tempo
 
 ## Install
 
-Requires the .NET 8 SDK to build. The published exe is self-contained, so target machines need no runtime.
+Requires the .NET 8 SDK to build. Published exes are self-contained, so target machines need no runtime.
+
+There are two exes, built on the same core:
+
+| Exe | Needed on | Used for |
+|---|---|---|
+| `GameProfilesApp.exe` | **every machine** | The app (no arguments), and the Steam launch-option wrapper (`run …`, headless: no window, no console flash) |
+| `gameprofiles.exe` | optional (desktop) | Command line for scripting and for Claude (`inspect`, `validate`, dry runs) |
 
 ```powershell
-dotnet publish src/GameProfiles -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
-# copy the exe from src\GameProfiles\bin\Release\net8.0-windows\win-x64\publish\ to C:\Tools\GameProfiles\
+dotnet publish src/GameProfiles.App -c Release -o C:\Tools\GameProfiles
+dotnet publish src/GameProfiles     -c Release -o C:\Tools\GameProfiles   # optional CLI
 ```
 
-Use the same exe path on every machine (`C:\Tools\GameProfiles\gameprofiles.exe`). Steam launch options then
-look the same everywhere.
+Use the same path on every machine (`C:\Tools\GameProfiles\`). Steam launch options then look the same everywhere.
 
 ## One-time setup per machine
 
 1. Clone this repo (e.g. `<repo>`).
-2. Point the tool at the config folder. This writes `%LOCALAPPDATA%\GameProfiles\settings.json`, which stays
-   local and is not in git:
-   ```powershell
-   gameprofiles setup --config-root <repo>\config
-   ```
-   If detection picks the wrong device, add `--force-profile ally-x` (or `desktop`).
+2. Point the tool at the config folder: open `GameProfilesApp.exe` and pick the repo folder on its first-run
+   screen, or run `gameprofiles setup --config-root <repo>\config`. Either writes
+   `%LOCALAPPDATA%\GameProfiles\settings.json`, which stays local and is not in git.
+   If detection picks the wrong device, add `--force-profile ally-x` (or `desktop`); the app offers this too.
 3. Check detection: `gameprofiles detect` shows the hardware strings and the matched device.
 4. `gameprofiles list` and `gameprofiles validate`.
 
@@ -97,16 +101,18 @@ gameprofiles apply cyberpunk2077 --profile ally-x --preset battery --dry-run
 In Steam, open the game's Properties, then Launch Options:
 
 ```
-"C:\Tools\GameProfiles\gameprofiles.exe" run cyberpunk2077 -- %command%
+"C:\Tools\GameProfiles\GameProfilesApp.exe" run cyberpunk2077 -- %command%
 ```
 
 Use the game id (the YAML file name under `config/games/`). Steam starts the wrapper, and the wrapper starts the
-game. When launched by Steam there is no console window; output goes to the log (see below).
+game. With `run` the app opens no window and no console; output goes to the log (see below). `gameprofiles.exe run`
+does the same from a terminal, but flashes a console window when Steam starts it.
 
 ## Non-Steam games (Battle.net, EA app)
 
 These have no `%command%`. The game file's `launch:` block says how to start them, e.g. Battle.net with
-`--exec="launch Pro"` (Overwatch) or `--exec="launch Fen"` (Diablo IV). Create a shortcut:
+`--exec="launch Pro"` (Overwatch) or `--exec="launch Fen"` (Diablo IV). The app's **Launch game** button runs them
+through the wrapper. Or create a shortcut (it targets `GameProfilesApp.exe run <game>` when the app is next to the CLI):
 
 ```powershell
 gameprofiles shortcut overwatch --out "$env:USERPROFILE\Desktop"

@@ -1,8 +1,10 @@
 # GameProfiles: notes for Claude
 
 GameProfiles is a C# .NET 8 Windows tool that applies per-device game settings from YAML in `config/`:
-a CLI (`src/GameProfiles`, `gameprofiles.exe`), a shared core (`src/GameProfiles.Core`), and a WPF app
-(`GameProfilesApp.exe`) for picking presets and managing manual saves. The usual job in this repo is **adding a
+a CLI (`src/GameProfiles`, `gameprofiles.exe`, for scripting and for Claude), a shared core
+(`src/GameProfiles.Core`), and a WPF app (`src/GameProfiles.App`, `GameProfilesApp.exe`) for picking presets and
+managing manual saves. The app is also the Steam launch-option wrapper: `GameProfilesApp.exe run …` runs headless
+(no window/console) with the same behaviour as `gameprofiles run`. The usual job in this repo is **adding a
 game or refreshing its recommended presets**. Code changes follow normal practice: run `dotnet test` and keep
 the handlers' round-trip tests green.
 
@@ -53,7 +55,7 @@ a game file would break a save (renamed file id, removed key), tell the user and
 ## Store-specific launch notes
 
 - **Steam**: no `launch:` needed. The user sets the game's launch option to
-  `"C:\Tools\GameProfiles\gameprofiles.exe" run <id> -- %command%`.
+  `"C:\Tools\GameProfiles\GameProfilesApp.exe" run <id> -- %command%`.
 - **Battle.net**: there is no %command%, so set `launch.exe` to `{ProgramFilesX86}/Battle.net/Battle.net.exe`
   with `args: ["--exec=launch <code>"]`. Product codes: `Pro` = Overwatch, `Fen` = Diablo IV (look up others).
   Battle.net.exe exits right away, so `processes:` must list the game exe (e.g. `Overwatch.exe`,

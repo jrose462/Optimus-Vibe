@@ -93,7 +93,7 @@ public sealed class GameDetailViewModel : ObservableObject
 
     public string LaunchHint => _snap.Game?.SteamAppId is not null
         ? "Steam launch options apply the active preset"
-        : "Launched through gameprofiles run";
+        : "Settings are applied, then restored after you quit";
 
     public ObservableCollection<PresetCardViewModel> Recommended { get; } = new();
     public ObservableCollection<PresetCardViewModel> Manual { get; } = new();

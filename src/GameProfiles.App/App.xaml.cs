@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using GameProfiles.App.Services;
 using GameProfiles.App.ViewModels;
 using GameProfiles.App.Views;
 using GameProfiles.Config;
@@ -13,6 +14,17 @@ public partial class App : Application
     {
         Log.Quiet = true; // WinExe: no console; everything goes to %LOCALAPPDATA%\GameProfiles\logs
         Log.Init(Path.Combine(AppPaths.DefaultDataDir, "logs"));
+
+        // Steam launch option: `GameProfilesApp.exe run <game> -- %command%` — no window, no console flash.
+        if (HeadlessRun.IsRunInvocation(e.Args))
+        {
+            int code;
+            try { code = HeadlessRun.Execute(e.Args); }
+            catch (Exception ex) { Log.Error("run failed", ex); code = 1; }
+            Shutdown(code);
+            return;
+        }
+
         Log.Info("GameProfiles app starting");
 
         // Never crash: log, tell the user in the status bar, keep running.
