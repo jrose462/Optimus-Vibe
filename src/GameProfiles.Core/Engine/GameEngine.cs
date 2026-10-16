@@ -27,14 +27,7 @@ public sealed class AppliedState
 
 public sealed record Drift(string FileId, string Key, string? Applied, string? Now);
 
-public sealed class CaptureResult
-{
-    public int KeysCaptured { get; set; }
-    public List<string> Snapshots { get; } = new();
-    public List<string> Skipped { get; } = new();
-}
-
-/// <summary>Plan / apply / capture / drift for one game on this machine.</summary>
+/// <summary>Plan / apply / drift for one game on this machine.</summary>
 public static class GameEngine
 {
     public static List<FilePlan> Plan(GameContext ctx)
@@ -50,7 +43,7 @@ public static class GameEngine
             bool snapshot = f.SnapshotFile is not null;
             if (f.Targets.Count == 0 && !snapshot)
             {
-                plans.Add(new FilePlan { File = f, Skip = "no settings for this profile" });
+                plans.Add(new FilePlan { File = f, Skip = "no settings in this preset" });
                 continue;
             }
             bool exists = f.Handler.Exists(f.Path);
@@ -94,7 +87,7 @@ public static class GameEngine
                 if (plan.RestoreSnapshot)
                 {
                     f.Handler.RestoreSnapshot(f.Path!, File.ReadAllBytes(f.SnapshotFile!));
-                    Log.Info($"  {f.Id}: restored captured snapshot");
+                    Log.Info($"  {f.Id}: restored saved snapshot");
                 }
                 if (plan.Changes.Count > 0)
                 {
@@ -145,59 +138,16 @@ public static class GameEngine
         return drift;
     }
 
-    /// <summary>
-    /// Save the game's current settings for this device. Mapped keys go to captures\&lt;game&gt;\&lt;device&gt;.yaml as
-    /// differences from the base profile; files with no mapped keys (or all files with <paramref name="snapshot"/>)
-    /// are copied whole to snapshots\&lt;game&gt;\&lt;device&gt;\.
-    /// </summary>
-    public static CaptureResult Capture(GameContext ctx, bool snapshot, IReadOnlyCollection<string>? onlyFiles = null)
+    /// <summary>Every key any preset or profile of this game sets for a file — what a manual save records.</summary>
+    public static HashSet<string> KnownKeys(GameDef game, FileDef file, SettingsHandler handler)
     {
-        var result = new CaptureResult();
-        var baseProfile = ProfileResolver.Resolve(ctx.Game, ctx.Device.Name, ctx.Device.Def, new());
-        var overlay = ctx.Store.LoadCapture(ctx.Game.Id, ctx.Device.Name);
-
-        foreach (var f in ctx.Files)
-        {
-            if (onlyFiles is not null && !onlyFiles.Contains(f.Id)) continue;
-            if (f.Path is null || !f.Handler.Exists(f.Path))
-            {
-                result.Skipped.Add($"{f.Id}: {f.Error ?? "not found"}");
-                continue;
-            }
-
-            var baseTargets = baseProfile.FileBlocks.TryGetValue(f.Id, out var block)
-                ? f.Handler.Flatten(block)
-                : new Dictionary<string, string>();
-            var overlayTargets = overlay.GetValueOrDefault(f.Id) is Dictionary<string, object?> ob
-                ? f.Handler.Flatten(ob)
-                : new Dictionary<string, string>();
-
-            if (snapshot || (baseTargets.Count == 0 && overlayTargets.Count == 0))
-            {
-                var data = f.Handler.Snapshot(f.Path);
-                var dir = ctx.Paths.SnapshotDir(ctx.Game.Id, ctx.Device.Name);
-                Directory.CreateDirectory(dir);
-                File.WriteAllBytes(Path.Combine(dir, f.Id + ".snap"), data!);
-                result.Snapshots.Add(f.Id);
-                continue;
-            }
-
-            var keys = baseTargets.Keys.Union(overlayTargets.Keys).ToList();
-            var current = f.Handler.Read(f.Def, f.Path, keys);
-            var diff = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var key in keys)
-            {
-                var now = current.GetValueOrDefault(key);
-                if (now is null) continue;
-                if (baseTargets.TryGetValue(key, out var b) && Values.Equivalent(b, now)) continue;
-                diff[key] = now;
-            }
-            result.KeysCaptured += diff.Count;
-            if (diff.Count > 0) overlay[f.Id] = f.Handler.Unflatten(diff);
-            else overlay.Remove(f.Id);
-        }
-
-        ctx.Store.SaveCapture(ctx.Game.Id, ctx.Device.Name, overlay);
-        return result;
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var bodies = game.Profiles.Values.Concat(game.Presets.Values.SelectMany(p => p.Values));
+        // File ids match case-insensitively, as in ProfileResolver.Resolve.
+        foreach (var body in bodies)
+            foreach (var (key, value) in body)
+                if (key.Equals(file.Id, StringComparison.OrdinalIgnoreCase) && value is Dictionary<string, object?> block)
+                    keys.UnionWith(handler.Flatten(block).Keys);
+        return keys;
     }
 }

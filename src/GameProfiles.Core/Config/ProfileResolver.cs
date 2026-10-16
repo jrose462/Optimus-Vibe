@@ -2,10 +2,17 @@ using System.Globalization;
 
 namespace GameProfiles.Config;
 
-/// <summary>A device profile after `extends` chains and the capture overlay are merged.</summary>
+/// <summary>A recommended preset or manual save after `extends` chains are merged, ready to apply.</summary>
 public sealed class ResolvedProfile
 {
-    public required string Name { get; init; }
+    public required string Device { get; init; }
+
+    /// <summary>What this was resolved from; null when the device has nothing configured.</summary>
+    public PresetRef? Source { get; init; }
+
+    public string? Label { get; init; }
+    public string? Description { get; init; }
+    public int? TargetFps { get; init; }
 
     /// <summary>Null = leave the display alone.</summary>
     public DisplayModeDef? Display { get; init; }
@@ -16,8 +23,7 @@ public sealed class ResolvedProfile
     /// <summary>File id → raw (possibly nested) settings block from YAML.</summary>
     public Dictionary<string, Dictionary<string, object?>> FileBlocks { get; init; } = new();
 
-    public bool HasProfile { get; init; }
-    public bool HasCapture { get; init; }
+    public bool IsEmpty => Source is null;
 }
 
 public static class ProfileResolver
@@ -26,42 +32,75 @@ public static class ProfileResolver
     public const string Display = "display";
     public const string Nvidia = "nvidia";
     public const string Amd = "amd";
-    public static readonly string[] ReservedKeys = [Extends, Display, Nvidia, Amd];
+    public const string Label = "label";
+    public const string Description = "description";
+    public const string TargetFps = "targetFps";
 
-    /// <summary>The device profile with its extends chain merged (no capture overlay).</summary>
-    public static Dictionary<string, object?>? Flatten(GameDef game, string profileName)
+    public static readonly string[] ReservedKeys = [Extends, Display, Nvidia, Amd, Label, Description, TargetFps];
+
+    /// <summary>Conventional preset names, in display order.</summary>
+    public static readonly string[] KnownPresetNames = ["quality", "performance", "battery"];
+
+    /// <summary>Preset names for a device, conventional ones first.</summary>
+    public static IReadOnlyList<string> PresetNames(GameDef game, string device) =>
+        game.Presets.TryGetValue(device, out var presets)
+            ? presets.Keys
+                .OrderBy(k => Array.IndexOf(KnownPresetNames, k) is var i and >= 0 ? i : KnownPresetNames.Length)
+                .ThenBy(k => k, StringComparer.Ordinal)
+                .ToList()
+            : [];
+
+    /// <summary>A preset body with its extends chain (into game.Profiles) merged.</summary>
+    public static Dictionary<string, object?> FlattenPreset(GameDef game, string device, string preset)
     {
-        if (!game.Profiles.ContainsKey(profileName)) return null;
-        var chain = new List<string>();
-        for (var name = profileName; name is not null;)
+        if (!game.Presets.TryGetValue(device, out var presets) || !presets.TryGetValue(preset, out var body))
+            throw new ConfigException($"{game.Id}: no preset '{preset}' for device '{device}'");
+        return FlattenBody(game, body, $"presets.{device}.{preset}");
+    }
+
+    /// <summary>Merge a body over the profiles it extends (recursively). The body itself wins.</summary>
+    public static Dictionary<string, object?> FlattenBody(GameDef game, Dictionary<string, object?> body, string where)
+    {
+        var chain = new List<Dictionary<string, object?>> { body };
+        var seen = new List<string> { where };
+        var next = body.GetValueOrDefault(Extends)?.ToString();
+        while (next is not null)
         {
-            if (chain.Contains(name))
-                throw new ConfigException($"{game.Id}: profile extends cycle: {string.Join(" -> ", chain)} -> {name}");
-            if (!game.Profiles.TryGetValue(name, out var body))
-                throw new ConfigException($"{game.Id}: profile '{chain.Last()}' extends unknown profile '{name}'");
-            chain.Add(name);
-            name = body.TryGetValue(Extends, out var ext) ? ext?.ToString() : null;
+            if (seen.Contains(next))
+                throw new ConfigException($"{game.Id}: extends cycle: {string.Join(" -> ", seen)} -> {next}");
+            if (!game.Profiles.TryGetValue(next, out var parent))
+                throw new ConfigException($"{game.Id}: {seen.Last()} extends unknown profile '{next}' (extends must name an entry under profiles:)");
+            seen.Add(next);
+            chain.Add(parent);
+            next = parent.GetValueOrDefault(Extends)?.ToString();
         }
 
         var merged = new Dictionary<string, object?>();
-        foreach (var name in Enumerable.Reverse(chain))
-            DeepMerge(merged, game.Profiles[name]);
+        for (int i = chain.Count - 1; i >= 0; i--) DeepMerge(merged, chain[i]);
         merged.Remove(Extends);
         return merged;
     }
 
-    public static ResolvedProfile Resolve(GameDef game, string device, DeviceDef? deviceDef, Dictionary<string, object?> capture)
-    {
-        var body = Flatten(game, device) ?? new Dictionary<string, object?>();
-        bool hasProfile = game.Profiles.ContainsKey(device);
-        DeepMerge(body, capture);
+    public static ResolvedProfile ResolvePreset(GameDef game, string device, DeviceDef? deviceDef, string preset) =>
+        Resolve(game, device, deviceDef, FlattenPreset(game, device, preset), PresetRef.Recommended(preset));
 
+    public static ResolvedProfile ResolveSave(GameDef game, string device, DeviceDef? deviceDef, ManualSave save) =>
+        Resolve(game, device, deviceDef, FlattenBody(game, save.Body, $"saves/{save.Slug}"), PresetRef.Manual(save.Slug),
+            label: save.Name, description: save.Notes);
+
+    public static ResolvedProfile Empty(string device) => new() { Device = device };
+
+    public static ResolvedProfile Resolve(GameDef game, string device, DeviceDef? deviceDef,
+        Dictionary<string, object?> body, PresetRef source, string? label = null, string? description = null)
+    {
         var fileIds = game.Files.Select(f => f.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var result = new ResolvedProfile
         {
-            Name = device,
-            HasProfile = hasProfile,
-            HasCapture = capture.Count > 0,
+            Device = device,
+            Source = source,
+            Label = label ?? body.GetValueOrDefault(Label)?.ToString() ?? Titleize(source.Name),
+            Description = description ?? body.GetValueOrDefault(Description)?.ToString(),
+            TargetFps = Int(body.GetValueOrDefault(TargetFps)),
             Display = ResolveDisplay(body.GetValueOrDefault(Display), deviceDef),
         };
         CopyScalars(body.GetValueOrDefault(Nvidia), result.Nvidia);
@@ -70,12 +109,15 @@ public static class ProfileResolver
         {
             if (ReservedKeys.Contains(key)) continue;
             if (!fileIds.Contains(key))
-                throw new ConfigException($"{game.Id}: profile '{device}' sets '{key}', which is not a file id or a reserved key");
+                throw new ConfigException($"{game.Id}: {source} sets '{key}', which is not a file id or a reserved key");
             if (value is Dictionary<string, object?> block)
                 result.FileBlocks[game.Files.First(f => f.Id.Equals(key, StringComparison.OrdinalIgnoreCase)).Id] = block;
         }
         return result;
     }
+
+    private static string Titleize(string name) =>
+        name.Length == 0 ? name : char.ToUpperInvariant(name[0]) + name[1..].Replace('-', ' ');
 
     private static DisplayModeDef? ResolveDisplay(object? value, DeviceDef? device)
     {
@@ -99,8 +141,14 @@ public static class ProfileResolver
         }
     }
 
-    private static int? Int(object? v) =>
-        v is null ? null : int.Parse(Convert.ToString(v, CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture);
+    private static int? Int(object? v)
+    {
+        if (v is null) return null;
+        var s = Convert.ToString(v, CultureInfo.InvariantCulture);
+        return int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
+            ? i
+            : throw new ConfigException($"'{s}' is not a whole number");
+    }
 
     private static void CopyScalars(object? source, Dictionary<string, string> target)
     {

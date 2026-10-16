@@ -1,10 +1,11 @@
 using GameProfiles.Config;
 using GameProfiles.Devices;
 using GameProfiles.Handlers;
+using GameProfiles.Logging;
 
 namespace GameProfiles.Engine;
 
-/// <summary>One configured file/registry key, resolved for this machine and profile.</summary>
+/// <summary>One configured file/registry key, resolved for this machine and the active preset.</summary>
 public sealed class ResolvedFile
 {
     public required FileDef Def { get; init; }
@@ -14,10 +15,10 @@ public sealed class ResolvedFile
     public string? Path { get; init; }
     public string? Error { get; init; }
 
-    /// <summary>Flat key → target value from the resolved profile (base + capture overlay).</summary>
+    /// <summary>Flat key → target value from the active preset or manual save.</summary>
     public Dictionary<string, string> Targets { get; init; } = new();
 
-    /// <summary>Whole-file snapshot captured for this device, applied before key targets.</summary>
+    /// <summary>Whole-file snapshot from the active manual save, applied before key targets.</summary>
     public string? SnapshotFile { get; init; }
 
     public string Id => Def.Id;
@@ -32,6 +33,16 @@ public sealed class GameContext
     public required DeviceSelection Device { get; init; }
     public required ResolvedProfile Profile { get; init; }
     public required List<ResolvedFile> Files { get; init; }
+
+    /// <summary>The manual save in use, when the active preset is a manual one.</summary>
+    public ManualSave? Save { get; init; }
+
+    /// <summary>True when the preset came from an explicit choice (app/CLI) rather than the device default.</summary>
+    public bool IsSelected { get; init; }
+
+    public PresetRef? Preset => Profile.Source;
+
+    public SelectionStore Selections => new(Paths.SelectionsFile);
 
     /// <summary>Driver settings for this machine's vendor (nvidia: or amd: block).</summary>
     public IReadOnlyDictionary<string, string> DriverTargets =>
@@ -52,20 +63,57 @@ public sealed class GameContext
         return DeviceDetector.Select(store.LoadDevices(), DeviceDetector.Detect(), forced);
     }
 
-    public static GameContext Load(AppPaths paths, string gameId, string? profileOption, PathResolver? resolver = null)
+    public static GameContext Load(AppPaths paths, string gameId, string? profileOption, PresetRef? preset = null,
+        PathResolver? resolver = null)
     {
         var store = new ConfigStore(paths);
         var device = SelectDevice(store, profileOption);
-        return Load(store, gameId, device, resolver);
+        return Load(store, gameId, device, preset, resolver);
     }
 
-    public static GameContext Load(ConfigStore store, string gameId, DeviceSelection device, PathResolver? resolver = null)
+    /// <summary>
+    /// Resolve the game for a device. The preset is, in order: <paramref name="preset"/>, the remembered selection,
+    /// the device's defaultPreset, the device's first preset. A stale selection (deleted save/preset) falls back.
+    /// </summary>
+    public static GameContext Load(ConfigStore store, string gameId, DeviceSelection device, PresetRef? preset = null,
+        PathResolver? resolver = null)
     {
         resolver ??= new PathResolver();
         var game = store.LoadGame(gameId);
-        var capture = store.LoadCapture(game.Id, device.Name);
-        var profile = ProfileResolver.Resolve(game, device.Name, device.Def, capture);
-        var snapshotDir = store.Paths.SnapshotDir(game.Id, device.Name);
+        var selections = new SelectionStore(store.Paths.SelectionsFile);
+        var chosen = preset;
+        if (chosen is null)
+        {
+            try { chosen = selections.Get(device.Name, game.Id); }
+            catch (ConfigException ex) { Log.Warn($"Ignoring unreadable selection for {game.Id}: {ex.Message}"); }
+        }
+
+        ManualSave? save = null;
+        ResolvedProfile? profile = null;
+        if (chosen is not null)
+        {
+            try
+            {
+                if (chosen.Kind == PresetKind.Manual)
+                {
+                    save = store.LoadSave(game.Id, device.Name, chosen.Name);
+                    profile = ProfileResolver.ResolveSave(game, device.Name, device.Def, save);
+                }
+                else
+                {
+                    profile = ProfileResolver.ResolvePreset(game, device.Name, device.Def, chosen.Name);
+                }
+            }
+            catch (ConfigException ex) when (preset is null)
+            {
+                Log.Warn($"Selected preset {chosen} is no longer available ({ex.Message}); using the default");
+                save = null;
+            }
+        }
+        bool isSelected = profile is not null;
+        profile ??= DefaultFor(game, device) is { } fallback
+            ? ProfileResolver.ResolvePreset(game, device.Name, device.Def, fallback)
+            : ProfileResolver.Empty(device.Name);
 
         var files = new List<ResolvedFile>();
         foreach (var def in game.Files)
@@ -82,7 +130,7 @@ public sealed class GameContext
                 error = ex.Message;
             }
 
-            var snapshot = Path.Combine(snapshotDir, def.Id + ".snap");
+            var snapshot = save is null ? null : System.IO.Path.Combine(save.Dir, def.Id + ".snap");
             files.Add(new ResolvedFile
             {
                 Def = def,
@@ -90,7 +138,7 @@ public sealed class GameContext
                 Path = path,
                 Error = error,
                 Targets = profile.FileBlocks.TryGetValue(def.Id, out var block) ? handler.Flatten(block) : new(),
-                SnapshotFile = File.Exists(snapshot) ? snapshot : null,
+                SnapshotFile = snapshot is not null && File.Exists(snapshot) ? snapshot : null,
             });
         }
 
@@ -102,6 +150,16 @@ public sealed class GameContext
             Device = device,
             Profile = profile,
             Files = files,
+            Save = save,
+            IsSelected = isSelected,
         };
+    }
+
+    /// <summary>The device's defaultPreset if this game has it, else the first preset, else null.</summary>
+    public static string? DefaultFor(GameDef game, DeviceSelection device)
+    {
+        var names = ProfileResolver.PresetNames(game, device.Name);
+        if (device.Def?.DefaultPreset is { } d && names.Contains(d)) return d;
+        return names.FirstOrDefault();
     }
 }

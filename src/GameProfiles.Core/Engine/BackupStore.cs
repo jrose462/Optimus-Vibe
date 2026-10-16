@@ -25,7 +25,9 @@ public sealed class BackupStore(string backupsDir, int keep = 10)
             ? Directory.EnumerateDirectories(GameDir(gameId))
                 .Where(d => File.Exists(Path.Combine(d, "manifest.json")))
                 .Select(d => Path.GetFileName(d)!)
-                .OrderByDescending(n => n == Original ? "" : n, StringComparer.Ordinal)
+                // yyyyMMdd-HHmmss[-n]: order by timestamp, then numerically by collision suffix (-10 after -9)
+                .OrderByDescending(n => n == Original ? "" : n.Length > 15 ? n[..15] : n, StringComparer.Ordinal)
+                .ThenByDescending(n => n.Length > 16 && int.TryParse(n[16..], out var k) ? k : 1)
                 .ToList()
             : [];
 

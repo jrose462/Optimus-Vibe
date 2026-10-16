@@ -19,6 +19,7 @@ public sealed class ConfigStoreTests : IDisposable
               gpu: "AMD Radeon*"
             display: { width: 1920, height: 1080, refresh: 120 }
             driver: amd
+            defaultPreset: battery
         """;
 
     private const string GameYaml = """
@@ -41,19 +42,32 @@ public sealed class ConfigStoreTests : IDisposable
         profiles:
           base:
             user: { "graphics.preset": High }
+        presets:
           desktop:
-            extends: base
-            display: inherit
-            nvidia: { FrameRateLimiter: 165 }
-            user:
-              "data[group_name=/graphics/presets].options[name=DLSS].value": DLSS_Quality
+            quality:
+              extends: base
+              label: Max quality
+              targetFps: 165
+              display: inherit
+              nvidia: { FrameRateLimiter: 165 }
+              user:
+                "data[group_name=/graphics/presets].options[name=DLSS].value": DLSS_Quality
           ally-x:
-            extends: base
-            display: { refresh: 120 }
-            amd: { Chill: { min: 55, max: 60 }, AFMF: false }
-            user: { MaxFPS: 60, nested: { deep: { key: 1 } }, list: [a, b] }
+            performance:
+              extends: base
+              description: 60+ fps
+              display: { refresh: 120 }
+              amd: { Chill: { min: 55, max: 60 }, AFMF: false }
+              user: { MaxFPS: 60, nested: { deep: { key: 1 } }, list: [a, b] }
+            battery:
+              extends: base
+              user: { MaxFPS: 40 }
         intent:
           ally-x: "Steady 60 fps, battery over visuals"
+        recommendation:
+          generated: "2026-10-01"
+          gameVersion: "2.3"
+          sources: [https://example.com/guide]
         notes: Some notes.
         """;
 
@@ -82,6 +96,8 @@ public sealed class ConfigStoreTests : IDisposable
         Assert.Equal("2560x1440@165Hz", d.Devices["desktop"].Display!.ToString());
         Assert.Equal("amd", d.Devices["ally-x"].Driver);
         Assert.Null(d.Devices["desktop"].Driver);
+        Assert.Equal("battery", d.Devices["ally-x"].DefaultPreset);
+        Assert.Null(d.Devices["desktop"].DefaultPreset);
     }
 
     [Fact]
@@ -120,13 +136,19 @@ public sealed class ConfigStoreTests : IDisposable
         Assert.True(g.Files[1].CreateIfMissing);
         Assert.Equal("Steady 60 fps, battery over visuals", g.Intent["ally-x"]);
         Assert.Equal("Some notes.", g.Notes);
+        Assert.Equal(["base"], g.Profiles.Keys);
+        Assert.Equal(["desktop", "ally-x"], g.Presets.Keys);
+        Assert.Equal(["performance", "battery"], g.Presets["ally-x"].Keys);
+        Assert.Equal("2026-10-01", g.Recommendation!.Generated);
+        Assert.Equal("2.3", g.Recommendation.GameVersion);
+        Assert.Equal(["https://example.com/guide"], g.Recommendation.Sources);
     }
 
     [Fact]
-    public void LoadGame_NormalizesProfileMapsToStringKeys()
+    public void LoadGame_NormalizesPresetMapsToStringKeys()
     {
         var g = _store.LoadGame("Cyberpunk2077");
-        var ally = g.Profiles["ally-x"];
+        var ally = g.Presets["ally-x"]["performance"];
         var user = Assert.IsType<Dictionary<string, object?>>(ally["user"]);
         var nested = Assert.IsType<Dictionary<string, object?>>(user["nested"]);
         var deep = Assert.IsType<Dictionary<string, object?>>(nested["deep"]);
@@ -136,7 +158,8 @@ public sealed class ConfigStoreTests : IDisposable
         Assert.IsType<Dictionary<string, object?>>(((Dictionary<string, object?>)ally["amd"]!)["Chill"]);
         Assert.Equal("base", ally["extends"]);
         Assert.Equal("DLSS_Quality",
-            ((Dictionary<string, object?>)g.Profiles["desktop"]["user"]!)["data[group_name=/graphics/presets].options[name=DLSS].value"]);
+            ((Dictionary<string, object?>)g.Presets["desktop"]["quality"]["user"]!)["data[group_name=/graphics/presets].options[name=DLSS].value"]);
+        Assert.IsType<Dictionary<string, object?>>(g.Profiles["base"]["user"]);
     }
 
     [Fact]
@@ -144,15 +167,19 @@ public sealed class ConfigStoreTests : IDisposable
     {
         var g = _store.LoadGame("Cyberpunk2077");
         var devices = _store.LoadDevices();
-        var desktop = ProfileResolver.Resolve(g, "desktop", devices.Devices["desktop"], new());
+        var desktop = ProfileResolver.ResolvePreset(g, "desktop", devices.Devices["desktop"], "quality");
         Assert.Equal(2560, desktop.Display!.Width);
         Assert.Equal("165", desktop.Nvidia["FrameRateLimiter"]);
         Assert.Equal("High", desktop.FileBlocks["user"]["graphics.preset"]);
+        Assert.Equal("Max quality", desktop.Label);
+        Assert.Equal(165, desktop.TargetFps);
 
-        var ally = ProfileResolver.Resolve(g, "ally-x", devices.Devices["ally-x"], new());
+        var ally = ProfileResolver.ResolvePreset(g, "ally-x", devices.Devices["ally-x"], "performance");
         Assert.Equal("1920x1080@120Hz", ally.Display!.ToString());
         Assert.Equal("min=55,max=60", ally.Amd["Chill"]);
         Assert.Equal("false", ally.Amd["AFMF"]);
+        Assert.Equal("Performance", ally.Label);
+        Assert.Equal("60+ fps", ally.Description);
     }
 
     [Theory]
@@ -184,80 +211,223 @@ public sealed class ConfigStoreTests : IDisposable
         Assert.Equal("empty", g.Id);
         Assert.Equal("steam", g.Store);
         Assert.Empty(g.Files);
+        Assert.Empty(g.Presets);
+        Assert.Null(g.Recommendation);
     }
 
-    [Fact]
-    public void Capture_RoundTrip()
+    // ------------------------------------------------------------------ manual saves
+
+    private static Dictionary<string, object?> SampleBody() => new()
     {
-        var body = new Dictionary<string, object?>
+        ["user"] = new Dictionary<string, object?>
         {
-            ["user"] = new Dictionary<string, object?>
+            ["/Script/Engine.GameUserSettings"] = new Dictionary<string, object?>
             {
-                ["/Script/Engine.GameUserSettings"] = new Dictionary<string, object?>
-                {
-                    ["ResolutionSizeX"] = "1920",
-                    ["sg.ShadowQuality"] = "1",
-                },
-                ["data[group_name=/graphics/presets].options[name=DLSS].value"] = "DLSS_Performance",
-                ["Version"] = "5",
+                ["ResolutionSizeX"] = "1920",
+                ["sg.ShadowQuality"] = "1",
             },
-            ["display"] = new Dictionary<string, object?> { ["refresh"] = "120" },
+            ["data[group_name=/graphics/presets].options[name=DLSS].value"] = "DLSS_Performance",
+            ["Version"] = "5",
+        },
+        ["display"] = new Dictionary<string, object?> { ["refresh"] = 120 },
+    };
+
+    private ManualSave NewSave(string name, DateTime updated, Dictionary<string, object?>? body = null) => new()
+    {
+        Name = name,
+        Created = updated.AddHours(-1),
+        Updated = updated,
+        Body = body ?? new(),
+    };
+
+    [Fact]
+    public void Save_RoundTrip()
+    {
+        var created = new DateTime(2026, 10, 1, 12, 30, 15);
+        var save = new ManualSave
+        {
+            Name = "Steady 40",
+            Created = created,
+            Updated = created.AddMinutes(5),
+            BasedOn = "recommended:performance",
+            Notes = "for flights",
+            Body = SampleBody(),
         };
-        _store.SaveCapture("Cyberpunk2077", "ally-x", body);
+        _store.WriteSave("Cyberpunk2077", "ally-x", save);
 
-        var file = _store.Paths.CaptureFile("Cyberpunk2077", "ally-x");
+        Assert.Equal("steady-40", save.Slug);
+        Assert.Equal(_store.Paths.SaveDir("Cyberpunk2077", "ally-x", "steady-40"), save.Dir);
+        var file = Path.Combine(save.Dir, "save.yaml");
         Assert.True(File.Exists(file));
-        Assert.StartsWith("# Captured by", File.ReadAllText(file));
+        Assert.StartsWith("# Manual save for Cyberpunk2077 on ally-x", File.ReadAllText(file));
 
-        var loaded = _store.LoadCapture("Cyberpunk2077", "ally-x");
-        Assert.Equal(["user", "display"], loaded.Keys);
-        var user = (Dictionary<string, object?>)loaded["user"]!;
+        var loaded = _store.LoadSave("Cyberpunk2077", "ally-x", "steady-40");
+        Assert.Equal("steady-40", loaded.Slug);
+        Assert.Equal(save.Dir, loaded.Dir);
+        Assert.Equal("Steady 40", loaded.Name);
+        Assert.Equal(created, loaded.Created);
+        Assert.Equal(created.AddMinutes(5), loaded.Updated);
+        Assert.Equal("recommended:performance", loaded.BasedOn);
+        Assert.Equal("for flights", loaded.Notes);
+
+        // Meta keys are not part of the body.
+        Assert.Equal(["user", "display"], loaded.Body.Keys);
+        var user = (Dictionary<string, object?>)loaded.Body["user"]!;
         var gus = (Dictionary<string, object?>)user["/Script/Engine.GameUserSettings"]!;
         Assert.Equal("1920", gus["ResolutionSizeX"]);
         Assert.Equal("1", gus["sg.ShadowQuality"]);
         Assert.Equal("DLSS_Performance", user["data[group_name=/graphics/presets].options[name=DLSS].value"]);
         Assert.Equal("5", user["Version"]);
-        Assert.Equal("120", ((Dictionary<string, object?>)loaded["display"]!)["refresh"]);
+        Assert.Equal("120", ((Dictionary<string, object?>)loaded.Body["display"]!)["refresh"]);
     }
 
     [Fact]
-    public void Capture_MissingFile_IsEmpty()
+    public void LoadSave_OptionalMetaMissing_Defaults()
     {
-        Assert.Empty(_store.LoadCapture("Cyberpunk2077", "desktop"));
+        _tmp.Write(Path.Combine("config", "saves", "g", "dev", "hand", "save.yaml"), "created: 2026-01-02T03:04:05\n");
+        var s = _store.LoadSave("g", "dev", "hand");
+        Assert.Equal("hand", s.Name);
+        Assert.Equal(new DateTime(2026, 1, 2, 3, 4, 5), s.Created);
+        Assert.Equal(s.Created, s.Updated); // updated falls back to created
+        Assert.Null(s.BasedOn);
+        Assert.Null(s.Notes);
+        Assert.Empty(s.Body);
     }
 
     [Fact]
-    public void SaveCapture_Empty_DeletesFile()
+    public void LoadSave_Missing_Throws() =>
+        Assert.Throws<ConfigException>(() => _store.LoadSave("Cyberpunk2077", "ally-x", "nope"));
+
+    [Fact]
+    public void ListSaves_OrderedByUpdatedDescending_IgnoresFoldersWithoutSaveYaml()
     {
-        _store.SaveCapture("Cyberpunk2077", "ally-x", new() { ["user"] = new Dictionary<string, object?> { ["a"] = "1" } });
-        var file = _store.Paths.CaptureFile("Cyberpunk2077", "ally-x");
-        Assert.True(File.Exists(file));
-        _store.SaveCapture("Cyberpunk2077", "ally-x", new());
-        Assert.False(File.Exists(file));
-        _store.SaveCapture("Cyberpunk2077", "ally-x", new()); // no file: no-op
+        var t = new DateTime(2026, 5, 1, 10, 0, 0);
+        _store.WriteSave("g", "dev", NewSave("Old", t));
+        _store.WriteSave("g", "dev", NewSave("Newest", t.AddDays(2)));
+        _store.WriteSave("g", "dev", NewSave("Middle", t.AddDays(1)));
+        _store.WriteSave("g", "other-dev", NewSave("Elsewhere", t.AddDays(5)));
+        Directory.CreateDirectory(_store.Paths.SaveDir("g", "dev", "junk"));
+
+        var list = _store.ListSaves("g", "dev");
+        Assert.Equal(["Newest", "Middle", "Old"], list.Select(s => s.Name));
+        Assert.Equal(["newest", "middle", "old"], list.Select(s => s.Slug));
     }
+
+    [Fact]
+    public void ListSaves_NoFolder_IsEmpty() => Assert.Empty(_store.ListSaves("g", "dev"));
+
+    [Fact]
+    public void WriteSave_WritesSnapshots_AndRemovesStaleOnRewrite()
+    {
+        var save = NewSave("Snap", DateTime.Now);
+        _store.WriteSave("g", "dev", save, new Dictionary<string, byte[]> { ["a"] = [1, 2, 3], ["b"] = [4] });
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(save.Dir, "a.snap")));
+        Assert.Equal([4], File.ReadAllBytes(Path.Combine(save.Dir, "b.snap")));
+
+        _store.WriteSave("g", "dev", save, new Dictionary<string, byte[]> { ["a"] = [9] });
+        Assert.Equal([9], File.ReadAllBytes(Path.Combine(save.Dir, "a.snap")));
+        Assert.False(File.Exists(Path.Combine(save.Dir, "b.snap")));
+        Assert.Equal("snap", save.Slug); // existing slug kept, no -2
+
+        _store.WriteSave("g", "dev", save);
+        Assert.Empty(Directory.EnumerateFiles(save.Dir, "*.snap"));
+    }
+
+    [Fact]
+    public void WriteSave_SameName_GetsUniqueSlug()
+    {
+        var a = NewSave("Steady 40", DateTime.Now);
+        var b = NewSave("Steady 40", DateTime.Now);
+        var c = NewSave("steady-40!", DateTime.Now);
+        _store.WriteSave("g", "dev", a);
+        _store.WriteSave("g", "dev", b);
+        _store.WriteSave("g", "dev", c);
+        Assert.Equal("steady-40", a.Slug);
+        Assert.Equal("steady-40-2", b.Slug);
+        Assert.Equal("steady-40-3", c.Slug);
+        Assert.Equal(3, _store.ListSaves("g", "dev").Count);
+    }
+
+    [Fact]
+    public void UniqueSlug_PerDevice()
+    {
+        _store.WriteSave("g", "dev", NewSave("X", DateTime.Now));
+        Assert.Equal("x-2", _store.UniqueSlug("g", "dev", "X"));
+        Assert.Equal("x", _store.UniqueSlug("g", "other", "X"));
+        Assert.Equal("x", _store.UniqueSlug("h", "dev", "X"));
+    }
+
+    [Fact]
+    public void DeleteSave_RemovesFolder_MissingIsNoOp()
+    {
+        var s = NewSave("Gone", DateTime.Now);
+        _store.WriteSave("g", "dev", s, new Dictionary<string, byte[]> { ["a"] = [1] });
+        _store.DeleteSave("g", "dev", s.Slug);
+        Assert.False(Directory.Exists(s.Dir));
+        _store.DeleteSave("g", "dev", s.Slug);
+        Assert.Empty(_store.ListSaves("g", "dev"));
+    }
+
+    [Theory]
+    [InlineData("Steady 40", "steady-40")]
+    [InlineData("  Hello, World!  ", "hello-world")]
+    [InlineData("a--b__c", "a-b-c")]
+    [InlineData("---lead and trail---", "lead-and-trail")]
+    [InlineData("", "save")]
+    [InlineData("   ", "save")]
+    [InlineData("!!!@@@###", "save")]
+    [InlineData("60FPS/High", "60fps-high")]
+    [InlineData("UPPER case", "upper-case")]
+    public void Slugify(string name, string expected) => Assert.Equal(expected, ConfigStore.Slugify(name));
+
+    [Fact]
+    public void Slugify_LongName_TruncatedTo48_WithoutTrailingDash()
+    {
+        Assert.Equal(new string('a', 48), ConfigStore.Slugify(new string('a', 100)));
+        // Character 48 would be a dash: it is trimmed.
+        var name = new string('b', 47) + " tail";
+        var slug = ConfigStore.Slugify(name);
+        Assert.Equal(new string('b', 47), slug);
+        Assert.True(slug.Length <= 48);
+    }
+
+    // ------------------------------------------------------------------ paths / settings
 
     [Fact]
     public void AppPaths_Layout()
     {
-        var p = new AppPaths { ConfigRoot = @"C:\cfg", DataDir = @"C:\data" };
-        Assert.Equal(@"C:\cfg\devices.yaml", p.DevicesFile);
-        Assert.Equal(@"C:\cfg\games\g.yaml", p.GameFile("g"));
-        Assert.Equal(@"C:\cfg\captures\g\dev.yaml", p.CaptureFile("g", "dev"));
-        Assert.Equal(@"C:\cfg\snapshots\g\dev", p.SnapshotDir("g", "dev"));
+        var p = new AppPaths { ConfigRoot = @"C:\repo\config", DataDir = @"C:\data" };
+        Assert.Equal(@"C:\repo\config\devices.yaml", p.DevicesFile);
+        Assert.Equal(@"C:\repo\config\games\g.yaml", p.GameFile("g"));
+        Assert.Equal(@"C:\repo\config\saves", p.SavesDir);
+        Assert.Equal(@"C:\repo\config\saves\g\dev", p.SavesFor("g", "dev"));
+        Assert.Equal(@"C:\repo\config\saves\g\dev\slug", p.SaveDir("g", "dev", "slug"));
         Assert.Equal(@"C:\data\backups", p.BackupsDir);
         Assert.Equal(@"C:\data\state.json", p.StateFile);
+        Assert.Equal(@"C:\data\selections.json", p.SelectionsFile);
+        Assert.Equal(@"C:\repo", p.RepoRoot);
     }
 
     [Fact]
     public void AppSettings_RoundTrip()
     {
         var dir = _tmp.File("data2");
-        Assert.Null(AppPaths.LoadSettings(dir).ConfigRoot);
-        AppPaths.SaveSettings(dir, new AppSettings { ConfigRoot = @"D:\repo\config", ForcedProfile = "ally-x" });
+        var defaults = AppPaths.LoadSettings(dir);
+        Assert.Null(defaults.ConfigRoot);
+        Assert.True(defaults.AutoSync);
+        AppPaths.SaveSettings(dir, new AppSettings { ConfigRoot = @"D:\repo\config", ForcedProfile = "ally-x", AutoSync = false });
         var s = AppPaths.LoadSettings(dir);
         Assert.Equal(@"D:\repo\config", s.ConfigRoot);
         Assert.Equal("ally-x", s.ForcedProfile);
+        Assert.False(s.AutoSync);
+    }
+
+    [Fact]
+    public void AppSettings_MissingAutoSync_DefaultsTrue()
+    {
+        var dir = _tmp.Dir("data3");
+        File.WriteAllText(AppPaths.SettingsFile(dir), """{ "configRoot": "X" }""");
+        Assert.True(AppPaths.LoadSettings(dir).AutoSync);
     }
 
     [Fact]

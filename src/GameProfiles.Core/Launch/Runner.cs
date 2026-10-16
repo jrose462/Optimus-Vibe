@@ -20,7 +20,7 @@ public static class Runner
     public static int Run(GameContext ctx, string[] command, bool prompt = true)
     {
         RunState.RecoverStale(ctx.Paths.StateFile);
-        Log.Info($"=== run {ctx.Game.Id} as '{ctx.Device.Name}' ({ctx.Device.Reason}) ===");
+        Log.Info($"=== run {ctx.Game.Id} as '{ctx.Device.Name}' ({ctx.Device.Reason}), preset {ctx.Preset?.ToString() ?? "(none)"} ===");
 
         AppliedState? applied = null;
         try
@@ -195,14 +195,16 @@ public static class Runner
         foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");
         var lines = drift.Take(8).Select(d => d.Applied is null ? $"• {d.FileId} (whole file)" : $"• {d.Key}: {d.Applied} → {d.Now}");
         var more = drift.Count > 8 ? $"\n…and {drift.Count - 8} more" : "";
+        var question = ctx.Save is { } current
+            ? $"Update your manual save '{current.Name}' with these changes?"
+            : $"Keep them as a new manual save for {ctx.Device.Name}? It becomes this game's active setting.";
         var message = $"{drift.Count} setting(s) changed while playing {ctx.Game.Name}:\n\n{string.Join("\n", lines)}{more}\n\n" +
-                      $"Save them as the '{ctx.Device.Name}' settings for this game?\n(No = they will be reset next launch)";
+                      $"{question}\n(No = '{ctx.Profile.Label}' is re-applied next launch)";
 
         if (!NativeUi.AskYesNo("GameProfiles", message)) return;
-        var files = drift.Select(d => d.FileId).ToHashSet();
-        var snapshotFiles = drift.Where(d => d.Applied is null).Select(d => d.FileId).ToHashSet();
-        var result = GameEngine.Capture(ctx, snapshot: false, files.Except(snapshotFiles).ToList());
-        if (snapshotFiles.Count > 0) GameEngine.Capture(ctx, snapshot: true, snapshotFiles);
-        Log.Info($"Captured {result.KeysCaptured} setting(s){(snapshotFiles.Count > 0 ? $" and {snapshotFiles.Count} snapshot(s)" : "")} for {ctx.Device.Name}");
+        var result = ctx.Save is { } s
+            ? ManualSaves.SaveCurrent(ctx, s.Name, updateSlug: s.Slug)
+            : ManualSaves.SaveCurrent(ctx, $"Tuned {DateTime.Now:MMM d HH:mm}");
+        Log.Info($"Saved '{result.Save.Name}' ({result.KeysSaved} setting(s)){(result.Sync is { } g ? $"; sync: {g.Message}" : "")}");
     }
 }

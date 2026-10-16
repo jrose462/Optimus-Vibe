@@ -27,6 +27,12 @@ public static class Program
         Recursive = true,
     };
 
+    private static readonly Option<string?> PresetOption = new("--preset")
+    {
+        Description = "Use this preset instead of the remembered one: quality | performance | battery | manual:<save>.",
+        Recursive = true,
+    };
+
     private static readonly Argument<string> GameArg = new("game") { Description = "Game id (file name in config\\games without .yaml)" };
 
     public static int Main(string[] args)
@@ -36,9 +42,10 @@ public static class Program
 
         var root = new RootCommand("Applies per-device graphics settings to games (desktop vs handheld) from a shared config repo.")
         {
-            ConfigOption, ProfileOption,
-            RunCommand(), ApplyCommand(), CaptureCommand(), RestoreCommand(), DetectCommand(), InspectCommand(),
-            ListCommand(), ValidateCommand(), UpdateCommand(), ShortcutCommand(), SetupCommand(),
+            ConfigOption, ProfileOption, PresetOption,
+            RunCommand(), ApplyCommand(), PresetsCommand(), UseCommand(), SaveCommand(), DeleteSaveCommand(),
+            RestoreCommand(), DetectCommand(), InspectCommand(), ListCommand(), ValidateCommand(),
+            SyncCommand(), UpdateCommand(), ShortcutCommand(), SetupCommand(),
         };
         return root.Parse(args).Invoke();
     }
@@ -65,7 +72,8 @@ public static class Program
     private static AppPaths Paths(ParseResult pr) => AppPaths.Resolve(pr.GetValue(ConfigOption));
 
     private static GameContext Context(ParseResult pr) =>
-        GameContext.Load(Paths(pr), pr.GetValue(GameArg)!, pr.GetValue(ProfileOption));
+        GameContext.Load(Paths(pr), pr.GetValue(GameArg)!, pr.GetValue(ProfileOption),
+            pr.GetValue(PresetOption) is { } p ? PresetRef.Parse(p) : null);
 
     // ---------------------------------------------------------------- run
 
@@ -148,25 +156,113 @@ public static class Program
 
     // ---------------------------------------------------------------- capture
 
-    private static Command CaptureCommand()
+    private static Command SaveCommand()
     {
-        var snapshot = new Option<bool>("--snapshot") { Description = "Store whole files instead of mapped keys." };
-        var cmd = new Command("capture", "Save the game's current settings as this device's settings (tune in-game, then capture).")
+        var name = new Argument<string>("name") { Description = "Name for the save, e.g. \"Steady 40\"." };
+        var update = new Option<string?>("--update") { Description = "Overwrite this existing save (slug) instead of creating a new one." };
+        var notes = new Option<string?>("--notes") { Description = "Free-text notes shown in the app." };
+        var noActivate = new Option<bool>("--no-activate") { Description = "Don't make the new save this game's active preset." };
+        var noSync = new Option<bool>("--no-sync") { Description = "Don't commit/push the config repo." };
+        var cmd = new Command("save", "Save the game's current settings as a named manual save for this device (tune in-game, then save).")
         {
-            GameArg, snapshot,
+            GameArg, name, update, notes, noActivate, noSync,
         };
         cmd.SetAction(Guard(pr =>
         {
             var ctx = Context(pr);
             PrintHeader(ctx);
-            var result = GameEngine.Capture(ctx, pr.GetValue(snapshot));
-            Console.WriteLine($"Captured {result.KeysCaptured} setting(s) that differ from the base profile -> " +
-                              ctx.Paths.CaptureFile(ctx.Game.Id, ctx.Device.Name));
-            foreach (var s in result.Snapshots)
-                Console.WriteLine($"Snapshot of '{s}' -> {ctx.Paths.SnapshotDir(ctx.Game.Id, ctx.Device.Name)}");
-            foreach (var s in result.Skipped) Console.WriteLine($"Skipped {s}");
-            Console.WriteLine("Commit the config repo to share this with your other machines.");
+            var result = ManualSaves.SaveCurrent(ctx, pr.GetValue(name)!, pr.GetValue(update), !pr.GetValue(noActivate),
+                pr.GetValue(notes), sync: !pr.GetValue(noSync));
+            Console.WriteLine($"Saved '{result.Save.Name}' (manual:{result.Save.Slug}): {result.KeysSaved} setting(s) -> {result.Save.Dir}");
+            foreach (var s in result.Snapshots) Console.WriteLine($"  whole-file snapshot: {s}");
+            foreach (var s in result.Skipped) Console.WriteLine($"  skipped {s}");
+            if (!pr.GetValue(noActivate)) Console.WriteLine("  now the active preset for this game on this device");
+            if (result.Sync is { } g) Console.WriteLine($"  git: {g.Message}");
             return 0;
+        }));
+        return cmd;
+    }
+
+    // ---------------------------------------------------------------- presets / use / delete-save / sync
+
+    private static Command PresetsCommand()
+    {
+        var cmd = new Command("presets", "List recommended presets and manual saves for this device (* = active).") { GameArg };
+        cmd.SetAction(Guard(pr =>
+        {
+            var ctx = Context(pr);
+            PrintHeader(ctx);
+            Console.WriteLine("Recommended:");
+            foreach (var o in PresetCatalog.Recommended(ctx.Game, ctx.Device, ctx.Preset))
+                Console.WriteLine($"  {(o.IsActive ? "*" : " ")} {o.Ref.Name,-14} {o.Label}{(o.TargetFps is { } f ? $" ({f} fps)" : "")}" +
+                                  $"{(o.IsDefault ? " [device default]" : "")}{(o.Error is null ? "" : $" ERROR: {o.Error}")}");
+            Console.WriteLine("Manual saves:");
+            var manual = PresetCatalog.Manual(ctx.Store, ctx.Game, ctx.Device, ctx.Preset);
+            if (manual.Count == 0) Console.WriteLine("    (none — tune in-game, then `gameprofiles save <game> <name>`)");
+            foreach (var o in manual)
+                Console.WriteLine($"  {(o.IsActive ? "*" : " ")} manual:{o.Ref.Name,-20} {o.Label}  (updated {o.Save!.Updated:g})");
+            return 0;
+        }));
+        return cmd;
+    }
+
+    private static Command UseCommand()
+    {
+        var preset = new Argument<string>("preset") { Description = "quality | performance | battery | manual:<save> | default" };
+        var cmd = new Command("use", "Remember which preset this game uses on this device.") { GameArg, preset };
+        cmd.SetAction(Guard(pr =>
+        {
+            var value = pr.GetValue(preset)!;
+            var paths = Paths(pr);
+            var store = new ConfigStore(paths);
+            var device = GameContext.SelectDevice(store, pr.GetValue(ProfileOption));
+            var gameId = store.LoadGame(pr.GetValue(GameArg)!).Id;
+            var selections = new SelectionStore(paths.SelectionsFile);
+            if (value.Equals("default", StringComparison.OrdinalIgnoreCase))
+            {
+                selections.Set(device.Name, gameId, null);
+                Console.WriteLine($"{gameId} on {device.Name}: back to the device default");
+                return 0;
+            }
+            var reference = PresetRef.Parse(value);
+            var ctx = GameContext.Load(store, gameId, device, reference); // throws if it doesn't exist
+            selections.Set(device.Name, gameId, reference);
+            Console.WriteLine($"{gameId} on {device.Name}: now uses {reference} ({ctx.Profile.Label})");
+            return 0;
+        }));
+        return cmd;
+    }
+
+    private static Command DeleteSaveCommand()
+    {
+        var slug = new Argument<string>("save") { Description = "Save slug (see `presets`), with or without the manual: prefix." };
+        var cmd = new Command("delete-save", "Delete a manual save for this device.") { GameArg, slug };
+        cmd.SetAction(Guard(pr =>
+        {
+            var store = new ConfigStore(Paths(pr));
+            var device = GameContext.SelectDevice(store, pr.GetValue(ProfileOption));
+            var gameId = store.LoadGame(pr.GetValue(GameArg)!).Id;
+            var name = pr.GetValue(slug)!;
+            if (name.StartsWith("manual:", StringComparison.OrdinalIgnoreCase)) name = name["manual:".Length..];
+            store.LoadSave(gameId, device.Name, name); // throws if missing
+            var git = ManualSaves.Delete(store, gameId, device.Name, name);
+            Console.WriteLine($"Deleted manual:{name}{(git is null ? "" : $" (git: {git.Message})")}");
+            return 0;
+        }));
+        return cmd;
+    }
+
+    private static Command SyncCommand()
+    {
+        var cmd = new Command("sync", "Commit manual saves, pull, and push the config repo.");
+        cmd.SetAction(Guard(pr =>
+        {
+            var paths = Paths(pr);
+            var git = new GitSync(paths.RepoRoot);
+            var commit = git.Commit("chore(saves): sync manual saves", paths.SavesDir);
+            var sync = git.Sync();
+            Console.WriteLine($"commit: {commit.Message}; {sync.Message}");
+            return commit.Ok && sync.Ok ? 0 : 1;
         }));
         return cmd;
     }
@@ -291,17 +387,24 @@ public static class Program
         cmd.SetAction(Guard(pr =>
         {
             var store = new ConfigStore(Paths(pr));
-            string? device = null;
-            try { device = GameContext.SelectDevice(store, pr.GetValue(ProfileOption)).Name; } catch (ConfigException) { }
-            Console.WriteLine($"Config: {store.Paths.ConfigRoot}   This device: {device ?? "(unknown)"}");
+            DeviceSelection? device = null;
+            try { device = GameContext.SelectDevice(store, pr.GetValue(ProfileOption)); } catch (ConfigException) { }
+            Console.WriteLine($"Config: {store.Paths.ConfigRoot}   This device: {device?.Name ?? "(unknown)"}");
             foreach (var id in store.GameIds())
             {
                 try
                 {
-                    var g = store.LoadGame(id);
-                    var profiles = string.Join(", ", g.Profiles.Keys);
-                    var captured = device is not null && File.Exists(store.Paths.CaptureFile(g.Id, device)) ? " [captured]" : "";
-                    Console.WriteLine($"  {g.Id,-24} {g.Name,-32} {g.Store,-9} profiles: {profiles}{captured}");
+                    if (device is null)
+                    {
+                        var g = store.LoadGame(id);
+                        Console.WriteLine($"  {g.Id,-24} {g.Name,-32} {g.Store}");
+                        continue;
+                    }
+                    var ctx = GameContext.Load(store, id, device);
+                    var presets = string.Join(", ", ProfileResolver.PresetNames(ctx.Game, device.Name));
+                    var saves = store.ListSaves(ctx.Game.Id, device.Name).Count;
+                    Console.WriteLine($"  {ctx.Game.Id,-24} {ctx.Game.Name,-32} active: {ctx.Preset?.ToString() ?? "(none)",-26} " +
+                                      $"presets: {(presets.Length == 0 ? "-" : presets)}; manual saves: {saves}");
                 }
                 catch (Exception ex)
                 {
@@ -413,8 +516,11 @@ public static class Program
     private static void PrintHeader(GameContext ctx)
     {
         Console.WriteLine($"{ctx.Game.Name} — device '{ctx.Device.Name}' ({ctx.Device.Reason})");
-        if (!ctx.Profile.HasProfile) Log.Warn($"No profiles.{ctx.Device.Name} in games/{ctx.Game.Id}.yaml");
-        if (ctx.Profile.HasCapture) Console.WriteLine($"  + captured overrides: {ctx.Paths.CaptureFile(ctx.Game.Id, ctx.Device.Name)}");
+        if (ctx.Profile.IsEmpty)
+            Log.Warn($"No presets for '{ctx.Device.Name}' in games/{ctx.Game.Id}.yaml and no manual save selected");
+        else
+            Console.WriteLine($"  preset: {ctx.Preset} — {ctx.Profile.Label}" +
+                              $"{(ctx.Profile.TargetFps is { } f ? $" ({f} fps target)" : "")}{(ctx.IsSelected ? "" : " [device default]")}");
     }
 
     private static void PrintPlan(List<FilePlan> plans)

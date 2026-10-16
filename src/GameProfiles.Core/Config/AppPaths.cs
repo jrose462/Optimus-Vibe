@@ -10,15 +10,18 @@ public sealed class AppPaths
 
     public string DevicesFile => Path.Combine(ConfigRoot, "devices.yaml");
     public string GamesDir => Path.Combine(ConfigRoot, "games");
-    public string CapturesDir => Path.Combine(ConfigRoot, "captures");
-    public string SnapshotsDir => Path.Combine(ConfigRoot, "snapshots");
+    public string SavesDir => Path.Combine(ConfigRoot, "saves");
     public string BackupsDir => Path.Combine(DataDir, "backups");
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string StateFile => Path.Combine(DataDir, "state.json");
+    public string SelectionsFile => Path.Combine(DataDir, "selections.json");
+
+    /// <summary>The git working tree that holds the config folder (config/ sits at the repo root).</summary>
+    public string RepoRoot => Directory.GetParent(ConfigRoot)?.FullName ?? ConfigRoot;
 
     public string GameFile(string gameId) => Path.Combine(GamesDir, gameId + ".yaml");
-    public string CaptureFile(string gameId, string device) => Path.Combine(CapturesDir, gameId, device + ".yaml");
-    public string SnapshotDir(string gameId, string device) => Path.Combine(SnapshotsDir, gameId, device);
+    public string SavesFor(string gameId, string device) => Path.Combine(SavesDir, gameId, device);
+    public string SaveDir(string gameId, string device, string slug) => Path.Combine(SavesFor(gameId, device), slug);
 
     public static string DefaultDataDir =>
         Environment.GetEnvironmentVariable("GAMEPROFILES_DATA")

@@ -482,3 +482,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# The WPF project folder ends in ".App", which the *.app (macOS bundle) rule above matches on Windows.
+!src/GameProfiles.App/

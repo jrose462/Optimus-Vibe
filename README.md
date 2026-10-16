@@ -3,7 +3,8 @@
 Per-device game graphics settings for Windows. The same games run on a desktop (RTX GPU, <desktop resolution> @ 165 Hz)
 and a ROG Xbox Ally X handheld (Ryzen AI Z2 Extreme, 1920x1080 @ 120 Hz). Each needs different settings, and Steam
 Cloud keeps syncing one machine's config onto the other. GameProfiles detects which machine it is on and, every
-time a game launches, writes that machine's settings into the game's config files. It can also switch the display
+time a game launches, writes that machine's chosen preset (a Claude-recommended one or your own manual save)
+into the game's config files. It can also switch the display
 mode and set NVIDIA driver profiles. Settings live as YAML in this git repo (`config/`).
 
 It works like Apollo/Sunshine prep commands: apply before launch, undo the temporary parts (display mode) after exit.
@@ -35,23 +36,61 @@ look the same everywhere.
 The config root is found in this order: `--config <dir>`, `GAMEPROFILES_CONFIG`, `settings.json`, then a `config`
 folder next to the exe or in a parent of the current directory.
 
+## Presets and manual saves
+
+Each game has two kinds of settings per device, shown as two tabs in the app:
+
+- **Recommended** presets, written by Claude (`presets:` in `config/games/<game>.yaml`). The desktop gets
+  `quality` (best visuals at a smooth framerate: DLSS Quality/Balanced, RT where affordable) and `performance`
+  (toward the 165 Hz cap: DLSS Performance, RT off). The Ally X gets `performance` (60+ fps sustained, FSR/XeSS
+  from 1080p, 120 Hz VRR) and `battery` (30/40 fps cap and the cheapest playable settings; pair it with Armoury
+  Crate Silent, since GameProfiles cannot set TDP). Each preset has a label, a short description, and a target fps.
+- **Manual saves**, made by you: tune the game in its own menu, then save the result under a name. A save records
+  every setting the game's presets know about (files with no mapped keys are copied whole). Saves live in
+  `config/saves/<game>/<device>/<slug>/` and are committed and pushed automatically, so they follow you to the
+  other machine's checkout.
+
+Which settings a launch uses: the preset you picked (in the app or with `use`) is remembered per game per
+device; until you pick one, the device's `defaultPreset` from `devices.yaml` applies (desktop `quality`, Ally X
+`performance`).
+
+## The app
+
+`GameProfilesApp.exe` lists your games with the active preset for this device. For each game, pick a preset in the
+**Recommended** tab or one of your **Manual saves**; the choice is remembered for this device. From the Manual saves
+tab you can save the game's current settings, update, rename, or delete a save. Saves are synced through git.
+
 ## Commands
 
-Global options: `--config <dir>` (config root), `--profile <device>` (override detection).
+Global options: `--config <dir>` (config root), `--profile <device>` (override detection),
+`--preset <name | manual:<slug>>` (use this preset for one command instead of the remembered one).
 
 | Command | What it does |
 |---|---|
-| `run <game> [-- %command%]` | Back up, apply, set display + driver profile, launch, wait for the game's processes, restore the display, then offer to capture changed settings |
+| `run <game> [--no-prompt] [-- %command%]` | Back up, apply the active preset, set display + driver profile, launch, wait for the game's processes, restore the display, then offer to keep settings you changed in-game as a manual save |
 | `apply <game> [--dry-run]` | Apply without launching; `--dry-run` prints a per-key diff |
-| `capture <game> [--snapshot]` | Save the game's current values as this device's overrides (see below) |
+| `presets <game>` | List recommended presets and manual saves for this device (`*` = active) |
+| `use <game> <preset \| manual:<slug> \| default>` | Remember which preset the game uses on this device (`default` = back to the device default) |
+| `save <game> <name> [--update <slug>] [--notes <text>] [--no-activate] [--no-sync]` | Save the game's current settings as a manual save (and make it active, and commit/push, unless told not to) |
+| `delete-save <game> <slug>` | Delete one of this device's manual saves |
+| `sync` | Commit manual saves, pull, and push the config repo |
 | `restore <game> [--original \| --timestamp <stamp>]` | Roll the game's files back from a local backup |
 | `detect` | Show detected hardware and the matched device |
-| `inspect <game>` | Show resolved paths and current contents of the game's settings files |
-| `list` | List configured games |
-| `validate` | Check devices.yaml and every game file |
+| `inspect <game> [--full]` | Show resolved paths, current values vs the active preset, and file contents |
+| `list` | List configured games with the active preset, available presets, and number of manual saves |
+| `validate` | Check devices.yaml, every game file, and every manual save |
 | `update` | `git pull` the config repo |
 | `shortcut <game> [--out <dir>]` | Create a .lnk that runs the game through GameProfiles (for non-Steam games) |
 | `setup --config-root <path> [--force-profile <device>]` | Per-machine setup |
+
+Examples:
+
+```powershell
+gameprofiles presets cyberpunk2077
+gameprofiles use cyberpunk2077 performance
+gameprofiles save cyberpunk2077 "Steady 40" --notes "Medium crowds, 40 cap"
+gameprofiles apply cyberpunk2077 --profile ally-x --preset battery --dry-run
+```
 
 ## Steam games
 
@@ -76,20 +115,20 @@ gameprofiles shortcut overwatch --out "$env:USERPROFILE\Desktop"
 Launch the game from that .lnk, or add it to Steam as a non-Steam game so it also works from the Ally's
 full-screen experience.
 
-## Capturing settings you tuned in-game
+## Tuning settings in-game
 
 You don't need Claude (or YAML editing) to change a game's settings:
 
 1. Launch through GameProfiles and change settings in the game's menu.
-2. On exit, if the tracked settings changed, a prompt asks whether to save them as this device's settings for the
-   game. Answer Yes, or run `gameprofiles capture <game>` later.
-3. Captured values go to `config/captures/<game>/<device>.yaml` as an overlay on top of the game's profile. Delete
-   that file to go back to the profile in `games/<game>.yaml`.
-4. `capture <game> --snapshot` (used automatically for files with no mapped keys) copies whole files into
-   `config/snapshots/<game>/<device>/`. Those files are restored as-is on launch.
+2. On exit, if any tracked setting changed, a prompt asks whether to keep the changes as a new manual save (or
+   to update the manual save you are using). Answer Yes and it becomes the game's active preset on this device.
+   Answer No and the active preset is re-applied next launch.
+3. Or save any time with `gameprofiles save <game> "<name>"` or from the app's Manual saves tab.
+4. To go back to a recommendation: pick it in the app or `gameprofiles use <game> default`.
 
-Commit and push `captures/` and `snapshots/`, then `gameprofiles update` on the other machine. Each device only
-reads its own captures.
+Manual saves are committed and pushed automatically (turn this off with `"autoSync": false` in
+`%LOCALAPPDATA%\GameProfiles\settings.json`; then run `gameprofiles sync` yourself). Run `gameprofiles update`
+(or `sync`) on the other machine to pull them. Each device only uses its own saves.
 
 ## Backups, restore, logs
 
@@ -109,7 +148,7 @@ desktop's desktop Ryzen CPU also reports an "AMD Radeon(TM) Graphics" iGPU. Over
 
 ## Driver settings
 
-- **NVIDIA (desktop)**: the `nvidia:` block in a game profile (e.g. `FrameRateLimiter: 162`) is written to the
+- **NVIDIA (desktop)**: the `nvidia:` block in a game preset (e.g. `FrameRateLimiter: 162`) is written to the
   driver's per-application profile for the game's exe via NVAPI DRS. It persists like a setting made in NVIDIA
   Control Panel and is not undone on exit.
 - **AMD (Ally X)**: AMD has no supported API for Adrenalin per-game profiles. The plan is to apply ADLX *global* 3D
@@ -132,7 +171,7 @@ A vendor block on the wrong hardware is skipped.
 - **Settings don't stick**: the game may rewrite its config on boot. Try `readOnlyAfterApply: true` for that file,
   and check `notes:` in the game's YAML. Some games store settings server-side (some Blizzard keys).
 - **Wrong machine's settings after a sync**: launch through the wrapper (Steam launch option / shortcut). Plain
-  launches skip GameProfiles. Make sure options that differ per device are set in both profiles.
+  launches skip GameProfiles. Make sure options that differ per device are set in every preset.
 - **"Cannot write JSON path" / key not found**: the key name is wrong for this game version. Run
   `gameprofiles inspect <game>` and fix it (look for `# TODO verify` comments).
 - **Display didn't switch back** (wrapper crashed or was killed): the next `gameprofiles run` detects the stale
@@ -142,6 +181,9 @@ A vendor block on the wrong hardware is skipped.
 
 ## Adding games
 
-See [CLAUDE.md](CLAUDE.md) for the workflow (it is written for Claude but works for people too) and
+Ask Claude: "add <game> to GameProfiles" or "refresh recommendations for <game>". It follows the
+`game-settings-recommender` skill (`.claude/skills/game-settings-recommender/`), which researches the game's
+settings, confirms key names with `gameprofiles inspect`, writes the four presets, validates and commits. See
+[CLAUDE.md](CLAUDE.md) for the rules (written for Claude but readable by people) and
 `config/games/_template.yaml` for every field. In VS Code with the YAML extension, game files are validated
 against `config/schema/game.schema.json` as you type.

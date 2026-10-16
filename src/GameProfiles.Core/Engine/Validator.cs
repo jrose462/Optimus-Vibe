@@ -106,38 +106,51 @@ public static class Validator
             }
         }
 
-        // Each profile must resolve; JSON keys must parse.
+        // Every preset must resolve; JSON keys must parse.
         var extended = game.Profiles.Values
+            .Concat(game.Presets.Values.SelectMany(p => p.Values))
             .Select(p => p.GetValueOrDefault(ProfileResolver.Extends)?.ToString())
             .Where(e => e is not null)
             .ToHashSet(StringComparer.Ordinal);
-        foreach (var name in game.Profiles.Keys)
-        {
-            if (!devices.Devices.ContainsKey(name) && !extended.Contains(name))
-                report.Warnings.Add($"{where}: profile '{name}' is not a device in devices.yaml and nothing extends it");
-            try
-            {
-                var resolved = ProfileResolver.Resolve(game, name, devices.Devices.GetValueOrDefault(name), new());
-                CheckBlocks(game, resolved, $"{where}: profiles.{name}", report);
-            }
-            catch (ConfigException ex)
-            {
-                report.Errors.Add($"{where}: {ex.Message}");
-            }
-        }
-        foreach (var device in devices.Devices.Keys.Where(d => !game.Profiles.ContainsKey(d)))
-            report.Warnings.Add($"{where}: no profile for device '{device}' (only captured settings will apply there)");
+        foreach (var name in game.Profiles.Keys.Where(n => !extended.Contains(n)))
+            report.Warnings.Add($"{where}: profiles.{name} is not extended by any preset (profiles are never applied directly)");
 
-        foreach (var device in devices.Devices.Keys)
+        foreach (var (device, presets) in game.Presets)
         {
-            try
+            if (!devices.Devices.TryGetValue(device, out var deviceDef))
             {
-                var capture = store.LoadCapture(game.Id, device);
-                if (capture.Count > 0) ProfileResolver.Resolve(game, device, devices.Devices[device], capture);
+                report.Errors.Add($"{where}: presets.{device}: '{device}' is not a device in devices.yaml");
+                continue;
             }
-            catch (Exception ex)
+            foreach (var preset in presets.Keys)
             {
-                report.Errors.Add($"captures/{game.Id}/{device}.yaml: {ex.Message}");
+                try
+                {
+                    var resolved = ProfileResolver.ResolvePreset(game, device, deviceDef, preset);
+                    CheckBlocks(game, resolved, $"{where}: presets.{device}.{preset}", report);
+                    if (resolved.FileBlocks.Count == 0 && resolved.Display is null && resolved.Nvidia.Count == 0 && resolved.Amd.Count == 0)
+                        report.Warnings.Add($"{where}: presets.{device}.{preset} sets nothing");
+                }
+                catch (Exception ex) when (ex is ConfigException or FormatException)
+                {
+                    report.Errors.Add($"{where}: {ex.Message}");
+                }
+            }
+            if (deviceDef.DefaultPreset is { } dp && !presets.ContainsKey(dp))
+                report.Warnings.Add($"{where}: presets.{device} has no '{dp}' (the device default); the first preset is used instead");
+        }
+        foreach (var device in devices.Devices.Keys.Where(d => !game.Presets.ContainsKey(d)))
+            report.Warnings.Add($"{where}: no recommended presets for device '{device}' (only manual saves will apply there)");
+
+        foreach (var (device, deviceDef) in devices.Devices)
+        {
+            IReadOnlyList<ManualSave> saves;
+            try { saves = store.ListSaves(game.Id, device); }
+            catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}: {ex.Message}"); continue; }
+            foreach (var save in saves)
+            {
+                try { ProfileResolver.ResolveSave(game, device, deviceDef, save); }
+                catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}/{save.Slug}: {ex.Message}"); }
             }
         }
     }
