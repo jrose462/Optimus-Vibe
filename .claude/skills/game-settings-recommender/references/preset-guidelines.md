@@ -64,7 +64,7 @@ assumption on ally-x), `targetFps`.
 - Disable everything that is expensive per pixel and invisible on a 7" screen: volumetrics, SSR, SSAO
   (Low/off), shadows Low, post-process Low, foliage density Low, motion blur/DOF off, effects Low.
 - No frame generation.
-- `description` must say: pair with Armoury Crate **Silent (~13 W)**; GameProfiles cannot set TDP.
+- `description` must say: pair with Armoury Crate **Silent (~13 W)**; Optimus-Vibe cannot set TDP.
 
 ## Shared rules
 
@@ -123,7 +123,7 @@ Scalability value scale in UE: 0 = Low, 1 = Medium, 2 = High, 3 = Epic, 4 = Cine
 
 ## Sources of truth (research in this order, cite in `recommendation.sources`)
 
-1. `gameprofiles inspect <id>` on the user's machine — final word on key names and value formats.
+1. `optimus-vibe inspect <id>` on the user's machine — final word on key names and value formats.
 2. **PCGamingWiki** (`https://www.pcgamingwiki.com/wiki/<Game>`): config/save locations, engine, upscalers,
    frame-cap/VRR/ultrawide support, known issues, ini tweaks.
 3. **Digital Foundry** optimized settings videos/articles, **BenchmarKing** / **Hardware Unboxed** /

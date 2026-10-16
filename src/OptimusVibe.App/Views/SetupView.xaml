@@ -1,0 +1,89 @@
+<UserControl x:Class="OptimusVibe.App.Views.SetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:OptimusVibe.App.Views"
+             xmlns:input="clr-namespace:OptimusVibe.App.Input">
+    <!-- DataContext: MainViewModel. Shown when no config folder resolves, or this machine matches no device.
+         Primary path (handheld, no git): sign in with GitHub and use the config repo; alternative: a local checkout. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+        <Border Style="{StaticResource Card}" MaxWidth="820" Margin="32" Padding="40,36"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel>
+                <TextBlock Text="Let's set this device up" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
+                <TextBlock Style="{StaticResource Text.Lead}" Margin="0,8,0,0"
+                           Text="Optimus-Vibe keeps your games, presets and saves in a config repo and syncs them between your devices." />
+
+                <Border Style="{StaticResource Card.Inset}" Margin="0,20,0,0"
+                        Visibility="{Binding SetupMessage, Converter={StaticResource VisibleWhen}}">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Style="{StaticResource Dot.Attention}" Margin="0,0,12,0" VerticalAlignment="Top" />
+                        <TextBlock Text="{Binding SetupMessage}" Style="{StaticResource Text.Dim}" MaxWidth="660" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ============================================ device (config is fine, device unknown) -->
+                <StackPanel Margin="0,26,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}}">
+                    <TextBlock Style="{StaticResource Text.H2}" Text="Which device is this?" />
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,14"
+                               Text="This machine didn't match any device in your config. Pick the one to always use here." />
+                    <ItemsControl ItemsSource="{Binding DeviceChoices}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Content="{Binding}" Margin="0,0,8,8" MinWidth="140"
+                                        Command="{Binding DataContext.ForceDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- ============================================ GitHub (primary) -->
+                <StackPanel Margin="0,28,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                    <TextBlock Style="{StaticResource Text.H2}" Text="Sign in with GitHub" />
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,16"
+                               Text="The app downloads your config repo and keeps it in sync through your account. No git or folders to set up." />
+                    <views:GitHubSignInPanel x:Name="SignIn" DataContext="{Binding Account}" />
+
+                    <StackPanel DataContext="{Binding Account}" Margin="0,20,0,0" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Config repository" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
+                                         AutomationProperties.Name="Repository (owner/name)" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="Branch" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
+                                         AutomationProperties.Name="Branch" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Style="{StaticResource Button.Large}" Command="{Binding UseRepoCommand}" Margin="10,0,0,0"
+                                    VerticalAlignment="Bottom" input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Use this repo" Content="Use this repo" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- ============================================ local checkout (alternative) -->
+                    <StackPanel Margin="0,32,0,0">
+                        <TextBlock Style="{StaticResource Text.H3}" Text="Or use a local git folder" />
+                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,0"
+                                   Text="Pick the config folder of a repo you cloned yourself (the one with devices.yaml)." />
+                        <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding ConfigRoot}" Margin="0,8,0,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <Button Command="{Binding PickConfigFolderCommand}" Content="Choose config folder…" />
+                            <Button Content="Retry" Style="{StaticResource Button.Quiet}" Command="{Binding RefreshCommand}" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </ScrollViewer>
+</UserControl>

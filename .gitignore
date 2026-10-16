@@ -484,4 +484,4 @@ $RECYCLE.BIN/
 *.swp
 
 # The WPF project folder ends in ".App", which the *.app (macOS bundle) rule above matches on Windows.
-!src/GameProfiles.App/
+!src/OptimusVibe.App/

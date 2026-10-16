@@ -1,5 +1,5 @@
-# Cut a release: push a tag vX.Y.Z (or run manually with a version). Tests, publishes GameProfilesApp.exe and
-# gameprofiles.exe as single-file self-contained win-x64 exes stamped with that version, writes a .sha256 per exe
+# Cut a release: push a tag vX.Y.Z (or run manually with a version). Tests, publishes OptimusVibe.exe and
+# optimus-vibe.exe as single-file self-contained win-x64 exes stamped with that version, writes a .sha256 per exe
 # and creates the GitHub Release with generated notes. The in-app updater looks for exactly these asset names.
 name: Release
 
@@ -69,15 +69,15 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore GameProfiles.sln
+        run: dotnet restore OptimusVibe.sln
 
       - name: Build and test
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          dotnet build GameProfiles.sln -c Release --no-restore "-p:Version=$env:VERSION"
+          dotnet build OptimusVibe.sln -c Release --no-restore "-p:Version=$env:VERSION"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test GameProfiles.sln -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+          dotnet test OptimusVibe.sln -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload test results
@@ -96,14 +96,14 @@ jobs:
           $common = @('-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
                       '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true',
                       "-p:Version=$env:VERSION")
-          dotnet publish src/GameProfiles.App/GameProfiles.App.csproj @common -o out/app
+          dotnet publish src/OptimusVibe.App/OptimusVibe.App.csproj @common -o out/app
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet publish src/GameProfiles/GameProfiles.csproj @common -o out/cli
+          dotnet publish src/OptimusVibe.Cli/OptimusVibe.Cli.csproj @common -o out/cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item out/app/GameProfilesApp.exe dist/GameProfilesApp.exe
-          Copy-Item out/cli/gameprofiles.exe    dist/gameprofiles.exe
+          Copy-Item out/app/OptimusVibe.exe dist/OptimusVibe.exe
+          Copy-Item out/cli/optimus-vibe.exe    dist/optimus-vibe.exe
 
           foreach ($exe in Get-ChildItem dist -Filter *.exe) {
             $pv = $exe.VersionInfo.ProductVersion
@@ -132,8 +132,8 @@ jobs:
         run: |
           # On a tag push the tag already exists; on workflow_dispatch gh creates it at the run's commit.
           gh release create $env:TAG `
-            dist/GameProfilesApp.exe dist/GameProfilesApp.exe.sha256 `
-            dist/gameprofiles.exe dist/gameprofiles.exe.sha256 `
+            dist/OptimusVibe.exe dist/OptimusVibe.exe.sha256 `
+            dist/optimus-vibe.exe dist/optimus-vibe.exe.sha256 `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:TARGET `
             --title $env:TAG `

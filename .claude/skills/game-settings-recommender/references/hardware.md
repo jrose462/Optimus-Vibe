@@ -1,4 +1,4 @@
-# Hardware: the two GameProfiles devices
+# Hardware: the two Optimus-Vibe devices
 
 Device ids come from `config/devices.yaml`. Presets are written per device id.
 
@@ -41,7 +41,7 @@ What limits it:
 | Memory | 24 GB LPDDR5X-8000, **shared** between CPU and GPU (games usually see 4-8 GB as VRAM, set in Armoury Crate) |
 | Display | 7" 1920x1080 IPS, 120 Hz, VRR (FreeSync Premium, roughly 48-120 Hz) |
 | Battery | 80 Wh |
-| Power | TDP ~13-17 W (Silent), ~15-25 W (Performance), 35 W (Turbo, plugged in) — set by the user in Armoury Crate / Command Center, **not** by GameProfiles |
+| Power | TDP ~13-17 W (Silent), ~15-25 W (Performance), 35 W (Turbo, plugged in) — set by the user in Armoury Crate / Command Center, **not** by Optimus-Vibe |
 | OS shell | Xbox full-screen experience on Windows 11 |
 | Driver backend | `amd:` block — **not implemented** (docs/amd-adlx.md); leave commented |
 | Default preset | `performance` |

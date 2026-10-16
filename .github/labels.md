@@ -9,7 +9,7 @@
 Create them once (needs the `gh` CLI signed in with access to the repo; `--force` updates an existing label):
 
 ```sh
-gh label create bug-report --color d73a4a --description "Bug filed from the app's Report a problem" --force -R jrose462/GameProfiles && gh label create claude-plan --color 5319e7 --description "Claude posted an action plan" --force -R jrose462/GameProfiles && gh label create claude-fix --color 0e8a16 --description "PR opened by Claude for a bug report" --force -R jrose462/GameProfiles
+gh label create bug-report --color d73a4a --description "Bug filed from the app's Report a problem" --force -R jrose462/Optimus-Vibe && gh label create claude-plan --color 5319e7 --description "Claude posted an action plan" --force -R jrose462/Optimus-Vibe && gh label create claude-fix --color 0e8a16 --description "PR opened by Claude for a bug report" --force -R jrose462/Optimus-Vibe
 ```
 
 Create them before the first report so they get these colors and descriptions (GitHub may otherwise create a

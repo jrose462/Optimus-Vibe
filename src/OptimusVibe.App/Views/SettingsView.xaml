@@ -1,0 +1,355 @@
+<UserControl x:Class="OptimusVibe.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:OptimusVibe.App.Views"
+             xmlns:vm="clr-namespace:OptimusVibe.App.ViewModels"
+             xmlns:input="clr-namespace:OptimusVibe.App.Input"
+             x:Name="Root">
+    <!-- DataContext: SettingsViewModel. One column of cards; every control reachable with the D-pad, B goes back. -->
+    <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
+        <Grid Margin="26,6,32,24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1040" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+
+                <!-- title -->
+                <StackPanel Margin="0,0,0,22">
+                    <Button x:Name="BackButton" Style="{StaticResource Button.Icon}" Command="{Binding CloseCommand}" AutomationProperties.Name="Back"
+                            HorizontalAlignment="Left" Margin="-8,0,0,6" ToolTip="Back">
+                        <TextBlock Text="&#xE72B;" />
+                    </Button>
+                    <StackPanel>
+                        <TextBlock Text="Settings" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0"
+                                   Text="Sync, launchers and how Optimus-Vibe looks after this device." />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- ======================================================== a newer version (the one feature card) -->
+                <Border Style="{StaticResource Card.Feature}" Margin="0,0,0,16" DataContext="{Binding Updates}"
+                        Visibility="{Binding IsAvailable, Converter={StaticResource VisibleWhen}}">
+                    <StackPanel>
+                        <TextBlock Text="A new version is ready" Style="{StaticResource Text.H2}" Foreground="White" />
+                        <TextBlock Text="{Binding AvailableText}" FontSize="14.5" Foreground="{StaticResource OnFeatureDimBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                        <TextBox Text="{Binding NotesText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto" MaxHeight="200" VerticalContentAlignment="Top" Margin="0,16,0,0"
+                                 Background="#33000000" FontSize="14" AutomationProperties.Name="Release notes" />
+                        <Button Style="{StaticResource Button.Large}" Command="{Binding InstallCommand}" HorizontalAlignment="Left" Margin="0,16,0,0"
+                                Background="White" Foreground="#0B4A94" AutomationProperties.Name="Download and restart" Content="Download and restart" />
+                        <StackPanel Margin="0,12,0,0" Visibility="{Binding IsDownloading, Converter={StaticResource VisibleWhen}}">
+                            <ProgressBar Style="{StaticResource BusyBar}" IsIndeterminate="False" Minimum="0" Maximum="1" Height="8" Foreground="White"
+                                         Value="{Binding Progress, Mode=OneWay}" />
+                            <TextBlock Text="{Binding ProgressText}" FontSize="14" Foreground="{StaticResource OnFeatureDimBrush}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== sync -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Sync" Style="{StaticResource Text.H2}" />
+                        <TextBlock Margin="0,4,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Dim}">
+                                    <Setter Property="Text" Value="Your saves and library sync with a local git folder." />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsGitHub}" Value="True">
+                                            <Setter Property="Text" Value="Your saves and library sync through your GitHub account." />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding ProviderText}" Style="{StaticResource Text.Caption}" Margin="0,2,0,0" TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding ProviderText}" />
+
+                        <UniformGrid Columns="2" Margin="0,16,0,0">
+                            <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsGitHub}" Margin="0,0,8,0"
+                                    Command="{Binding FocusRepoCommand, ElementName=Root}" AutomationProperties.Name="GitHub account">
+                                <StackPanel>
+                                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="GitHub account" />
+                                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0" Text="The app keeps its own copy of your config repo. No git needed, best for the handheld." />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsGitHub, Converter={StaticResource Not}}" Margin="8,0,0,0"
+                                    Command="{Binding UseLocalGitCommand}" AutomationProperties.Name="Use local git checkout instead">
+                                <StackPanel>
+                                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="Local git folder" />
+                                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0" Text="Use a repo you cloned yourself and sync it with git." />
+                                </StackPanel>
+                            </Button>
+                        </UniformGrid>
+
+                        <WrapPanel Margin="0,16,0,0">
+                            <CheckBox Content="Sync automatically" IsChecked="{Binding AutoSync}" Margin="0,0,24,0"
+                                      ToolTip="Manual saves, opt-outs and queued games" />
+                            <Button Command="{Binding SyncNowCommand}" AutomationProperties.Name="Sync now" Content="Sync now" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== github account -->
+                <Border x:Name="AccountCard" Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="GitHub account" Style="{StaticResource Text.H2}" Margin="0,0,0,14" />
+                        <views:GitHubSignInPanel DataContext="{Binding Account}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== repository -->
+                <Border x:Name="RepoCard" Style="{StaticResource Card}" Margin="0,0,0,16" DataContext="{Binding Account}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Config repo" Style="{StaticResource Text.H2}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding LoadReposCommand}" AutomationProperties.Name="Reload repositories"
+                                    Content="Reload list" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
+                            <Run Text="Your game settings live in" />
+                            <Run Text="{Binding CurrentRepo, Mode=OneWay}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" />
+                        </TextBlock>
+
+                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,10,0,0" Text="Sign in to GitHub above to pick a repository."
+                                   Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
+
+                        <StackPanel Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
+                            <TextBox x:Name="RepoSearch" Text="{Binding RepoFilter, UpdateSourceTrigger=PropertyChanged}" Margin="0,16,0,0"
+                                     AutomationProperties.Name="Search repositories" ToolTip="Search your repositories" />
+                            <TextBlock Text="Loading your repositories…" Style="{StaticResource Text.Dim}" Margin="4,10,0,0"
+                                       Visibility="{Binding IsLoadingRepos, Converter={StaticResource VisibleWhen}}" />
+                            <ListBox x:Name="RepoList" ItemsSource="{Binding FilteredRepos}" SelectedItem="{Binding SelectedRepo}"
+                                     Style="{StaticResource GameList}" ItemContainerStyle="{StaticResource GameListItem}"
+                                     MaxHeight="300" Margin="-4,10,-4,0"
+                                     AutomationProperties.Name="Repositories">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:RepoItemViewModel}">
+                                        <StackPanel>
+                                            <TextBlock FontSize="16" FontWeight="SemiBold">
+                                                <Run Text="{Binding FullName, Mode=OneWay}" />
+                                            </TextBlock>
+                                            <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
+                                                <Run Text="{Binding Description, Mode=OneWay}" />
+                                            </TextBlock>
+                                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                <TextBlock Text="Private" Style="{StaticResource Text.Caption}" Margin="0,0,10,0"
+                                                           Visibility="{Binding IsPrivate, Converter={StaticResource VisibleWhen}}" />
+                                                <TextBlock Text="In use" Style="{StaticResource Text.Caption}" Foreground="{StaticResource AccentTextBrush}"
+                                                           Visibility="{Binding IsCurrent, Converter={StaticResource VisibleWhen}}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Repository" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                    <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                             AutomationProperties.Name="Repository (owner/name)" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                    <TextBlock Text="Branch" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                    <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                             AutomationProperties.Name="Branch" />
+                                </StackPanel>
+                                <Button Grid.Column="2" Style="{StaticResource Button.Primary}" Command="{Binding UseRepoCommand}" Margin="10,0,0,0"
+                                        VerticalAlignment="Bottom" AutomationProperties.Name="Use this repo" Content="Use this repo" />
+                            </Grid>
+                            <TextBlock Style="{StaticResource Text.Caption}" Margin="4,10,0,0"
+                                       Text="The app downloads the repo into its own copy and syncs through your account. Switching branches replaces that copy, so sync first if you have unsynced saves." />
+
+                            <!-- picked repo isn't a config repo yet: confirm before seeding it -->
+                            <Border Style="{StaticResource Card.Inset}" Margin="0,16,0,0"
+                                    Visibility="{Binding HasSeedPrompt, Converter={StaticResource VisibleWhen}}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SeedPrompt}" Style="{StaticResource Text.Body}" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Style="{StaticResource Button.Primary}" Command="{Binding ConfirmSeedCommand}" Margin="0,0,8,0"
+                                                input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Seed this repo" Content="Seed and use this repo" />
+                                        <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CancelSeedCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- create a new config repo -->
+                            <Button Command="{Binding OpenCreateCommand}" Style="{StaticResource Button.Quiet}" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                    Visibility="{Binding IsCreateOpen, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}"
+                                    AutomationProperties.Name="Create a new config repo" Content="Create a new config repo…" />
+                            <Border Style="{StaticResource Card.Inset}" Margin="0,16,0,0"
+                                    Visibility="{Binding IsCreateOpen, Converter={StaticResource VisibleWhen}}">
+                                <StackPanel>
+                                    <TextBlock Text="New repository name" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                    <TextBox Text="{Binding NewRepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                             input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="New repository name" Background="#1C1D21" />
+                                    <CheckBox IsChecked="{Binding NewRepoPrivate}" Content="Private repository (recommended)" Margin="0,12,0,0" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" Margin="4,8,0,0"
+                                               Text="Creates the repo under your account, seeds it with your devices and games, and switches sync to it." />
+                                    <WrapPanel Margin="0,14,0,0">
+                                        <Button Style="{StaticResource Button.Primary}" Command="{Binding CreateRepoCommand}" Margin="0,0,8,0"
+                                                AutomationProperties.Name="Create and use repo" Content="Create and use" />
+                                        <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CancelCreateCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== app updates (the APP repo, not the config repo above) -->
+                <Border x:Name="UpdatesCard" Style="{StaticResource Card}" Margin="0,0,0,16" DataContext="{Binding Updates}">
+                    <StackPanel>
+                        <TextBlock Text="Updates" Style="{StaticResource Text.H2}" />
+                        <TextBlock Text="{Binding VersionText, Mode=OneWay}" Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
+
+                        <Button Command="{Binding CheckCommand}" HorizontalAlignment="Left" Margin="0,16,0,0"
+                                AutomationProperties.Name="Check for updates" Content="Check for updates" />
+
+                        <TextBlock Text="{Binding StatusText}" Margin="0,12,0,0" TextWrapping="Wrap" FontSize="15"
+                                   Visibility="{Binding HasStatus, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Dim}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding StatusIsError}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Button Content="Go to GitHub sign-in" Command="{Binding GoToSignInCommand}" HorizontalAlignment="Left" Margin="0,10,0,0"
+                                Visibility="{Binding SignInRequired, Converter={StaticResource VisibleWhen}}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== library -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Game library" Style="{StaticResource Text.H2}" />
+                        <TextBlock Text="Which launchers to look in for installed games." Style="{StaticResource Text.Dim}" Margin="0,4,0,8" />
+                        <ItemsControl ItemsSource="{Binding Stores}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                    <CheckBox Content="{Binding Label}" IsChecked="{Binding IsOn}" Margin="0,0,12,0" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <CheckBox IsChecked="{Binding WriteSteamLaunchOptions}" Margin="0,12,0,0">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="Keep Steam launch options up to date" FontWeight="SemiBold" />
+                                <LineBreak />
+                                <Run Text="Games start through Optimus-Vibe even from Steam or Big Picture. Steam must be closed to write them."
+                                     Foreground="{StaticResource TextDimBrush}" FontSize="14" />
+                            </TextBlock>
+                        </CheckBox>
+
+                        <TextBlock Text="Start in" Style="{StaticResource Text.H3}" Margin="0,22,0,10" />
+                        <ItemsControl ItemsSource="{Binding Modes}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                    <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,10,0" VerticalAlignment="Stretch"
+                                            AutomationProperties.Name="{Binding Label}"
+                                            Command="{Binding DataContext.SetModeCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Label}" FontSize="16" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Hint}" Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== device -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="This device" Style="{StaticResource Text.H2}" />
+                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
+                            <Run Text="Optimus-Vibe treats this machine as" />
+                            <Run Text="{Binding DeviceName, Mode=OneWay}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" /><Run Text="." />
+                        </TextBlock>
+
+                        <TextBlock Text="Use a different device profile" Style="{StaticResource Text.H3}" Margin="0,18,0,10" />
+                        <WrapPanel>
+                            <ItemsControl ItemsSource="{Binding DeviceChoices}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding}" Margin="0,0,8,8" MinWidth="120"
+                                                Command="{Binding DataContext.ForceDeviceCommand, ElementName=Root}" CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Content="Auto-detect" Style="{StaticResource Button.Quiet}" Command="{Binding AutoDetectDeviceCommand}" Margin="0,0,8,8"
+                                    ToolTip="Forget the forced profile and match devices.yaml again" />
+                        </WrapPanel>
+
+                        <ToggleButton x:Name="AboutToggle" Style="{StaticResource Button.Quiet}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                      AutomationProperties.Name="About this device">
+                            <TextBlock>
+                                <Run Text="&#xE946;" FontFamily="{StaticResource IconFont}" />
+                                <Run Text="About this device" />
+                            </TextBlock>
+                        </ToggleButton>
+                        <Border Style="{StaticResource Card.Inset}" Margin="0,8,0,0"
+                                Visibility="{Binding IsChecked, ElementName=AboutToggle, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding DeviceReason}" Style="{StaticResource Text.Dim}"
+                                           Visibility="{Binding DeviceReason, Converter={StaticResource VisibleWhen}}" />
+                                <TextBlock Text="{Binding DeviceDescription}" Style="{StaticResource Text.Dim}" Margin="0,6,0,0"
+                                           Visibility="{Binding DeviceDescription, Converter={StaticResource VisibleWhen}}" />
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,10,0,0">
+                                    <Run Text="Config folder" />
+                                    <Run Text="{Binding ConfigRoot, Mode=OneWay}" FontFamily="{StaticResource MonoFont}" />
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,4,0,0">
+                                    <Run Text="Optimus-Vibe" />
+                                    <Run Text="{Binding AppVersion, Mode=OneWay}" />
+                                    <Run Text="· updates come from" />
+                                    <Run Text="{Binding Updates.RepoText, Mode=OneWay}" FontFamily="{StaticResource MonoFont}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== report a problem -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Something not right?" Style="{StaticResource Text.H2}" />
+                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0"
+                                   Text="Describe it, preview what would be sent, then file it as an issue." />
+                        <Button Command="{Binding OpenReportCommand}" HorizontalAlignment="Left" Margin="0,16,0,0" AutomationProperties.Name="Report a problem"
+                                Content="Report a problem" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

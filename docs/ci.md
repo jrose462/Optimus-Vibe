@@ -11,7 +11,7 @@ Three GitHub Actions workflows live in `.github/workflows/`. Claude's prompts fo
 
 ## CI (`ci.yml`)
 
-Runs `dotnet restore`, `dotnet build -c Release` and `dotnet test` on `GameProfiles.sln`. On a failure the
+Runs `dotnet restore`, `dotnet build -c Release` and `dotnet test` on `OptimusVibe.sln`. On a failure the
 `TestResults/` folder (`test-results.trx`) is uploaded as an artifact named `test-results-<run>-<attempt>`
 (kept 14 days); open it in Visual Studio or any TRX viewer. Superseded runs on the same PR are cancelled.
 
@@ -40,17 +40,17 @@ The workflow:
 
 1. Builds and tests the solution with `-p:Version=<version>` (overriding the default `<Version>` in
    `Directory.Build.props`).
-2. Publishes `src/GameProfiles.App` and `src/GameProfiles` with
+2. Publishes `src/OptimusVibe.App` and `src/OptimusVibe.Cli` with
    `-c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:Version=<version>` and checks that
    each exe's ProductVersion starts with the version.
-3. Writes `GameProfilesApp.exe.sha256` and `gameprofiles.exe.sha256` in `sha256sum` format
+3. Writes `OptimusVibe.exe.sha256` and `optimus-vibe.exe.sha256` in `sha256sum` format
    (`<lowercase hex><two spaces><file name>` + LF, no BOM).
 4. Runs `gh release create v<version>` with the four files and `--generate-notes` (notes come from merged PRs
    and commits since the previous release).
 
-Release asset names are exactly `GameProfilesApp.exe`, `GameProfilesApp.exe.sha256`, `gameprofiles.exe` and
-`gameprofiles.exe.sha256`; the in-app updater looks for these, so do not rename them. To verify a download by
-hand: `Get-FileHash .\GameProfilesApp.exe -Algorithm SHA256` and compare with the `.sha256` file.
+Release asset names are exactly `OptimusVibe.exe`, `OptimusVibe.exe.sha256`, `optimus-vibe.exe` and
+`optimus-vibe.exe.sha256`; the in-app updater looks for these, so do not rename them. To verify a download by
+hand: `Get-FileHash .\OptimusVibe.exe -Algorithm SHA256` and compare with the `.sha256` file.
 
 ## The bug-report loop (`claude-bug-triage.yml`)
 
@@ -89,7 +89,7 @@ every later step has `if: steps.gate.outputs.enabled == 'true'`, so the run fini
 Release need no secrets.
 
 1. **Create the labels** once: run the one-liner in `.github/labels.md`.
-2. **Install the Claude GitHub App** on `jrose462/GameProfiles`: in a local Claude Code session run
+2. **Install the Claude GitHub App** on `jrose462/Optimus-Vibe`: in a local Claude Code session run
    `/install-github-app` (it installs the app and can add the secret for you), or install it from
    <https://github.com/apps/claude> and pick this repository. The action gets its GitHub token from the app via
    OIDC (`id-token: write`), so Claude's comments, commits and PRs are made as the Claude app and **its PRs
@@ -116,7 +116,7 @@ To switch the loop off again, delete the secret (or disable the workflow under A
 - **In-app updater.** Release assets in a private repo cannot be downloaded anonymously. The updater has to call
   the GitHub API with a token that can read this repo, i.e. the Credential Manager token used by the `github`
   sync provider (device-code sign-in, or a fine-grained PAT with **Contents: Read** on
-  `jrose462/GameProfiles`), and fetch the asset via the API with `Accept: application/octet-stream`. A device
+  `jrose462/Optimus-Vibe`), and fetch the asset via the API with `Accept: application/octet-stream`. A device
   without such a token will not see updates.
 - **Report a problem.** Filing the issue needs the same token with **Issues: Read and write** on the repo.
 - **Artifacts and logs** (test results, workflow logs) are visible only to people with access to the repo and

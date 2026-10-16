@@ -1,20 +1,20 @@
 ---
 name: game-settings-recommender
 description: >-
-  Adds a game to GameProfiles or refreshes its recommended graphics presets — researches the game's settings
-  file and real key names, confirms them on the machine with `gameprofiles inspect`, then writes
+  Adds a game to Optimus-Vibe or refreshes its recommended graphics presets — researches the game's settings
+  file and real key names, confirms them on the machine with `optimus-vibe inspect`, then writes
   config/games/<id>.yaml with per-device presets (desktop quality/performance, ally-x performance/battery),
-  validates, dry-runs and commits. Use whenever the user says "add <game> to GameProfiles", "generate/recommend
+  validates, dry-runs and commits. Use whenever the user says "add <game> to Optimus-Vibe", "generate/recommend
   graphics settings for <game>", "make presets for <game>", "set up <game> for the Ally/desktop",
   "refresh recommendations" / "the game patched, update its presets", or runs /game-settings-recommender <game>.
   Also works through the app's queue of detected games without a config (config/requests.yaml) when the user says
-  "process GameProfiles requests", "work through the game queue", "add the queued games", or runs
+  "process Optimus-Vibe requests", "work through the game queue", "add the queued games", or runs
   /game-settings-recommender queue.
 ---
 
 # Game settings recommender
 
-GameProfiles (repo `<repo>`, C# .NET 8) writes per-device settings into a game's config files
+Optimus-Vibe (repo `<repo>`, C# .NET 8) writes per-device settings into a game's config files
 on every launch. This skill produces the **Recommended** tab content in the app: `presets:` in
 `config/games/<id>.yaml`. The user's own tweaks live in the **Manual saves** tab (`config/saves/`), which you
 never touch. If invoked outside the repo, work in `<repo>` anyway. The app scans Steam,
@@ -50,7 +50,7 @@ Repo docs: `CLAUDE.md`, `config/games/_template.yaml` (every field and handler s
    must never leave a value from the previous preset behind, and manual saves record every key presets mention.
 6. Set the *other* vendor's upscaler/frame-gen explicitly **off** in every preset (Steam Cloud may sync the
    other machine's value). If the game has one vendor-neutral frame-gen key, setting it off on the Ally covers
-   this. If those options live in a binary store GameProfiles cannot edit, rule 6 becomes an in-game
+   this. If those options live in a binary store Optimus-Vibe cannot edit, rule 6 becomes an in-game
    instruction in the preset `description` and `notes:` (see `references/awkward-stores.md`).
 
 ## The data model (what you write)
@@ -74,9 +74,9 @@ Device defaults (`devices.yaml` `defaultPreset`): desktop → `quality`, ally-x 
 
 ## Workflow: add a game
 
-Run commands from the repo root. `gp` below means the CLI: use `gameprofiles` if it is on PATH, else
-`src\GameProfiles\bin\Debug\net8.0-windows\win-x64\gameprofiles.exe` (build it with
-`dotnet build src/GameProfiles` if missing), or `dotnet run --project src/GameProfiles --`. Always pass
+Run commands from the repo root. `gp` below means the CLI: use `optimus-vibe` if it is on PATH, else
+`src\OptimusVibe.Cli\bin\Debug\net8.0-windows\win-x64\optimus-vibe.exe` (build it with
+`dotnet build src/OptimusVibe.Cli` if missing), or `dotnet run --project src/OptimusVibe.Cli --`. Always pass
 `--config <repo>\config` unless `gp setup` already points there.
 
 ### (a) Identify the game
@@ -147,7 +147,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
 - `presets.desktop.quality` and `.performance`; `presets.ally-x.performance` and `.battery`. Each gets
   `label` (Title case, the preset name unless a better one fits), `description` (1-2 sentences: what it targets
   and what it trades away; ally-x battery must say to pair it with Armoury Crate Silent ~13 W, since
-  GameProfiles cannot set TDP; plus any in-game steps for settings in a binary store), `targetFps` (integer),
+  Optimus-Vibe cannot set TDP; plus any in-game steps for settings in a binary store), `targetFps` (integer),
   `extends: base`, `display`, and the file blocks.
 - **Honest targets**: if the game cannot hold 60 on the Ally X, set ally-x `performance` `targetFps` lower
   (e.g. 45) and say so in its description. Caps and the VRR-floor policy are in `preset-guidelines.md`
@@ -164,7 +164,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
 - `intent:` per device — the user's words, or `EDIT ME (placeholder): ...`.
 - `recommendation:` — `generated:` today's date (`YYYY-MM-DD`, quoted), `gameVersion:` the installed build if
   known (Steam: `buildid` in the appmanifest, or the version on the main menu; else `"unknown"`), `sources:` one
-  string per source (title + URL, plus "`gameprofiles inspect <id>` on <device>, <date>").
+  string per source (title + URL, plus "`optimus-vibe inspect <id>` on <device>, <date>").
   Name sources you could not fetch (e.g. "PCGamingWiki: 403 to WebFetch, used search snippet").
 - `notes:` cloud-sync result (matches `cloudSyncsSettings`), settings that need a restart, files the game resets on
   boot (`readOnlyAfterApply`), per-device in-game steps for binary-store settings, anything left unverified.

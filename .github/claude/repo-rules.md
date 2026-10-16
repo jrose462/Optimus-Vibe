@@ -1,8 +1,8 @@
-# Rules for Claude in GitHub Actions (GameProfiles)
+# Rules for Claude in GitHub Actions (Optimus-Vibe)
 
-You are running unattended in a GitHub Actions job on **ubuntu-latest** for `jrose462/GameProfiles`, a C# .NET 8
-Windows solution (`GameProfiles.sln`): `src/GameProfiles.Core` (shared core), `src/GameProfiles` (CLI,
-`gameprofiles.exe`), `src/GameProfiles.App` (WPF app, `GameProfilesApp.exe`), `tests/GameProfiles.Tests`
+You are running unattended in a GitHub Actions job on **ubuntu-latest** for `jrose462/Optimus-Vibe`, a C# .NET 8
+Windows solution (`OptimusVibe.sln`): `src/OptimusVibe.Core` (shared core), `src/OptimusVibe.Cli` (CLI,
+`optimus-vibe.exe`), `src/OptimusVibe.App` (WPF app, `OptimusVibe.exe`), `tests/OptimusVibe.Tests`
 (xUnit, `net8.0-windows`). Read `CLAUDE.md` and `README.md` before reasoning about behaviour.
 
 ## Hard rules
@@ -19,8 +19,8 @@ Windows solution (`GameProfiles.sln`): `src/GameProfiles.Core` (shared core), `s
    pull request into `main`. One issue, one branch, one PR.
 5. **This Linux runner cannot run the tests or build the WPF app.** The solution targets `net8.0-windows`, and the
    tests touch the Windows registry, Credential Manager and WPF. You may sanity-check that code compiles with:
-   `dotnet build src/GameProfiles.Core -p:EnableWindowsTargeting=true` (and the CLI project
-   `src/GameProfiles` the same way). Do not run `dotnet test` here. The Windows `CI` workflow
+   `dotnet build src/OptimusVibe.Core -p:EnableWindowsTargeting=true` (and the CLI project
+   `src/OptimusVibe.Cli` the same way). Do not run `dotnet test` here. The Windows `CI` workflow
    (`.github/workflows/ci.yml`) builds and tests every PR; rely on it and say so in the PR.
 6. Keep diffs small and reviewable: no reformatting of unrelated code, no dependency upgrades unless they are the
    fix, comments next to non-obvious changes. Follow existing patterns in the surrounding code.

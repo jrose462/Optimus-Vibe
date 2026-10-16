@@ -1,6 +1,6 @@
 # Engine notes: where settings live and how to map them
 
-Always confirm the real file, section names, key names and value formats with `gameprofiles inspect <id>`
+Always confirm the real file, section names, key names and value formats with `optimus-vibe inspect <id>`
 (or by reading the file) before writing presets. Everything below is a starting point, not ground truth.
 
 ## Unreal Engine (UE4 / UE5)
@@ -83,7 +83,7 @@ inspect, toggle the option in-game, inspect again, and diff.
 Engine `.pak` files ship `DefaultScalability.ini`/`BaseScalability.ini` describing what each `sg.*` level sets —
 useful for cost judgements, not for writing.
 
-UE quirks: games often rewrite GameUserSettings.ini on exit (fine — GameProfiles reapplies on launch); a few
+UE quirks: games often rewrite GameUserSettings.ini on exit (fine — Optimus-Vibe reapplies on launch); a few
 validate the file on boot and reset unknown values (`readOnlyAfterApply: true` fixes that but blocks in-game
 changes). Shader-compile stutter is not a setting.
 
