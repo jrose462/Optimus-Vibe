@@ -17,7 +17,8 @@ the four presets, validation, dry runs and the commit. Its `references/` hold th
 and engine notes. Do not hand-roll a game file without following it.
 
 Every game file must carry `cloudSyncsSettings` (true/false from the Steam `remotecache.vdf` / store cloud check;
-null only if truly unknown — `false` makes the app suggest opting the game out) and, for non-Steam games,
+null only if truly unknown — `false` makes the app suggest opting the game out; confirm it with
+`optimus-vibe cloud-check <id>`, which also reports observed cross-device changes) and, for non-Steam games,
 `storeIds` (battlenet / ea / epic / gog / xbox) so the library scan can match the install.
 
 ## The library, the request queue and opt-outs

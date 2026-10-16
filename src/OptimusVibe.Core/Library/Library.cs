@@ -1,3 +1,4 @@
+using OptimusVibe.CloudSync;
 using OptimusVibe.Config;
 
 namespace OptimusVibe.Library;
@@ -62,6 +63,12 @@ public sealed class LibraryEntry
     public required LibraryStatus Status { get; init; }
     public bool OptedOut { get; init; }
 
-    /// <summary>The game config says its settings don't travel between machines — suggest opting out.</summary>
-    public bool SuggestOptOut => Game?.CloudSyncsSettings == false && !OptedOut;
+    /// <summary>The cloud-sync check for this game on this device (null when not computed, e.g. no game config).</summary>
+    public CloudSyncReport? CloudSync { get; init; }
+
+    /// <summary>
+    /// Settings are per machine (by the sync report when there is one, else the game config alone) and nothing ever
+    /// changed them behind our back — suggest opting out. Never applied automatically.
+    /// </summary>
+    public bool SuggestOptOut => !OptedOut && (CloudSync?.SuggestOptOut ?? Game?.CloudSyncsSettings == false);
 }

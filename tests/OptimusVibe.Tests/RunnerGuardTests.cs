@@ -2,6 +2,7 @@ using OptimusVibe.Launch;
 
 namespace OptimusVibe.Tests;
 
+[Collection("RunnerMutex")] // the "testgame" run mutex is process-wide
 public sealed class RunnerGuardTests
 {
     [Theory]

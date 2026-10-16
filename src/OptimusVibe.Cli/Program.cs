@@ -52,6 +52,7 @@ public static class Program
             AppCommands.VersionCommand(), AppCommands.UpdateAppCommand(), AppCommands.ReportBugCommand(),
             SteamCommands.SteamOptionsCommand(),
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
+            CloudCheckCommands.CloudCheckCommand(),
         };
         return root.Parse(args).Invoke();
     }

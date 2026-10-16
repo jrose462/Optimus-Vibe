@@ -73,6 +73,8 @@ public static class Validator
             report.Errors.Add($"{where}: store must be one of {string.Join(", ", Stores)}");
         if (game.Store.Equals("steam", StringComparison.OrdinalIgnoreCase) && game.SteamAppId is null)
             report.Warnings.Add($"{where}: steam game without steamAppId");
+        if (game.CloudSyncsSettings is null)
+            report.Warnings.Add($"{where}: cloudSyncsSettings is unknown — run `optimus-vibe cloud-check {game.Id}` / the game-settings skill to find out");
         if (game.Processes.Count == 0)
             report.Warnings.Add($"{where}: no processes listed — `run` cannot follow games started through a launcher");
         if (!game.Store.Equals("steam", StringComparison.OrdinalIgnoreCase) && game.Launch is null)

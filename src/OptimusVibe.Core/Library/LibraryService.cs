@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using OptimusVibe.CloudSync;
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
 using OptimusVibe.Logging;
@@ -24,9 +25,11 @@ public static class LibraryService
     /// <summary>
     /// One entry per detected game plus configured-but-not-installed games. Matching: SteamAppId, then
     /// GameDef.StoreIds[store], then a normalized name match. Status per <see cref="LibraryStatus"/>; a configured
-    /// game without presets for <paramref name="device"/> counts as NeedsPresets.
+    /// game without presets for <paramref name="device"/> counts as NeedsPresets. With a <paramref name="cloudSync"/> checker
+    /// each configured game also gets its <see cref="LibraryEntry.CloudSync"/> report (reads launcher files; skip on hot paths).
     /// </summary>
-    public static IReadOnlyList<LibraryEntry> Build(ConfigStore store, DeviceSelection device, IReadOnlyList<DetectedGame> detected)
+    public static IReadOnlyList<LibraryEntry> Build(ConfigStore store, DeviceSelection device, IReadOnlyList<DetectedGame> detected,
+        CloudSyncChecker? cloudSync = null)
     {
         var games = LoadGames(store);
         var optOut = OptOutSet(LoadLibrary(store));
@@ -49,6 +52,7 @@ public static class LibraryService
                 Game = game,
                 Status = status,
                 OptedOut = opted,
+                CloudSync = CheckSync(cloudSync, game),
             });
         }
 
@@ -62,6 +66,7 @@ public static class LibraryService
                 Game = game,
                 Status = LibraryStatus.NotInstalled,
                 OptedOut = optOut.Contains(key),
+                CloudSync = CheckSync(cloudSync, game),
             });
         }
 
@@ -234,6 +239,17 @@ public static class LibraryService
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private static CloudSyncReport? CheckSync(CloudSyncChecker? checker, GameDef? game)
+    {
+        if (checker is null || game is null) return null;
+        try { return checker.Check(game); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Library: cloud check for {game.Id} failed: {ex.Message}");
+            return null;
+        }
+    }
 
     private static List<GameDef> LoadGames(ConfigStore store)
     {

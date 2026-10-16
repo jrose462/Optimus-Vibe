@@ -205,6 +205,39 @@
                     </Border>
                 </Grid>
 
+                <!-- settings sync: do this game's graphics settings travel between machines? -->
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0" HorizontalAlignment="Left" MaxWidth="760"
+                        Visibility="{Binding HasSync, Converter={StaticResource VisibleWhen}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource MetricIcon}" Background="{StaticResource MetricCyanBrush}" VerticalAlignment="Top">
+                            <TextBlock Text="&#xE753;" FontFamily="{StaticResource IconFont}" FontSize="17"
+                                       Foreground="{StaticResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                            <TextBlock Style="{StaticResource Text.H3}">
+                                <Run Text="Settings sync" />
+                                <Run Text="{Binding SyncSummary, Mode=OneWay}" FontWeight="Normal" Foreground="{StaticResource TextDimBrush}" />
+                            </TextBlock>
+                            <ItemsControl ItemsSource="{Binding SyncEvidence}" Margin="0,6,0,0" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Style="{StaticResource Text.Caption}" Margin="0,0,0,3" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0"
+                                        Visibility="{Binding HasSyncAttention, Converter={StaticResource VisibleWhen}}">
+                                <Border Style="{StaticResource Dot.Attention}" Margin="0,2,8,0" VerticalAlignment="Top" />
+                                <TextBlock Text="{Binding SyncAttentionText}" Style="{StaticResource Text.Body}" MaxWidth="600" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- config error -->
                 <Border Style="{StaticResource Card}" Margin="0,22,0,0" HorizontalAlignment="Left" MaxWidth="760"
                         Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}">

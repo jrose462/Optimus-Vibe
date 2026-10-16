@@ -127,6 +127,29 @@ public sealed class GameDetailViewModel : ObservableObject
         }
     }
 
+    // Settings sync: the Core cloud check, computed with the snapshot off the UI thread.
+    public bool HasSync => HasGame && _snap.CloudSync is not null;
+
+    /// <summary>"· stays on this device (high confidence)" next to the card title.</summary>
+    public string SyncSummary
+    {
+        get
+        {
+            if (_snap.CloudSync is not { } r) return "";
+            var verdict = r.Effective switch
+            {
+                true => "travels between your devices",
+                false => "stays on this device",
+                _ => "not known yet",
+            };
+            return $"· {verdict}{(r.ConfidenceText.Length > 0 ? $" ({r.ConfidenceText})" : "")}";
+        }
+    }
+
+    public IReadOnlyList<string> SyncEvidence => _snap.CloudSync?.Evidence ?? [];
+    public bool HasSyncAttention => _snap.CloudSync?.Contradiction is not null;
+    public string? SyncAttentionText => _snap.CloudSync?.Contradiction;
+
     public bool HasRecommendation => RecommendationText is not null;
     public IReadOnlyList<string> Sources => _snap.Game?.Recommendation?.Sources ?? [];
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using OptimusVibe.CloudSync;
 using OptimusVibe.Config;
 using OptimusVibe.Display;
 using OptimusVibe.Driver;
@@ -67,6 +68,9 @@ public static class Runner
         RunState.RecoverStale(ctx.Paths.StateFile);
         Log.Info($"=== run {ctx.Game.Id} as '{ctx.Device.Name}' ({ctx.Device.Reason}), preset {ctx.Preset?.ToString() ?? "(none)"} ===");
 
+        // Did the settings change while we were not running (launcher cloud sync)? Before anything is applied; never throws.
+        SyncObserver.BeforeRun(ctx);
+
         AppliedState? applied = null;
         try
         {
@@ -76,6 +80,8 @@ public static class Runner
         {
             Log.Error("Applying game settings failed — launching anyway", ex);
         }
+
+        SyncObserver.AfterRun(ctx); // interim baseline in case this wrapper is killed before the game exits
 
         var state = new RunState
         {
@@ -99,6 +105,7 @@ public static class Runner
         }
 
         if (applied is not null && prompt) OfferCapture(ctx, applied);
+        SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
     }

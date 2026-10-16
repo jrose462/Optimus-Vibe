@@ -1,3 +1,4 @@
+using OptimusVibe.CloudSync;
 using OptimusVibe.Config;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
@@ -60,7 +61,7 @@ public static class LibraryScan
         IReadOnlyList<LibraryEntry> entries;
         try
         {
-            entries = LibraryService.Build(session.Store, session.Device, detected);
+            entries = LibraryService.Build(session.Store, session.Device, detected, new CloudSyncChecker(session.Store, session.Device));
         }
         catch (Exception ex)
         {

@@ -24,6 +24,7 @@ public sealed class ValidatorTests : IDisposable
         name: Sample
         store: steam
         steamAppId: 123
+        cloudSyncsSettings: false
         processes: [Sample.exe]
         files:
           - id: user

@@ -116,7 +116,11 @@ Run commands from the repo root. `gp` below means the CLI: use `optimus-vibe` if
   listed in `<Steam>\userdata\<id>\<appid>\remotecache.vdf`; other stores: `references/awkward-stores.md`
   ("Cloud sync check"). `true`/`false`; `null` only if truly uncheckable (say why). Evidence (file + date) goes in
   a comment above the key and in `notes:`. `false` makes the app suggest opting the game out (each machine
-  already keeps its own settings), so get it right.
+  already keeps its own settings), so get it right. Once `files:` are written, run
+  `optimus-vibe cloud-check <id>`: it checks Steam's `remotecache.vdf` and the EA app's CloudSync log against the
+  configured files and adds what the app has *observed* (settings that changed while closed and match another
+  device's preset). Set the flag to agree with it; if it reports a contradiction or a strong observation, trust the
+  observation over research and say so in `notes:`. On refresh, always re-run it.
 
 ### (c) Confirm the real keys on the machine
 

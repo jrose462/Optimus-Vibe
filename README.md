@@ -149,7 +149,19 @@ Claude triages each report: it posts an action plan on the issue and, for clear 
   `config/library.yaml` and synced, so they apply on every machine. Opted-out games launch plainly and their Steam
   launch option is removed. When a game's config says its settings do **not** cloud-sync
   (`cloudSyncsSettings: false`, e.g. Borderlands 4), the app suggests opting it out: each machine already keeps
-  its own settings.
+  its own settings. The suggestion is never applied automatically.
+- **Settings sync check**: each game page has a "Settings sync" card saying whether its graphics settings travel
+  between your machines, how sure it is, and why. Evidence comes from three places:
+  - **Steam Cloud**: the game's `remotecache.vdf` (e.g. "Steam Cloud syncs 4 .sav files but not
+    GameUserSettings.ini").
+  - **EA app**: its CloudSync log (e.g. Jedi: Survivor's `GameUserSettings.sav` is synced).
+  - **What actually happens**: after each managed session Optimus-Vibe fingerprints the settings files; if they
+    changed while it wasn't running and now match the *other* device's preset, the game is proven to sync
+    ("settings arrived from your Ally"). After 5+ clean launches it leans towards "per machine".
+  Epic, GOG, Battle.net and Xbox can't be inspected, so they rely on observation. If the evidence contradicts the
+  game file's `cloudSyncsSettings`, the card shows an orange dot and recommends keeping the game managed.
+  `optimus-vibe cloud-check [<game>] [--all] [--json]` prints the same report; `validate` warns about games whose
+  sync status is unknown.
 - **Request queue**: an installed game with no config is added to `config/requests.yaml` (store, id, name,
   install folder, exes, device) and synced. Ask Claude to "process Optimus-Vibe requests"; it works through the
   queue with the `game-settings-recommender` skill, one commit per game, removing each entry as its config lands.
