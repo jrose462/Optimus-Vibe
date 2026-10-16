@@ -27,6 +27,10 @@ public partial class App : Application
 
         Log.Info("GameProfiles app starting");
 
+        // Remove the .old exe / partial download a previous self-update left behind (not on the headless `run` path).
+        if (Environment.ProcessPath is { } exePath)
+            _ = Task.Run(() => GameProfiles.Updates.UpdateService.CleanupOld(exePath));
+
         // Troubleshooting / remote sessions where GPU composition shows a blank window.
         if (Environment.GetEnvironmentVariable("GAMEPROFILES_SOFTWARE_RENDER") == "1")
             System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
@@ -52,6 +56,7 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
         _ = vm.LoadAsync();
+        _ = vm.Updates.BackgroundCheckAsync(); // at most once a day; shows the header badge when a release is newer
     }
 
     protected override void OnExit(ExitEventArgs e)

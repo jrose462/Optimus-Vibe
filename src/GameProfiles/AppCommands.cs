@@ -150,6 +150,40 @@ internal static class AppCommands
         return cmd;
     }
 
+    /// <summary>`github create &lt;name&gt; [--public]`: create a config repo, seed it from the current config, clone it and switch to it. Added under the `github` verb.</summary>
+    public static Command GitHubCreateCommand(Option<string?> configOption)
+    {
+        var name = new Argument<string>("name") { Description = "Name of the new config repo (created under your account)." };
+        var isPublic = new Option<bool>("--public") { Description = "Make the repo public (default: private)." };
+        var cmd = new Command("create", "Create a new GitHub config repo, seed it with the current config, and switch this machine to it.") { name, isPublic };
+        cmd.SetAction(Guard(pr =>
+        {
+            var token = Token() ?? throw new ConfigException("Not signed in to GitHub — run `gameprofiles github login` or `github token <pat>` first.");
+            var api = new GitHubApi(token);
+            var paths = AppPaths.Resolve(pr.GetValue(configOption));
+            if (!File.Exists(paths.DevicesFile))
+                throw new ConfigException($"No config to seed from: {paths.DevicesFile} not found (use --config).");
+
+            var info = api.CreateRepoAsync(pr.GetValue(name)!, !pr.GetValue(isPublic), "GameProfiles config (per-device graphics presets)").GetAwaiter().GetResult();
+            Console.WriteLine($"Created {info.FullName} ({(info.Private ? "private" : "public")}).");
+            var seeded = ConfigRepoSeeder.SeedAsync(api, info.FullName, info.DefaultBranch, paths.ConfigRoot).GetAwaiter().GetResult();
+            Console.WriteLine($"Seeded {seeded.Paths.Count} file(s) in one commit.");
+
+            var dataDir = AppPaths.DefaultDataDir;
+            var result = GitHubMirror.Clone(dataDir, info.FullName, info.DefaultBranch, token);
+            Console.WriteLine($"{info.FullName} ({info.DefaultBranch}): {result.Message}");
+            if (!result.Ok) return 1;
+            var settings = AppPaths.LoadSettings(dataDir);
+            settings.SyncProvider = SyncProviders.GitHub;
+            settings.GitHubRepo = info.FullName;
+            settings.GitHubBranch = info.DefaultBranch;
+            AppPaths.SaveSettings(dataDir, settings);
+            Console.WriteLine($"Sync provider: github. Config folder: {Path.Combine(AppPaths.MirrorDir(dataDir, info.FullName), "config")}");
+            return 0;
+        }));
+        return cmd;
+    }
+
     private sealed class ConsoleProgress(Action<double> report) : IProgress<double>
     {
         public void Report(double value) => report(value);

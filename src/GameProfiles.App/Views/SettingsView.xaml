@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:GameProfiles.App.Views"
              xmlns:vm="clr-namespace:GameProfiles.App.ViewModels"
+             xmlns:input="clr-namespace:GameProfiles.App.Input"
              x:Name="Root">
     <!-- DataContext: SettingsViewModel. One column of cards; every control reachable with the D-pad, B goes back. -->
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
@@ -74,9 +75,9 @@
             </Border>
 
             <!-- ======================================================== github account -->
-            <Border Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
+            <Border x:Name="AccountCard" Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="GITHUB ACCOUNT" Style="{StaticResource Text.Caption}" Margin="0,0,0,12" />
+                    <TextBlock Text="CONFIG REPO (YOUR GAME SETTINGS) · GITHUB ACCOUNT" Style="{StaticResource Text.Caption}" Margin="0,0,0,12" />
                     <views:GitHubSignInPanel DataContext="{Binding Account}" />
                 </StackPanel>
             </Border>
@@ -89,7 +90,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="CONFIG REPOSITORY" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                        <TextBlock Text="CONFIG REPO (YOUR GAME SETTINGS)" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Style="{StaticResource Button.Ghost}" Command="{Binding LoadReposCommand}" AutomationProperties.Name="Reload repositories"
                                 Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
                             <TextBlock>
@@ -160,7 +161,125 @@
                         </Grid>
                         <TextBlock Style="{StaticResource Text.Caption}" FontWeight="Normal" FontSize="13.5" Margin="2,8,0,0" TextWrapping="Wrap"
                                    Text="Downloads the repo into the app's own copy and syncs through your account from then on. Switching to a different branch replaces that copy — Sync first if you have unsynced saves." />
+
+                        <!-- picked repo isn't a config repo yet: confirm before seeding it -->
+                        <Border Background="{StaticResource InputBrush}" CornerRadius="12" Padding="16,12" Margin="0,14,0,0"
+                                BorderBrush="{StaticResource AccentLineBrush}" BorderThickness="1"
+                                Visibility="{Binding HasSeedPrompt, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding SeedPrompt}" Style="{StaticResource Text.Body}" />
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button Style="{StaticResource Button.Primary}" Command="{Binding ConfirmSeedCommand}" Margin="0,0,10,0"
+                                            input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Seed this repo">
+                                        <TextBlock Text="Seed and use this repo" />
+                                    </Button>
+                                    <Button Content="Cancel" Command="{Binding CancelSeedCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- create a new config repo -->
+                        <Button Command="{Binding OpenCreateCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                                Visibility="{Binding IsCreateOpen, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}"
+                                AutomationProperties.Name="Create a new config repo">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE710;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="Create a new config repo…" />
+                            </StackPanel>
+                        </Button>
+                        <Border Background="{StaticResource InputBrush}" CornerRadius="12" Padding="16,14" Margin="0,14,0,0"
+                                Visibility="{Binding IsCreateOpen, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Text="NEW REPOSITORY NAME" Style="{StaticResource Text.Caption}" Margin="0,0,0,6" />
+                                <TextBox Text="{Binding NewRepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="Cascadia Mono, Consolas"
+                                         input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="New repository name" />
+                                <CheckBox IsChecked="{Binding NewRepoPrivate}" Content="Private repository (recommended)" Margin="0,12,0,0" />
+                                <TextBlock Style="{StaticResource Text.Caption}" FontWeight="Normal" FontSize="13.5" Margin="0,8,0,0"
+                                           Text="Creates the repo under your account, seeds it with your current devices and games, downloads it and switches sync to it." />
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button Style="{StaticResource Button.Primary}" Command="{Binding CreateRepoCommand}" Margin="0,0,10,0"
+                                            AutomationProperties.Name="Create and use repo">
+                                        <TextBlock Text="Create and use" />
+                                    </Button>
+                                    <Button Content="Cancel" Command="{Binding CancelCreateCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ======================================================== app updates (the APP repo, not the config repo above) -->
+            <Border x:Name="UpdatesCard" Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16" DataContext="{Binding Updates}">
+                <StackPanel>
+                    <TextBlock Text="APP UPDATES" Style="{StaticResource Text.Caption}" />
+                    <TextBlock Text="{Binding VersionText, Mode=OneWay}" Style="{StaticResource Text.H3}" FontSize="18" Margin="0,8,0,0" />
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
+                        <Run Text="New versions come from the releases of" />
+                        <Run Text="{Binding RepoText, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas" />
+                        <Run Text="- separate from your config repo above." />
+                    </TextBlock>
+
+                    <Button Style="{StaticResource Button.Primary}" Command="{Binding CheckCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                            AutomationProperties.Name="Check for updates">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Check for updates" />
+                        </StackPanel>
+                    </Button>
+
+                    <TextBlock Text="{Binding StatusText}" Margin="0,12,0,0" TextWrapping="Wrap" FontSize="15"
+                               Visibility="{Binding HasStatus, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Body}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding StatusIsError}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <Button Content="Go to GitHub sign-in" Command="{Binding GoToSignInCommand}" HorizontalAlignment="Left" Margin="0,10,0,0"
+                            Visibility="{Binding SignInRequired, Converter={StaticResource VisibleWhen}}" />
+
+                    <!-- a newer release exists -->
+                    <StackPanel Margin="0,16,0,0" Visibility="{Binding IsAvailable, Converter={StaticResource VisibleWhen}}">
+                        <Border Style="{StaticResource Badge.Accent}" HorizontalAlignment="Left" Margin="0">
+                            <TextBlock Text="{Binding AvailableText}" />
+                        </Border>
+                        <TextBlock Text="RELEASE NOTES" Style="{StaticResource Text.Caption}" Margin="0,14,0,6" />
+                        <TextBox Text="{Binding NotesText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto" MaxHeight="220" VerticalContentAlignment="Top"
+                                 FontFamily="Cascadia Mono, Consolas" FontSize="14" AutomationProperties.Name="Release notes" />
+                        <Button Style="{StaticResource Button.Large}" Command="{Binding InstallCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                                AutomationProperties.Name="Download and restart">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock Text="Download &amp; restart" />
+                            </StackPanel>
+                        </Button>
+                        <StackPanel Margin="0,12,0,0" Visibility="{Binding IsDownloading, Converter={StaticResource VisibleWhen}}">
+                            <ProgressBar Style="{StaticResource BusyBar}" IsIndeterminate="False" Minimum="0" Maximum="1" Height="8"
+                                         Value="{Binding Progress, Mode=OneWay}" />
+                            <TextBlock Text="{Binding ProgressText}" Style="{StaticResource Text.Dim}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ======================================================== report a problem -->
+            <Border Style="{StaticResource Card}" Padding="24,20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="REPORT A PROBLEM" Style="{StaticResource Text.Caption}" />
+                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,8,0,0"
+                               Text="Something broken or confusing? Describe it, preview exactly what would be sent, then file it as an issue on the app repo. Claude may reply with a fix plan." />
+                    <Button Command="{Binding OpenReportCommand}" HorizontalAlignment="Left" Margin="0,14,0,0" AutomationProperties.Name="Report a problem">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xEBE8;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Report a problem…" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Border>
 

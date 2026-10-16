@@ -231,6 +231,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="{Binding Name}" Style="{StaticResource Text.Title}" />
@@ -249,6 +250,13 @@
                             </Border>
                         </WrapPanel>
                     </StackPanel>
+                    <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" VerticalAlignment="Top" Margin="12,0,0,0" Command="{Binding ReportCommand}"
+                            AutomationProperties.Name="Report a problem with this game" ToolTip="Report a problem - prefilled with this game and its active preset">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xEBE8;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Report a problem" />
+                        </StackPanel>
+                    </Button>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0"
                                 Visibility="{Binding CanLaunch, Converter={StaticResource VisibleWhen}}">
                         <Button AutomationProperties.Name="Launch game" Style="{StaticResource Button.Large}" Command="{Binding LaunchCommand}" ToolTip="{Binding LaunchHint}">

@@ -57,9 +57,11 @@ public sealed class SettingsViewModel : ObservableObject
         ForceDeviceCommand = main.ForceDeviceCommand;
         AutoDetectDeviceCommand = new AsyncRelayCommand(() => main.ForceDeviceAsync(null), () => Idle() && _forcedProfile is not null);
         CloseCommand = new RelayCommand(main.CloseSettings);
+        OpenReportCommand = main.OpenReportCommand;
     }
 
     public GitHubAccountViewModel Account { get; }
+    public UpdatesViewModel Updates => _main.Updates;
     public ObservableCollection<OptionViewModel> Stores { get; }
     public ObservableCollection<OptionViewModel> Modes { get; }
     public ObservableCollection<string> DeviceChoices { get; } = new();
@@ -104,6 +106,14 @@ public sealed class SettingsViewModel : ObservableObject
     public ICommand ForceDeviceCommand { get; }
     public ICommand AutoDetectDeviceCommand { get; }
     public ICommand CloseCommand { get; }
+    public ICommand OpenReportCommand { get; }
+
+    /// <summary>The page should scroll to a section ("updates", "account"); raised once the page is shown.</summary>
+    public event Action<string>? SectionRequested;
+
+    public void RequestSection(string section) =>
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            () => SectionRequested?.Invoke(section));
 
     /// <summary>Called when the page opens: re-read settings, provider description and devices.</summary>
     public async Task RefreshAsync()

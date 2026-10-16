@@ -31,6 +31,17 @@ dotnet publish src/GameProfiles     -c Release -o C:\Tools\GameProfiles   # opti
 
 Use the same path on every machine (`C:\Tools\GameProfiles\`). Steam launch options then look the same everywhere.
 
+## Two GitHub repos
+
+GameProfiles talks to two different GitHub repos, with different jobs:
+
+| Repo | Role |
+|---|---|
+| `jrose462/GameProfiles`, the **app repo** (fixed) | The code and its **GitHub Releases**: the app's updater and `update-app` download `GameProfilesApp.exe` and `gameprofiles.exe` from here. **Report a problem** files its bug reports as issues here. Release and bug-triage workflows: [docs/ci.md](docs/ci.md). |
+| Your **config repo** (chosen in Settings, or `gameprofiles github use` / `create`) | Game configs, presets, manual saves, opt-outs and the request queue. Default `jrose462/GameProfiles`, which is also the app repo, but it can be any repo you own. **Create new** makes a new one from the app (or `gameprofiles github create <name>`), seeded with the current config, and switches this machine to it. |
+
+Updates and bug reports need a GitHub sign-in (the app repo is private); see [GitHub sign-in](#github-sign-in).
+
 ## One-time setup per machine
 
 There are two ways to get the config onto a machine (the **sync provider**):
@@ -119,6 +130,13 @@ save. Saves are synced through the selected sync provider (git or GitHub).
 **Settings** holds GitHub sign-in, the repo and sync provider, which launchers to scan (`scanStores`), whether
 to write Steam launch options, and the device override.
 
+**Check for updates** looks for a newer release of the app repo and, if there is one, downloads and verifies it
+(the same as `gameprofiles update-app`; `--check` only looks). **Report a problem** asks for a description and
+shows a preview of the report (version, device, recent log, with tokens and your user folder redacted) before
+anything is sent; it files an issue on the app repo (`gameprofiles report-bug`, with `--dry-run` to print instead).
+Claude triages each report: it posts an action plan on the issue and, for clear small fixes, opens a PR. See
+[docs/ci.md](docs/ci.md).
+
 ## Library: auto-detect, opt-out, request queue
 
 - **Detection**: the app scans Steam, Battle.net, EA app, Xbox app, Epic and GOG (`scanStores` in
@@ -152,19 +170,22 @@ Global options: `--config <dir>` (config root), `--profile <device>` (override d
 | `save <game> <name> [--update <slug>] [--notes <text>] [--no-activate] [--no-sync]` | Save the game's current settings as a manual save (and make it active, and commit/push, unless told not to) |
 | `delete-save <game> <slug>` | Delete one of this device's manual saves |
 | `sync` | Commit manual saves, pull, and push the config repo (through the selected sync provider) |
-| `library [--queue]` | List detected games with their `store:id` key and status; `--queue` adds games without a config to `config/requests.yaml` |
+| `library [--queue] [--stores <list>] [--json]` | List detected games with their `store:id` key and status; `--queue` adds games without a config to `config/requests.yaml`; `--stores` limits the launchers scanned (`steam,battlenet,ea,xbox,epic,gog`) |
 | `opt-out <key>` / `opt-in <key>` | Stop / resume managing a detected game (`key` = `store:id`, e.g. `steam:1285190`); stored in `config/library.yaml` |
-| `steam-options …` | Show or rewrite the Steam launch options GameProfiles manages (see `gameprofiles steam-options --help`) |
-| `github login \| token <PAT> \| repos \| use <owner/name> \| logout \| status` | GitHub sign-in (device code or PAT), list repos you can push to, select the config repo and the `github` provider, sign out, show the current setup |
-| `sync-provider git` | Switch back to syncing a git checkout (the `configRoot` folder) |
-| `restore <game> [--original \| --timestamp <stamp>]` | Roll the game's files back from a local backup |
+| `steam-options [<game>] [--enable \| --disable \| --sync-all] [--dry-run] [--exit-steam]` | Show or change the GameProfiles wrapper in Steam launch options (Steam must be closed to write; see "Steam games") |
+| `github login [--client-id <id>] \| token <PAT> \| repos \| use <owner/name> [--branch <b>] \| create <name> [--public] \| logout \| status` | GitHub sign-in (device code or PAT), list repos you can push to, select or create the config repo and switch to the `github` provider, sign out, show the current setup |
+| `sync-provider git \| github` | Choose how the config repo syncs on this machine: a git checkout (the `configRoot` folder) or the app's GitHub copy |
+| `restore <game> [--original \| --timestamp <stamp>]` | Roll the game's files back from a local backup; with no flag, lists the backups (newest first) and changes nothing |
+| `version` | Show this build's version |
+| `update-app [--check]` | Update `gameprofiles.exe` (and `GameProfilesApp.exe` next to it, unless it's running) from the latest release of the app repo; `--check` only reports whether a newer release exists |
+| `report-bug <description> [--game <game>] [--dry-run]` | File a bug report on the app repo, or print it with `--dry-run` (same as **Report a problem** in the app) |
 | `detect` | Show detected hardware and the matched device |
 | `inspect <game> [--full]` | Show resolved paths, current values vs the active preset, and file contents |
 | `list` | List configured games with the active preset, available presets, and number of manual saves |
 | `validate` | Check devices.yaml, every game file, and every manual save |
-| `update` | `git pull` the config repo |
+| `update` | Pull config changes from the repo (git checkout or GitHub, per `sync-provider`) |
 | `shortcut <game> [--out <dir>]` | Create a .lnk that runs the game through GameProfiles (for non-Steam games) |
-| `setup --config-root <path> [--force-profile <device>]` | Per-machine setup |
+| `setup [--config-root <path>] [--force-profile <device> \| --clear-force]` | Per-machine setup (stored in `%LOCALAPPDATA%\GameProfiles\settings.json`) |
 
 Examples:
 
@@ -227,7 +248,7 @@ Manual saves are committed and pushed automatically (turn this off with `"autoSy
 - Before writing, the tool backs up every file it touches to `%LOCALAPPDATA%\GameProfiles\backups\<game>\`:
   `original\` (the first state ever seen, kept forever) plus timestamped folders (`yyyyMMdd-HHmmss`, last 10).
 - `gameprofiles restore <game> --original` returns to the very first state; `--timestamp <stamp>` restores a specific
-  backup (the folder name). Without a flag it restores the most recent backup.
+  backup (the folder name). Without a flag it only lists the backups.
 - Logs: `%LOCALAPPDATA%\GameProfiles\logs\`. Run state used for crash recovery: `%LOCALAPPDATA%\GameProfiles\state.json`.
 
 ## Device detection

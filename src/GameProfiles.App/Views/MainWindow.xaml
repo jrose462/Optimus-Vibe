@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:GameProfiles.App.Views"
         xmlns:vm="clr-namespace:GameProfiles.App.ViewModels"
+        xmlns:input="clr-namespace:GameProfiles.App.Input"
         Title="GameProfiles"
         Width="1360" Height="880" MinWidth="880" MinHeight="560"
         WindowStartupLocation="CenterScreen"
@@ -98,6 +99,21 @@
                             </Border>
                         </StackPanel>
                     </Button>
+                    <!-- non-modal: a newer release exists (silent daily check) -->
+                    <Button AutomationProperties.Name="Update available" Command="{Binding Updates.ShowCommand}" Margin="10,0,0,0"
+                            ToolTip="A new version of GameProfiles is available - open Settings to download it"
+                            Visibility="{Binding Updates.IsAvailable, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Foreground="{StaticResource AccentTextBrush}" />
+                            <TextBlock Text="Update available" Foreground="{StaticResource AccentTextBrush}" />
+                        </StackPanel>
+                    </Button>
+                    <Button AutomationProperties.Name="Report a problem" Command="{Binding OpenReportCommand}" Margin="10,0,0,0" Padding="13,8"
+                            ToolTip="Report a problem - preview what is sent, then file it as an issue"
+                            Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock Text="&#xEBE8;" FontFamily="{StaticResource IconFont}" FontSize="18" VerticalAlignment="Center" />
+                    </Button>
                     <Button AutomationProperties.Name="Settings" Command="{Binding OpenSettingsCommand}" Margin="10,0,0,0" Padding="13,8"
                             ToolTip="Settings — sync, GitHub, launchers, device (Start / ☰ button, Ctrl+,)"
                             Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
@@ -137,6 +153,7 @@
 
         <!-- ============================================================ content -->
         <Grid Grid.Row="3">
+            <Grid IsEnabled="{Binding Report.IsOpen, Converter={StaticResource Not}}">
             <!-- loading -->
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                         Visibility="{Binding IsLoading, Converter={StaticResource VisibleWhen}}">
@@ -235,6 +252,8 @@
                 </Border>
             </Grid>
 
+            </Grid>
+
             <!-- starting a game -->
             <Grid DataContext="{Binding Launching}"
                   Visibility="{Binding DataContext.IsLaunching, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhen}}">
@@ -263,6 +282,78 @@
                 </StackPanel>
             </Grid>
 
+            <!-- report a problem (modal panel; B / Esc closes) -->
+            <Grid DataContext="{Binding Report}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
+                  Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
+                <Border Background="{StaticResource BackdropBrush}" />
+                <Border Style="{StaticResource Card}" Background="{StaticResource SurfaceBrush}" MaxWidth="900" Margin="24" VerticalAlignment="Center"
+                        Padding="26,22">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="30" ShadowDepth="6" Opacity="0.55" Color="Black" />
+                    </Border.Effect>
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock Text="Report a problem" Style="{StaticResource Text.H2}" FontSize="22" />
+                            <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,0">
+                                <Run Text="Goes to the app repo" />
+                                <Run Text="{Binding TargetRepo, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas" />
+                                <Run Text="as a GitHub issue - not your config repo. Claude may reply there with a fix plan." />
+                            </TextBlock>
+                            <TextBlock Text="{Binding ContextText}" Style="{StaticResource Text.Caption}" FontWeight="Normal" Margin="0,6,0,0" />
+                        </StackPanel>
+
+                        <!-- not signed in -->
+                        <Border DockPanel.Dock="Top" Background="{StaticResource WarnSoftBrush}" CornerRadius="12" Padding="16,12" Margin="0,14,0,0"
+                                Visibility="{Binding IsSignedOut, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap"
+                                           Text="Sending needs a GitHub sign-in (the report is filed as you). You can still write the report and preview it. Sign in under Settings, GitHub account." />
+                                <Button Content="Go to GitHub sign-in" Command="{Binding GoToSignInCommand}" HorizontalAlignment="Left" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,16,0,0">
+                            <Button Content="Cancel" Command="{Binding CloseCommand}" Margin="0,0,10,0" />
+                            <Button Command="{Binding PreviewCommand}" Margin="0,0,10,0" AutomationProperties.Name="Preview report">
+                                <TextBlock Text="Preview" />
+                            </Button>
+                            <Button Style="{StaticResource Button.Primary}" Command="{Binding SendCommand}" MinWidth="120" AutomationProperties.Name="Send report"
+                                    ToolTip="Enabled once you have previewed the current text">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE724;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Text="Send" />
+                                </StackPanel>
+                            </Button>
+                        </WrapPanel>
+
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                        <StackPanel Margin="0,0,12,0">
+                            <TextBlock Text="WHAT WENT WRONG?" Style="{StaticResource Text.Caption}" Margin="0,16,0,6" />
+                            <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                     MinHeight="96" MaxHeight="140" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
+                                     input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Describe the problem" />
+                            <TextBlock Style="{StaticResource Text.Caption}" FontWeight="Normal" FontSize="13.5" Margin="0,6,0,0"
+                                       Text="Select the box and press A for the on-screen keyboard. Preview shows the full issue text, including recent log lines, before anything is sent." />
+
+                            <StackPanel Visibility="{Binding HasPreview, Converter={StaticResource VisibleWhen}}">
+                                <TextBlock Margin="0,14,0,6" Style="{StaticResource Text.Caption}">
+                                    <Run Text="PREVIEW - EXACTLY WHAT WILL BE SENT:" />
+                                    <Run Text="{Binding PreviewTitle, Mode=OneWay}" Foreground="{StaticResource TextDimBrush}" FontWeight="Normal" />
+                                </TextBlock>
+                                <TextBlock Text="The description changed since this preview - press Preview again before sending."
+                                           Foreground="{StaticResource WarnBrush}" Margin="0,0,0,6"
+                                           Visibility="{Binding PreviewIsStale, Converter={StaticResource VisibleWhen}}" />
+                                <TextBox Text="{Binding PreviewText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="260"
+                                         VerticalContentAlignment="Top" FontFamily="Cascadia Mono, Consolas" FontSize="13"
+                                         AutomationProperties.Name="Report preview" />
+                            </StackPanel>
+                        </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
+
             <!-- toast -->
             <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="24" MaxWidth="560"
                     Background="{StaticResource CardRaisedBrush}" CornerRadius="14" BorderThickness="1"
@@ -284,9 +375,12 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding ToastText}" Style="{StaticResource Text.Body}" VerticalAlignment="Center" />
-                    <Button Grid.Column="1" Style="{StaticResource Button.Ghost}" Focusable="False" Margin="8,0,0,0" Padding="10,4"
+                    <Button Grid.Column="1" Content="{Binding ToastActionText}" Command="{Binding ToastActionCommand}" Margin="12,0,0,0" Padding="14,4"
+                            Visibility="{Binding HasToastAction, Converter={StaticResource VisibleWhen}}" />
+                    <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" Focusable="False" Margin="8,0,0,0" Padding="10,4"
                             Command="{Binding DismissToastCommand}" ToolTip="Dismiss">
                         <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="13" />
                     </Button>

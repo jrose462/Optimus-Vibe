@@ -36,6 +36,7 @@ public sealed class GameDetailViewModel : ObservableObject
         SaveCurrentCommand = new AsyncRelayCommand(SaveCurrentAsync, () => Idle() && _snap.Context is not null);
         CancelSaveFormCommand = new RelayCommand(() => IsSaveFormOpen = false);
         LaunchCommand = new AsyncRelayCommand(LaunchAsync, () => Idle() && CanLaunch);
+        ReportCommand = new RelayCommand(() => shell.OpenReport(GameId, ActivePresetName));
         UseDefaultCommand = new AsyncRelayCommand(UseDefaultAsync, () => Idle() && CanUseDefault);
         NextTabCommand = new RelayCommand(() => SelectedTabIndex = (SelectedTabIndex + 1) % 2);
         PreviousTabCommand = new RelayCommand(() => SelectedTabIndex = (SelectedTabIndex + 1) % 2); // two tabs: previous == next
@@ -67,6 +68,9 @@ public sealed class GameDetailViewModel : ObservableObject
             return $"Active: {label}{(ctx.Profile.TargetFps is { } f ? $"  ·  {f} fps" : "")}{(ctx.IsSelected ? "" : "  (device default)")}";
         }
     }
+
+    /// <summary>The preset in effect for this device (recommended name or manual save), for bug reports.</summary>
+    public string? ActivePresetName => _snap.Context?.Preset?.Name;
 
     public string? IntentText => _snap.Game?.Intent.GetValueOrDefault(DeviceName) is { Length: > 0 } t ? t.Trim() : null;
     public bool HasIntent => IntentText is not null;
@@ -138,6 +142,7 @@ public sealed class GameDetailViewModel : ObservableObject
     public ICommand CancelSaveFormCommand { get; }
     public ICommand LaunchCommand { get; }
     public ICommand UseDefaultCommand { get; }
+    public ICommand ReportCommand { get; }
     public ICommand NextTabCommand { get; }
     public ICommand PreviousTabCommand { get; }
 

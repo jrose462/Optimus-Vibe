@@ -48,6 +48,7 @@ public static class Program
             RestoreCommand(), DetectCommand(), InspectCommand(), ListCommand(), ValidateCommand(),
             SyncCommand(), UpdateCommand(), ShortcutCommand(), SetupCommand(),
             GitHubCommand(), SyncProviderCommand(),
+            AppCommands.VersionCommand(), AppCommands.UpdateAppCommand(), AppCommands.ReportBugCommand(),
             SteamCommands.SteamOptionsCommand(),
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
         };
@@ -601,6 +602,7 @@ public static class Program
         gh.Subcommands.Add(use);
         gh.Subcommands.Add(logout);
         gh.Subcommands.Add(status);
+        gh.Subcommands.Add(AppCommands.GitHubCreateCommand(ConfigOption));
         return gh;
     }
 

@@ -42,6 +42,12 @@ public sealed class GitHubAccountViewModel : ObservableObject
     private string _branch = "main";
     private string _currentRepo = AppSettings.DefaultGitHubRepo;
     private string? _signInError;
+    private bool _isCreateOpen;
+    private string _newRepoName = "gameprofiles-config";
+    private bool _newRepoPrivate = true;
+    private string? _seedPrompt;
+    private string? _seedRepo;
+    private string _seedBranch = "main";
 
     public GitHubAccountViewModel(MainViewModel main)
     {
@@ -58,6 +64,11 @@ public sealed class GitHubAccountViewModel : ObservableObject
         SignOutCommand = new AsyncRelayCommand(SignOutAsync, () => Idle() && IsSignedIn);
         LoadReposCommand = new AsyncRelayCommand(LoadReposAsync, () => Idle() && IsSignedIn && !IsLoadingRepos);
         UseRepoCommand = new AsyncRelayCommand(UseRepoAsync, () => Idle() && IsSignedIn && !string.IsNullOrWhiteSpace(EffectiveRepo));
+        OpenCreateCommand = new RelayCommand(() => { SeedPrompt = null; IsCreateOpen = true; }, () => Idle() && IsSignedIn);
+        CancelCreateCommand = new RelayCommand(() => IsCreateOpen = false);
+        CreateRepoCommand = new AsyncRelayCommand(CreateRepoAsync, () => Idle() && IsSignedIn && !string.IsNullOrWhiteSpace(NewRepoName));
+        ConfirmSeedCommand = new AsyncRelayCommand(ConfirmSeedAsync, () => Idle() && IsSignedIn && SeedPrompt is not null);
+        CancelSeedCommand = new RelayCommand(() => SeedPrompt = null);
         OpenDeveloperSettingsCommand = new RelayCommand(() => OpenUrl("https://github.com/settings/developers"));
         OpenTokenSettingsCommand = new RelayCommand(() => OpenUrl("https://github.com/settings/tokens/new?scopes=repo&description=GameProfiles"));
     }
@@ -79,10 +90,10 @@ public sealed class GitHubAccountViewModel : ObservableObject
     public bool IsSignedIn => Login is not null;
     public string AccountText => Login is { } l ? $"Signed in as {l}" : "Not signed in";
 
-    public string ClientId { get => _clientId; set => Set(ref _clientId, value); }
+    public string ClientId { get => _clientId; set { if (Set(ref _clientId, value)) CommandManager.InvalidateRequerySuggested(); } }
 
     /// <summary>A client id is saved: the sign-in button is offered; otherwise the how-to + box.</summary>
-    public bool HasClientId { get => _hasClientId; private set => Set(ref _hasClientId, value); }
+    public bool HasClientId { get => _hasClientId; private set { if (Set(ref _hasClientId, value)) CommandManager.InvalidateRequerySuggested(); } }
 
     public DeviceCode? DeviceCode
     {
@@ -159,6 +170,31 @@ public sealed class GitHubAccountViewModel : ObservableObject
     public ICommand SignOutCommand { get; }
     public ICommand LoadReposCommand { get; }
     public ICommand UseRepoCommand { get; }
+    public ICommand OpenCreateCommand { get; }
+    public ICommand CancelCreateCommand { get; }
+    public ICommand CreateRepoCommand { get; }
+    public ICommand ConfirmSeedCommand { get; }
+    public ICommand CancelSeedCommand { get; }
+
+    /// <summary>"Create a new config repo" form is open.</summary>
+    public bool IsCreateOpen { get => _isCreateOpen; private set => Set(ref _isCreateOpen, value); }
+
+    public string NewRepoName { get => _newRepoName; set { if (Set(ref _newRepoName, value)) CommandManager.InvalidateRequerySuggested(); } }
+    public bool NewRepoPrivate { get => _newRepoPrivate; set => Set(ref _newRepoPrivate, value); }
+
+    /// <summary>Set while asking whether to seed the picked repo (reachable, but no config yet).</summary>
+    public string? SeedPrompt
+    {
+        get => _seedPrompt;
+        private set
+        {
+            if (!Set(ref _seedPrompt, value)) return;
+            OnPropertyChanged(nameof(HasSeedPrompt));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool HasSeedPrompt => SeedPrompt is not null;
     public ICommand OpenDeveloperSettingsCommand { get; }
     public ICommand OpenTokenSettingsCommand { get; }
 
@@ -264,9 +300,11 @@ public sealed class GitHubAccountViewModel : ObservableObject
     /// <summary>B / Escape while the code is showing.</summary>
     public bool CancelTransient()
     {
-        bool any = IsSigningIn || ShowPat;
+        bool any = IsSigningIn || ShowPat || IsCreateOpen || HasSeedPrompt;
         CancelSignIn();
         ShowPat = false;
+        IsCreateOpen = false;
+        SeedPrompt = null;
         return any;
     }
 
@@ -352,12 +390,95 @@ public sealed class GitHubAccountViewModel : ObservableObject
     {
         var repo = EffectiveRepo;
         var branch = string.IsNullOrWhiteSpace(Branch) ? "main" : Branch.Trim();
-        string? configRoot = null;
-        var login = Login;
-        var ok = await _main.RunAsync($"Downloading {repo}", () => Task.Run(() =>
+        SeedPrompt = null;
+        ConfigRepoStatus? status = null;
+        var probed = await _main.RunAsync($"Checking {repo}", () => Task.Run(async () =>
         {
             if (!GitHubApi.IsValidRepoName(repo)) throw new InvalidOperationException($"“{repo}” isn't an owner/name repository.");
             var token = GitHubAuth.LoadToken() ?? throw new InvalidOperationException("Sign in to GitHub first.");
+            status = await ConfigRepoProbe.CheckAsync(new GitHubApi(token), repo, branch);
+        }));
+        if (!probed || status is null) return;
+        if (status.IsConfigRepo)
+        {
+            await SwitchToRepoAsync(repo, branch, seedDir: null);
+        }
+        else if (status.CanSeed)
+        {
+            // Reachable, but not a config repo (empty, or other content): ask before writing anything to it.
+            SeedPrompt = $"{status.Message} Seed this repo with your current devices and games?";
+            _seedRepo = repo;
+            _seedBranch = branch;
+        }
+        else
+        {
+            _main.Notify(status.Message, error: true);
+        }
+    }
+
+    private async Task ConfirmSeedAsync()
+    {
+        var repo = _seedRepo;
+        var branch = _seedBranch;
+        SeedPrompt = null;
+        if (repo is null) return;
+        await SwitchToRepoAsync(repo, branch, SeedSourceDir());
+    }
+
+    /// <summary>The config folder in use right now: what a new or empty repo gets seeded with.</summary>
+    private string SeedSourceDir() => _main.Session?.Paths.ConfigRoot
+        ?? throw new InvalidOperationException("There is no config folder loaded to seed from — pick a local git checkout first.");
+
+    private async Task CreateRepoAsync()
+    {
+        var name = NewRepoName.Trim();
+        if (name.Length == 0) return;
+        string seedDir;
+        try { seedDir = SeedSourceDir(); }
+        catch (InvalidOperationException ex)
+        {
+            _main.Notify(ex.Message, error: true);
+            return;
+        }
+        var ok = await SwitchToRepoAsync(name, "main", seedDir, create: true);
+        if (ok) IsCreateOpen = false;
+    }
+
+    /// <summary>
+    /// Optionally create the repo (<paramref name="create"/>: <paramref name="repo"/> is a bare name) and/or seed it, then
+    /// download the repo into the app's own copy, switch sync to the GitHub account and reload everything.
+    /// </summary>
+    private async Task<bool> SwitchToRepoAsync(string repo, string branch, string? seedDir, bool create = false)
+    {
+        string? configRoot = null;
+        var login = Login;
+        var seeded = false;
+        var title = create ? $"Creating {repo}" : seedDir is not null ? $"Seeding {repo}" : $"Downloading {repo}";
+        var ok = await _main.RunAsync(title, () => Task.Run(async () =>
+        {
+            if (!create && !GitHubApi.IsValidRepoName(repo)) throw new InvalidOperationException($"“{repo}” isn't an owner/name repository.");
+            var token = GitHubAuth.LoadToken() ?? throw new InvalidOperationException("Sign in to GitHub first.");
+            var api = new GitHubApi(token);
+            if (create)
+            {
+                var info = await api.CreateRepoAsync(repo, NewRepoPrivate, "GameProfiles config: device profiles, game presets and saves");
+                repo = info.FullName;
+                branch = string.IsNullOrWhiteSpace(info.DefaultBranch) ? "main" : info.DefaultBranch;
+                Log.Info($"Created GitHub repo {repo} ({(NewRepoPrivate ? "private" : "public")})");
+            }
+            if (seedDir is not null)
+            {
+                try
+                {
+                    var seed = await ConfigRepoSeeder.SeedAsync(api, repo, branch, seedDir);
+                    seeded = true;
+                    Log.Info($"Seeded {repo} ({branch}): {seed.Paths.Count} file(s), commit {seed.CommitSha}");
+                }
+                catch (Exception ex) when (create)
+                {
+                    throw new InvalidOperationException($"{repo} was created, but seeding it failed: {ex.Message} Reload the list, pick it and choose Use this repo to retry.", ex);
+                }
+            }
             configRoot = SyncService.CloneMirror(SettingsStore.DataDir, repo, branch, token);
             if (!File.Exists(Path.Combine(configRoot, "devices.yaml")))
                 throw new InvalidOperationException($"{repo} has no config/devices.yaml — is it a GameProfiles repo?");
@@ -370,13 +491,23 @@ public sealed class GitHubAccountViewModel : ObservableObject
             });
             Log.Info($"Config repo set to GitHub {repo} ({branch}) → {configRoot}");
         }));
-        if (!ok) return;
+        if (!ok)
+        {
+            if (create) _ = LoadReposAsync(); // the repo may exist now even though the rest failed
+            return false;
+        }
         CurrentRepo = repo;
+        RepoName = repo;
+        Branch = branch;
         if (Environment.GetEnvironmentVariable("GAMEPROFILES_CONFIG") is { Length: > 0 } env)
             _main.Notify($"Using {repo}, but GAMEPROFILES_CONFIG ({env}) overrides it for this session.", error: true);
         else
-            _main.Notify($"Using {repo} ({branch}) through your GitHub account.");
+            _main.Notify(seeded
+                ? $"Seeded {repo} with your devices and games, now using it ({branch})."
+                : $"Using {repo} ({branch}) through your GitHub account.");
         await _main.ReloadAllAsync();
+        if (create || seeded) _ = LoadReposAsync();
+        return true;
     }
 
     // ---------------------------------------------------------------- helpers

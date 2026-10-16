@@ -39,6 +39,9 @@ launch option `"<path>\GameProfilesApp.exe" run <id> -- %command%` itself while 
 - Sync: `git` provider = a checkout synced with the git CLI (desktop); `github` provider = a managed copy under
   `%LOCALAPPDATA%\GameProfiles\repos\` synced through the GitHub API after device-code/PAT sign-in (the Ally; no
   git). Both push to `jrose462/GameProfiles` by default, so pull before editing the queue.
+- Two GitHub repos: the **app repo** `jrose462/GameProfiles` (exe releases, bug-report issues; not user config) is
+  separate from the **config repo** the user picked (default the same repo, but it can be any repo). Config work
+  and `library.yaml`/`requests.yaml` edits go to the config repo.
 
 ## Devices
 

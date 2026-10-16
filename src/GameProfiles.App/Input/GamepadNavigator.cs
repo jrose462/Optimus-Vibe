@@ -249,6 +249,8 @@ public sealed class GamepadNavigator : IDisposable
             case TabItem tab:
                 tab.IsSelected = true;
                 return;
+            case TextBox { IsReadOnly: true }:
+                return; // release notes / report preview: nothing to type
             case TextBox or PasswordBox:
                 TouchKeyboard.Show(); // type with the on-screen keyboard; defaults are prefilled where possible
                 return;

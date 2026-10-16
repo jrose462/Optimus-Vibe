@@ -24,6 +24,9 @@ public interface IAppShell
 
     void Notify(string message, bool error = false);
 
+    /// <summary>Opens the Report a problem panel (prefilled with the game and its active preset, when known).</summary>
+    void OpenReport(string? gameId, string? preset);
+
     /// <summary>Re-reads one game (after use/apply/save...) and updates its list entry and detail in place.</summary>
     Task ReloadGameAsync(string gameId);
 
@@ -55,6 +58,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private bool _statusIsError;
     private string? _toastText;
     private bool _toastIsError;
+    private string? _toastActionText;
+    private Action? _toastAction;
     private string? _setupMessage;
     private string? _setupConfigRoot;
     private IReadOnlyList<LaunchOptionChange>? _steamChanges;
@@ -77,15 +82,30 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         BackToLibraryCommand = new RelayCommand(CloseDetail);
         ApplySteamCommand = new AsyncRelayCommand(ApplySteamAsync, () => !IsBusy && HasSteamBanner);
         DismissSteamCommand = new RelayCommand(() => SteamChanges = null);
+        ToastActionCommand = new RelayCommand(() =>
+        {
+            var action = _toastAction;
+            ToastText = null;
+            action?.Invoke();
+        });
+        OpenReportCommand = new RelayCommand(() =>
+        {
+            var detail = IsReady && Page is AppPage.Manage or AppPage.Detail ? SelectedDetail : null;
+            OpenReport(detail?.GameId, detail?.ActivePresetName);
+        });
 
         Account = new GitHubAccountViewModel(this);
         Library = new LibraryViewModel(this);
+        Updates = new UpdatesViewModel(this);
+        Report = new ReportViewModel(this, Account);
         Settings = new SettingsViewModel(this, Account);
     }
 
     public LibraryViewModel Library { get; }
     public SettingsViewModel Settings { get; }
     public GitHubAccountViewModel Account { get; }
+    public UpdatesViewModel Updates { get; }
+    public ReportViewModel Report { get; }
 
     /// <summary>The window minimizes after a launch and comes back when the game (our wrapper) exits.</summary>
     public event Action? MinimizeRequested;
@@ -218,6 +238,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     }
 
     public bool HasToast => ToastText is not null;
+    public string? ToastActionText { get => _toastActionText; private set { if (Set(ref _toastActionText, value)) OnPropertyChanged(nameof(HasToastAction)); } }
+    public bool HasToastAction => ToastActionText is not null;
     public bool ToastIsError { get => _toastIsError; private set => Set(ref _toastIsError, value); }
 
     public string? SetupMessage { get => _setupMessage; private set => Set(ref _setupMessage, value); }
@@ -267,6 +289,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public ICommand BackToLibraryCommand { get; }
     public ICommand ApplySteamCommand { get; }
     public ICommand DismissSteamCommand { get; }
+    public ICommand ToastActionCommand { get; }
+    public ICommand OpenReportCommand { get; }
 
     // ---------------------------------------------------------------- shell
 
@@ -299,13 +323,22 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         ? "this feature isn't available in this build yet."
         : ex.Message;
 
-    public void Notify(string message, bool error = false)
+    public void Notify(string message, bool error = false) => ShowToast(message, error, null, null);
+
+    /// <summary>A toast with one button (e.g. "Open" for a filed issue); stays up longer so it can be reached.</summary>
+    public void NotifyWithAction(string message, string actionText, Action action) => ShowToast(message, false, actionText, action);
+
+    public void OpenReport(string? gameId, string? preset) => Report.Open(gameId, preset);
+
+    private void ShowToast(string message, bool error, string? actionText, Action? action)
     {
+        _toastAction = action;
+        ToastActionText = actionText;
         SetStatus(message, error);
         ToastIsError = error;
         ToastText = message;
         _toastTimer.Stop();
-        _toastTimer.Interval = TimeSpan.FromSeconds(error ? 9 : 5);
+        _toastTimer.Interval = TimeSpan.FromSeconds(error ? 9 : actionText is null ? 5 : 20);
         _toastTimer.Start();
     }
 
@@ -329,6 +362,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>B / Escape: close whatever is open on the current page. False when nothing was (manage list: B then focuses the list).</summary>
     public bool CancelTransient()
     {
+        if (Report.IsOpen)
+        {
+            Report.Close();
+            return true;
+        }
         if (!IsReady) return Account.CancelTransient();
         switch (Page)
         {
@@ -380,12 +418,16 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         return handheld || area.Width < 1600 || area.Height < 900 ? AppPage.Library : AppPage.Manage;
     }
 
-    public void OpenSettings()
+    public void OpenSettings() => OpenSettings(null);
+
+    /// <summary>Opens Settings, optionally scrolled to a section ("updates", "account").</summary>
+    public void OpenSettings(string? section)
     {
         if (!IsReady) return;
         if (Page != AppPage.Settings) _pageBeforeSettings = Page;
         Page = AppPage.Settings;
         _ = Settings.RefreshAsync();
+        if (section is not null) Settings.RequestSection(section);
     }
 
     public void CloseSettings()
