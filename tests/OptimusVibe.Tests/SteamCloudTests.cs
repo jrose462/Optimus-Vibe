@@ -73,14 +73,24 @@ public sealed class SteamCloudTests : IDisposable
     }
 
     [Fact]
-    public void Syncs_IsCaseAndSlashInsensitive_AndKnownRootMustMatch()
+    public void Syncs_IsCaseAndSlashInsensitive_AndKnownRootFallsBackToSuffix()
     {
         var entries = SteamCloud.Parse(Cache(("My Games/Borderlands 4/Saved/Config/Windows/GameUserSettings.ini", 2)));
         Assert.True(SteamCloud.Syncs(entries, new SyncFile("gus", Ini.ToUpperInvariant().Replace('\\', '/'), true), _resolver, 1285190));
 
-        // Same relative name, but not under the Documents root the entry names.
+        // A root number we map wrongly must never turn a synced file into "not synced": the full relative path
+        // still matches as a suffix even when it isn't under the folder we think the root means.
         var other = new SyncFile("gus", @"C:\Elsewhere\My Games\Borderlands 4\Saved\Config\Windows\GameUserSettings.ini", true);
-        Assert.False(SteamCloud.Syncs(entries, other, _resolver, 1285190));
+        Assert.True(SteamCloud.Syncs(entries, other, _resolver, 1285190));
+    }
+
+    [Fact]
+    public void Syncs_Root9_IsSavedGames()
+    {
+        // DOOM (2016): remotecache lists the config under root 9; it lives in %USERPROFILE%\Saved Games.
+        var entries = SteamCloud.Parse(Cache(("id Software/DOOM/base/DOOMConfig.cfg", 9)));
+        var cfg = new SyncFile("cfg", "{SavedGames}/id Software/DOOM/base/DOOMConfig.cfg", true);
+        Assert.True(SteamCloud.Syncs(entries, cfg, _resolver, 379720));
     }
 
     [Fact]

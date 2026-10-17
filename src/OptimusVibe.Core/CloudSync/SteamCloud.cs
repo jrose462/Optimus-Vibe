@@ -5,7 +5,7 @@ namespace OptimusVibe.CloudSync;
 
 /// <summary>One file Steam Cloud tracks for an app (an entry in userdata\&lt;account&gt;\&lt;appid&gt;\remotecache.vdf).</summary>
 /// <param name="Name">Path relative to the root, with forward slashes as Steam writes it.</param>
-/// <param name="Root">ERemoteStorageFileRoot: 0 Steam cloud dir, 1 install dir, 2 Documents, 3 LocalAppData, 4 LocalLow, 8 Saved Games, 9 ProgramData, 11 Roaming AppData.</param>
+/// <param name="Root">ERemoteStorageFileRoot: 0 Steam cloud dir, 1 install dir, 2 Documents, 3 LocalAppData, 4 Roaming AppData, 9 Saved Games, 10 ProgramData, 12 LocalLow.</param>
 public sealed record SteamCloudEntry(string Name, int Root, long Size, DateTime? Time);
 
 /// <summary>A configured file as seen by the sync check: its id, its resolved path (or the raw configured one) and handler kind.</summary>
@@ -55,15 +55,17 @@ public static class SteamCloud
         {
             var name = Norm(e.Name);
             if (name.Length == 0) continue;
+            // Steamworks ERemoteStorageFileRoot (Windows roots). 9 = Saved Games is confirmed by DOOM (2016)'s
+            // remotecache listing "id Software/DOOM/base/DOOMConfig.cfg" under root 9.
             var rootToken = e.Root switch
             {
                 1 => $"{{SteamLibrary:{appId}}}",
                 2 => "{Documents}",
                 3 => "{LocalAppData}",
-                4 => "{LocalLow}",
-                8 => "{SavedGames}",
-                9 => "{ProgramData}",
-                11 => "{AppData}",
+                4 => "{AppData}",
+                9 => "{SavedGames}",
+                10 => "{ProgramData}",
+                12 => "{LocalLow}",
                 _ => null,
             };
             if (rootToken is not null)
@@ -72,13 +74,13 @@ public static class SteamCloud
                 {
                     var full = Norm(System.IO.Path.Combine(resolver.Expand(rootToken), name));
                     if (full == path) return true;
-                    continue; // the root is known: a different folder is a different file
                 }
                 catch (PathResolveException)
                 {
-                    // root not resolvable here: fall through to the suffix match
+                    // root not resolvable here: use the suffix match below
                 }
             }
+            // Always also try the suffix match: a mis-mapped root must never turn a synced file into "not synced".
             if (path == name || path.EndsWith("\\" + name, StringComparison.Ordinal)) return true;
         }
         return false;
