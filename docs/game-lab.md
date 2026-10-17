@@ -50,3 +50,43 @@ told never to put evidence content into queries. Do not make the config repo pub
 - Settings > Actions > General > Workflow permissions: **Allow GitHub Actions to create and approve pull requests**.
 - Squash merging allowed on the repo (default), and no branch protection that blocks the workflow's merge. If the
   automatic merge is blocked, the issue is labeled `lab:review` and the PR is left for you.
+
+## In the app: Settings > Game lab
+
+The app does the one-time setup with a re-runnable wizard (one card, each step marked done / next / pending, with a one-line reason and its
+action). It uses `GameLabSetup`, the same code as `optimus-vibe lab setup`:
+
+1. **A config repo on GitHub.** The sync provider must be the GitHub account, or a git checkout whose remote is on GitHub; otherwise the
+   step explains and points at the Config repo section.
+2. **Sign in with the extra permissions.** Runs the device-code sign-in again for `repo workflow project`. With a personal access token the
+   fine-grained permissions are listed (Contents, Issues, Actions, Secrets, Variables, Workflows, Administration).
+3. Labels, 4. workflow files, 5. **Claude token** (paste the output of `claude setup-token`; sent encrypted to GitHub, never logged or stored
+   locally, cleared from the box once used), 6. **daily cap** (default 5) and **model** (Sonnet recommended, Opus, Haiku), 7. repository
+   settings, 8. project board (skipped without the `project` scope), 9. a test sync-check on a game that is already configured.
+
+When every required step is done the card shows the status (open, queued, researching, needs evidence, in review) with **Run now**,
+**Open board** and **Open repo**.
+
+**Per game.** A game's page offers *Request presets* (no presets here yet), *Refresh presets* and *Re-check settings sync* (configured games).
+A confirmation lists what would be sent (counts and tokenized paths, never contents) and says the evidence goes only to your private config
+repo. The page shows the request's status (Requested, Researching, Needs evidence, Review, Done) with a link to the issue. Everything is
+disabled, with an explanation, until the lab is set up.
+
+**In the background** (app start and after each sync, at most every 5 minutes, off the UI thread, only once the lab is set up): pending
+"needs evidence" requests are answered automatically ("Sent the extra details Claude asked for"), queued requests are started, the board is
+synced, and when a result is merged the config is pulled and you get "New presets for <game>". Newly detected games without presets get a lab
+request automatically (a local toggle, default on) instead of only the `requests.yaml` queue, which stays the fallback when the lab isn't set
+up; a game is not requested again for 7 days after the app asked.
+
+## Presets arrive by themselves
+
+Separately from the lab, the app pulls the config repo when it starts, every 15 minutes while open, and when the window is re-activated
+(if the last pull is over 5 minutes old). The headless `run` wrapper does a best-effort pull before launching, waits at most about 5 seconds
+and skips it if the last pull was under 2 minutes ago; sync problems never delay or fail a launch. A toast appears only when game files
+changed or after repeated failures. *Settings > Sync* shows "Last updated" and the **Auto-update presets** switch (`autoPull` in settings.json).
+
+## After the game: keep your changes?
+
+When settings changed in-game, `run` shows a full-screen prompt (it takes the foreground over the Xbox full-screen shell / Big Picture): A saves
+(updates the active manual save, or creates one), Y asks for a name (on-screen keyboard), B skips, X stops asking for this game on this device
+(`capture-prompt.json` in the data folder; re-enable it on the game's page). It closes without saving after 2 minutes. The CLI keeps a message box.

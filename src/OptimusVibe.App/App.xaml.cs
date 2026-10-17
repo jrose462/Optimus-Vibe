@@ -16,9 +16,21 @@ public partial class App : Application
         Log.Init(Path.Combine(AppPaths.DefaultDataDir, "logs"));
         LegacyMigration.Run(); // one-time copy of the pre-rename GameProfiles data folder, before anything reads settings
 
+        // The post-game "keep your changes?" prompt: a full-screen controller-friendly window (the CLI keeps its message box).
+        OptimusVibe.Launch.CapturePrompts.Current = new WpfCapturePrompt();
+
+#if DEBUG
+        if (e.Args.Length > 0 && e.Args[0] == "capture-demo")
+        {
+            Shutdown(DebugScenes.RunCaptureDemo(this));
+            return;
+        }
+#endif
+
         // Steam launch option: `OptimusVibe.exe run <game> -- %command%` — no window, no console flash.
         if (HeadlessRun.IsRunInvocation(e.Args))
         {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown; // the prompt window must not end the process before the run is finished
             int code;
             try { code = HeadlessRun.Execute(e.Args); }
             catch (Exception ex) { Log.Error("run failed", ex); code = 1; }
@@ -61,6 +73,9 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
         _ = vm.LoadAsync();
+#if DEBUG
+        _ = DebugScenes.RunSceneAsync(window, vm);
+#endif
         _ = vm.Updates.BackgroundCheckAsync(); // at most once a day; shows the header badge when a release is newer
     }
 

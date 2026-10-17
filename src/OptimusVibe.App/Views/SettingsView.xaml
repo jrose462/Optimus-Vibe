@@ -88,6 +88,15 @@
                                       ToolTip="Manual saves, opt-outs and queued games" />
                             <Button Command="{Binding SyncNowCommand}" AutomationProperties.Name="Sync now" Content="Sync now" />
                         </WrapPanel>
+                        <CheckBox IsChecked="{Binding AutoPull}" Margin="0,12,0,0">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="Auto-update presets" FontWeight="SemiBold" />
+                                <LineBreak />
+                                <Run Text="Fetch new presets when the app starts, every 15 minutes, and just before a game starts."
+                                     Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
+                            </TextBlock>
+                        </CheckBox>
+                        <TextBlock Text="{Binding LastUpdatedText}" Style="{StaticResource Text.Caption}" Margin="4,6,0,0" />
                     </StackPanel>
                 </Border>
 
@@ -204,6 +213,214 @@
                                 </StackPanel>
                             </Border>
                         </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== game lab -->
+                <Border x:Name="LabCard" Style="{StaticResource Card}" Margin="0,0,0,16" DataContext="{Binding Lab}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Game lab" Style="{StaticResource Text.H2}" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Text="Checking…" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                           Visibility="{Binding IsChecking, Converter={StaticResource VisibleWhen}}" />
+                                <Button Style="{StaticResource Button.Quiet}" Command="{Binding CheckAgainCommand}" Content="Check again" AutomationProperties.Name="Check the game lab again" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Text="{Binding Intro}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding Cost}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding CheckError}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                   Visibility="{Binding HasCheckError, Converter={StaticResource VisibleWhen}}" />
+
+                        <!-- the wizard: one line per step, the current one open -->
+                        <ItemsControl ItemsSource="{Binding Steps}" Focusable="False" Margin="0,16,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:LabStepViewModel}">
+                                    <Border Style="{StaticResource Card.Inset}" Margin="0,0,0,8" Padding="18,14">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- mark: number, or a tick when done -->
+                                            <Border Width="32" Height="32" CornerRadius="16" VerticalAlignment="Top" Margin="0,2,16,0"
+                                                    BorderThickness="1.5">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsDone}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Grid>
+                                                    <TextBlock Text="{Binding Number}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                               Visibility="{Binding IsDone, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                    <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource OnAccentBrush}" Visibility="{Binding IsDone, Converter={StaticResource VisibleWhen}}" />
+                                                </Grid>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Title}" FontSize="16.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                        <TextBlock Text="Next" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" Margin="12,2,0,0" VerticalAlignment="Center"
+                                                                   Visibility="{Binding IsCurrent, Converter={StaticResource VisibleWhen}}" />
+                                                        <TextBlock Text="Skipped" FontSize="12.5" Foreground="{DynamicResource TextFaintBrush}" Margin="12,2,0,0" VerticalAlignment="Center"
+                                                                   Visibility="{Binding IsSkipped, Converter={StaticResource VisibleWhen}}" />
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding ToggleCommand}" Content="Run again"
+                                                            Visibility="{Binding ShowRerun, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Run this step again" />
+                                                </Grid>
+                                                <TextBlock Text="{Binding Why}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                           Visibility="{Binding HasDetail, Converter={StaticResource VisibleWhen}}" />
+                                                <TextBlock Text="{Binding Warning}" Foreground="{DynamicResource AttentionBrush}" FontSize="13.5" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                           Visibility="{Binding HasWarning, Converter={StaticResource VisibleWhen}}" />
+
+                                                <!-- the open step: its action -->
+                                                <StackPanel Margin="0,12,0,0" Visibility="{Binding ShowBody, Converter={StaticResource VisibleWhen}}">
+
+                                                    <!-- sign in again: the device code appears here -->
+                                                    <StackPanel Visibility="{Binding IsScopes, Converter={StaticResource VisibleWhen}}">
+                                                        <Border Style="{StaticResource Card.Inset}" Background="{DynamicResource InsetDeepBrush}" Margin="0,0,0,10"
+                                                                Visibility="{Binding DataContext.Account.HasDeviceCode, ElementName=LabCard, Converter={StaticResource VisibleWhen}}">
+                                                            <StackPanel>
+                                                                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap">
+                                                                    <Run Text="Go to" />
+                                                                    <Run Text="{Binding DataContext.Account.VerificationUri, ElementName=LabCard, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
+                                                                    <Run Text="and enter:" />
+                                                                </TextBlock>
+                                                                <TextBlock Text="{Binding DataContext.Account.UserCode, ElementName=LabCard}" FontFamily="{StaticResource MonoFont}" FontSize="40" FontWeight="Bold" Margin="0,6" />
+                                                                <WrapPanel>
+                                                                    <Button Style="{StaticResource Button.Primary}" Command="{Binding DataContext.Account.OpenVerificationCommand, ElementName=LabCard}" Content="Open GitHub" Margin="0,0,8,0" />
+                                                                    <Button Command="{Binding DataContext.Account.CopyCodeCommand, ElementName=LabCard}" Content="Copy code" Margin="0,0,8,0" />
+                                                                    <Button Style="{StaticResource Button.Quiet}" Command="{Binding DataContext.Account.CancelSignInCommand, ElementName=LabCard}" Content="Cancel" />
+                                                                </WrapPanel>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                                                   Text="Signing in again asks for repo, workflow and project. Using a personal access token instead? Make a classic token with those three scopes, or a fine-grained one on your config repo with Contents, Issues, Actions, Secrets, Variables, Workflows and Administration (read and write)." />
+                                                        <Button Style="{StaticResource Button.Quiet}" HorizontalAlignment="Left" Margin="0,0,0,8" Command="{Binding DataContext.OpenTokenCommand, ElementName=LabCard}"
+                                                                Content="Create a token on github.com" />
+                                                    </StackPanel>
+
+                                                    <!-- Claude token -->
+                                                    <StackPanel Visibility="{Binding IsSecret, Converter={StaticResource VisibleWhen}}">
+                                                        <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap">
+                                                            <Run Text="Run" />
+                                                            <Run Text="claude setup-token" FontFamily="{StaticResource MonoFont}" FontWeight="SemiBold" />
+                                                            <Run Text="in a terminal and paste the token here." />
+                                                        </TextBlock>
+                                                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                                                   Text="It goes straight to GitHub, encrypted, as a secret of your config repo. It is not kept on this PC." />
+                                                        <Grid Margin="0,10,0,0" MaxWidth="640" HorizontalAlignment="Left">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <PasswordBox x:Name="ClaudeTokenBox" MinWidth="360" AutomationProperties.Name="Claude token" />
+                                                            <Button Grid.Column="1" Style="{StaticResource Button.Primary}" Content="{Binding ActionText}" Command="{Binding RunCommand}"
+                                                                    CommandParameter="{Binding ElementName=ClaudeTokenBox}" Margin="10,0,0,0" MinWidth="120" />
+                                                        </Grid>
+                                                    </StackPanel>
+
+                                                    <!-- daily cap + model -->
+                                                    <StackPanel Visibility="{Binding IsVariables, Converter={StaticResource VisibleWhen}}">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="Research runs per day" Style="{StaticResource Text.Body}" VerticalAlignment="Center" Margin="0,0,14,0" />
+                                                            <Button Style="{StaticResource Button.Icon}" Command="{Binding DataContext.DailyMaxDownCommand, ElementName=LabCard}" AutomationProperties.Name="Fewer runs per day">
+                                                                <TextBlock Text="&#xE738;" />
+                                                            </Button>
+                                                            <TextBox Text="{Binding DataContext.DailyMax, ElementName=LabCard, UpdateSourceTrigger=LostFocus}" Width="64" TextAlignment="Center"
+                                                                     AutomationProperties.Name="Research runs per day" />
+                                                            <Button Style="{StaticResource Button.Icon}" Command="{Binding DataContext.DailyMaxUpCommand, ElementName=LabCard}" AutomationProperties.Name="More runs per day">
+                                                                <TextBlock Text="&#xE710;" />
+                                                            </Button>
+                                                        </StackPanel>
+                                                        <TextBlock Text="Model" Style="{StaticResource Text.Body}" Margin="0,12,0,6" />
+                                                        <ItemsControl ItemsSource="{Binding DataContext.Models, ElementName=LabCard}" Focusable="False">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <WrapPanel />
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                                                    <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,8,8" MinWidth="170" Padding="16,10"
+                                                                            AutomationProperties.Name="{Binding Label}"
+                                                                            Command="{Binding DataContext.SetModelCommand, ElementName=LabCard}" CommandParameter="{Binding}">
+                                                                        <StackPanel>
+                                                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+                                                                            <TextBlock Text="{Binding Hint}" Style="{StaticResource Text.Caption}" />
+                                                                        </StackPanel>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+
+                                                    <Button HorizontalAlignment="Left" Command="{Binding RunCommand}" Content="{Binding ActionText}" MinWidth="150"
+                                                            Style="{StaticResource Button.Primary}" AutomationProperties.Name="{Binding ActionText}"
+                                                            Visibility="{Binding IsGeneric, Converter={StaticResource VisibleWhen}}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- status once it is set up -->
+                        <Border Style="{StaticResource Card.Feature}" Margin="0,8,0,0" Visibility="{Binding ShowStatus, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding StatusText}" Style="{StaticResource Text.H3}" Foreground="{DynamicResource FeatureTextBrush}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding CountsText}" FontSize="14.5" Foreground="{DynamicResource OnFeatureDimBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                <WrapPanel Margin="0,14,0,0">
+                                    <Button Command="{Binding RunNowCommand}" Content="Run now" Margin="0,0,8,0" Background="{DynamicResource FeatureButtonBrush}"
+                                            Foreground="{DynamicResource FeatureButtonTextBrush}" ToolTip="Start the oldest waiting request now" AutomationProperties.Name="Run now" />
+                                    <Button Command="{Binding OpenBoardCommand}" Content="Open board" Margin="0,0,8,0" AutomationProperties.Name="Open the board" />
+                                    <Button Command="{Binding OpenRepoCommand}" Content="Open repo" AutomationProperties.Name="Open the config repo" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <CheckBox IsChecked="{Binding AutoRequest}" Margin="0,16,0,0">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="Request presets for new games automatically" FontWeight="SemiBold" />
+                                <LineBreak />
+                                <Run Text="Newly found games without presets go to the game lab. Off (or lab not set up): they are queued in requests.yaml for Claude Code, as before. This machine only."
+                                     Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
+                            </TextBlock>
+                        </CheckBox>
                     </StackPanel>
                 </Border>
 

@@ -53,6 +53,8 @@ public static class HeadlessRun
             return command.Count == 0 && launch is not null ? Runner.LaunchPlain([launch, .. launchArgs]) : LaunchUnmanaged(command);
         }
 
+        PrePull(config);
+
         GameContext ctx;
         try
         {
@@ -66,6 +68,25 @@ public static class HeadlessRun
         }
         return Runner.Run(ctx, command.ToArray(), prompt,
             new RunOptions { Launch = launch, LaunchArgs = launchArgs, InstallDir = installDir });
+    }
+
+    /// <summary>
+    /// Best effort before the game starts: fetch new presets, but never hold the launch up (about 5 s at most, and not at all when the
+    /// last pull was under 2 minutes ago). Turned off by Settings → Sync → Auto-update presets. Never throws.
+    /// </summary>
+    private static void PrePull(string? config)
+    {
+        try
+        {
+            var paths = AppPaths.Resolve(config);
+            if (!AppPaths.LoadSettings(paths.DataDir).AutoPull) return;
+            var r = OptimusVibe.Sync.AutoPull.Run(OptimusVibe.Sync.SyncProviders.For(paths), paths, TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(5));
+            Log.Info($"pre-launch pull: {r.Status} ({r.Message}){(r.ChangedGames.Count > 0 ? $"; changed: {string.Join(", ", r.ChangedGames)}" : "")}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"pre-launch pull skipped: {ex.Message}");
+        }
     }
 
     private static int LaunchUnmanaged(List<string> command)

@@ -5,7 +5,6 @@ using OptimusVibe.Display;
 using OptimusVibe.Driver;
 using OptimusVibe.Engine;
 using OptimusVibe.Logging;
-using OptimusVibe.Ui;
 
 namespace OptimusVibe.Launch;
 
@@ -341,25 +340,52 @@ public static class Runner
         return Process.Start(psi) ?? throw new InvalidOperationException($"Could not start {exe}");
     }
 
-    private static void OfferCapture(GameContext ctx, AppliedState applied)
+    /// <summary>
+    /// After the game exits: when its settings drifted, ask (through <see cref="ICapturePrompt"/>) whether to keep them. Skipped when
+    /// the player chose "don't ask again" for this game. Returns the save that was written, or null. Never throws.
+    /// </summary>
+    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null)
     {
-        var drift = GameEngine.FindDrift(ctx, applied);
-        if (drift.Count == 0) return;
+        try
+        {
+            if (CapturePromptStore.IsSkipped(ctx.Paths.DataDir, ctx.Game.Id))
+            {
+                Log.Info($"{ctx.Game.Id}: capture prompt turned off for this game");
+                return null;
+            }
+            var drift = GameEngine.FindDrift(ctx, applied);
+            if (drift.Count == 0) return null;
 
-        foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");
-        var lines = drift.Take(8).Select(d => d.Applied is null ? $"• {d.FileId} (whole file)" : $"• {d.Key}: {d.Applied} → {d.Now}");
-        var more = drift.Count > 8 ? $"\n…and {drift.Count - 8} more" : "";
-        var question = ctx.Save is { } current
-            ? $"Update your manual save '{current.Name}' with these changes?"
-            : $"Keep them as a new manual save for {ctx.Device.Name}? It becomes this game's active setting.";
-        var message = $"{drift.Count} setting(s) changed while playing {ctx.Game.Name}:\n\n{string.Join("\n", lines)}{more}\n\n" +
-                      $"{question}\n(No = '{ctx.Profile.Label}' is re-applied next launch)";
+            foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");
+            var lines = drift.Take(CapturePrompts.MaxLines)
+                .Select(d => d.Applied is null ? $"{d.FileId} (whole file)" : $"{d.Key}: {d.Applied} → {d.Now}").ToList();
+            var request = new CaptureRequest(ctx.Game.Id, ctx.Game.Name, ctx.Device.Name, ctx.Profile.Label ?? ctx.Preset?.Name ?? "the preset",
+                lines, drift.Count, ctx.Save?.Name, $"Tuned {DateTime.Now:MMM d HH:mm}");
 
-        if (!NativeUi.AskYesNo("Optimus-Vibe", message)) return;
-        var result = ctx.Save is { } s
-            ? ManualSaves.SaveCurrent(ctx, s.Name, updateSlug: s.Slug)
-            : ManualSaves.SaveCurrent(ctx, $"Tuned {DateTime.Now:MMM d HH:mm}");
-        Log.Info($"Saved '{result.Save.Name}' ({result.KeysSaved} setting(s)){(result.Sync is { } g ? $"; sync: {g.Message}" : "")}");
+            var decision = (prompt ?? CapturePrompts.Current).Ask(request);
+            switch (decision.Choice)
+            {
+                case CaptureChoice.DontSave:
+                    return null;
+                case CaptureChoice.DontAskAgain:
+                    CapturePromptStore.SetSkipped(ctx.Paths.DataDir, ctx.Game.Id, true);
+                    Log.Info($"{ctx.Game.Id}: won't ask to save after playing again");
+                    return null;
+            }
+
+            var result = decision.Choice == CaptureChoice.SaveAs
+                ? ManualSaves.SaveCurrent(ctx, string.IsNullOrWhiteSpace(decision.Name) ? request.SuggestedName : decision.Name.Trim())
+                : ctx.Save is { } s
+                    ? ManualSaves.SaveCurrent(ctx, s.Name, updateSlug: s.Slug)
+                    : ManualSaves.SaveCurrent(ctx, request.SuggestedName);
+            Log.Info($"Saved '{result.Save.Name}' ({result.KeysSaved} setting(s)){(result.Sync is { } g ? $"; sync: {g.Message}" : "")}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Capture prompt failed", ex);
+            return null;
+        }
     }
 
     /// <summary>Holds a named mutex; released (on the acquiring thread) when disposed.</summary>

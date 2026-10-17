@@ -10,6 +10,7 @@ using OptimusVibe.Devices;
 using OptimusVibe.Engine;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
+using OptimusVibe.Sync;
 using Microsoft.Win32;
 
 namespace OptimusVibe.App.ViewModels;
@@ -27,6 +28,9 @@ public interface IAppShell
 
     /// <summary>Opens the Report a problem panel (prefilled with the game and its active preset, when known).</summary>
     void OpenReport(string? gameId, string? preset);
+
+    /// <summary>The game lab: wizard state, background pass and per-game panels.</summary>
+    GameLabViewModel Lab { get; }
 
     /// <summary>Re-reads one game (after use/apply/save...) and updates its list entry and detail in place.</summary>
     Task ReloadGameAsync(string gameId);
@@ -109,12 +113,14 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         SteamReview = new SteamReviewViewModel(this);
         Report.PropertyChanged += OnOverlayChanged;
         SteamReview.PropertyChanged += OnOverlayChanged;
+        Lab = new GameLabViewModel(this, Account);
         Settings = new SettingsViewModel(this, Account);
     }
 
     public LibraryViewModel Library { get; }
     public SettingsViewModel Settings { get; }
     public GitHubAccountViewModel Account { get; }
+    public GameLabViewModel Lab { get; }
     public UpdatesViewModel Updates { get; }
     public ReportViewModel Report { get; }
     public SteamReviewViewModel SteamReview { get; }
@@ -477,7 +483,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 if (!Settings.CancelTransient()) CloseSettings();
                 return true;
             case AppPage.Detail:
-                if (!(SelectedDetail?.CancelTransient() ?? false)) CloseDetail();
+                if (!((SelectedDetail?.CancelTransient() ?? false) | (DetailTile?.Lab.CancelTransient() ?? false))) CloseDetail();
                 return true;
             case AppPage.Library:
                 return false;
@@ -607,6 +613,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         SetStatus($"{Games.Count} game(s) for {Session.Device.DisplayName}{(errors > 0 ? $" — {errors} with config errors" : "")}", errors > 0);
         Log.Info($"App loaded: device {Session.Device.Name} ({Session.Device.Reason}), config {Session.Paths.ConfigRoot}, {Games.Count} game(s)");
 
+        await Lab.InitializeAsync();
+        StartAutoPull();
         _ = Library.ScanAsync(rescanLaunchers: rescan || Library.Detected.Count == 0);
     }
 
@@ -631,6 +639,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public void OnLibraryChanged()
     {
         foreach (var g in Games) g.Detail?.RefreshLaunch();
+        Lab.TriggerCycle();
         OnPropertyChanged(nameof(DetailHasConfig));
     }
 
@@ -729,6 +738,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         if (!ran || result is null) return;
         Notify($"Sync: {result.Message}", error: !result.Ok);
         if (result.Ok) await LoadAsync(rescan: false); // a pull may have brought presets, saves or opt-outs from the other device
+        if (result.Ok) { AutoPull.RecordSuccess(session.Paths.DataDir, DateTime.UtcNow); Settings.RefreshLastUpdated(); Lab.TriggerCycle(); }
     }
 
     /// <summary>Publish a few changed files (request queue, library.yaml) without a success toast. Skipped while busy.</summary>
@@ -747,6 +757,74 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         else if (result is not null) Log.Info($"Synced: {message} ({result.Message})");
     }
 
+
+    // ---------------------------------------------------------------- automatic pull (new presets arrive by themselves)
+
+    private readonly DispatcherTimer _pullTimer = new() { Interval = TimeSpan.FromMinutes(15) };
+    private bool _pulling;
+    private int _pullFailures;
+
+    /// <summary>Startup: pull now (unless pulled in the last 2 minutes) and then every 15 minutes while the app is open.</summary>
+    private void StartAutoPull()
+    {
+        if (_pullTimer.IsEnabled) return;
+        _pullTimer.Tick += (_, _) => _ = PullAsync(TimeSpan.Zero);
+        _pullTimer.Start();
+        _ = PullAsync(TimeSpan.FromMinutes(2));
+    }
+
+    /// <summary>The window came back to the front: pull if the last pull is older than 5 minutes.</summary>
+    public void OnWindowActivated()
+    {
+        if (IsReady) _ = PullAsync(TimeSpan.FromMinutes(5));
+    }
+
+    /// <summary>
+    /// Pull the config repo off the UI thread. Quiet when nothing changed; reloads and toasts "New presets for ..." when game files
+    /// arrived; toasts once after three failures in a row.
+    /// </summary>
+    public async Task PullAsync(TimeSpan minAge)
+    {
+        var session = Session;
+        if (session is null || _pulling) return;
+        _pulling = true;
+        try
+        {
+            if (!(await SettingsStore.LoadAsync()).AutoPull) return;
+            var outcome = await Task.Run(() =>
+            {
+                try { return AutoPull.Run(SyncProviders.For(session.Paths), session.Paths, minAge, TimeSpan.FromSeconds(90)); }
+                catch (Exception ex) { return new PullOutcome(PullStatus.Failed, ex.Message, []); }
+            });
+            switch (outcome.Status)
+            {
+                case PullStatus.Pulled:
+                    _pullFailures = 0;
+                    OnPropertyChanged(nameof(LastUpdatedUtc));
+                    Settings.RefreshLastUpdated();
+                    if (outcome.ChangedGames.Count == 0) break;
+                    for (var i = 0; i < 30 && IsBusy; i++) await Task.Delay(1000);
+                    await LoadAsync(rescan: false);
+                    var names = outcome.ChangedGames.Select(id => Games.FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id);
+                    Notify($"New presets for {string.Join(", ", names.Take(3))}{(outcome.ChangedGames.Count > 3 ? $" and {outcome.ChangedGames.Count - 3} more" : "")}.");
+                    break;
+                case PullStatus.Failed or PullStatus.TimedOut:
+                    Log.Warn($"Auto-pull: {outcome.Status}: {outcome.Message}");
+                    if (++_pullFailures == 3) Notify($"Couldn't check for new presets ({outcome.Message}). Will keep trying quietly.", error: true);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Auto-pull failed: {ex.Message}");
+        }
+        finally
+        {
+            _pulling = false;
+        }
+    }
+
+    public DateTime? LastUpdatedUtc => Session is { } s ? AutoPull.LastSuccess(s.Paths.DataDir) : null;
     // ---------------------------------------------------------------- steam launch options
 
     /// <summary>Changes that need Steam closed: show the banner (never a modal).</summary>

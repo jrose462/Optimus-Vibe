@@ -238,6 +238,21 @@
                     </Grid>
                 </Border>
 
+                <!-- game lab: request / refresh presets, re-check settings sync -->
+                <views:LabGamePanel DataContext="{Binding Lab}" Margin="0,16,0,0"
+                                    Visibility="{Binding DataContext.HasGame, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}" />
+
+                <!-- post-game prompt: per game, this device only -->
+                <CheckBox IsChecked="{Binding AskToSaveAfterPlaying}" Margin="4,14,0,0" HorizontalAlignment="Left"
+                          Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}"
+                          ToolTip="After you quit, offer to keep settings you changed in the game. Turn off to stop asking for this game on this device.">
+                    <TextBlock TextWrapping="Wrap">
+                        <Run Text="Ask me to save after playing" FontWeight="SemiBold" />
+                        <LineBreak />
+                        <Run Text="When settings change in the game, offer to keep them as a save." Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
+                    </TextBlock>
+                </CheckBox>
+
                 <!-- config error -->
                 <Border Style="{StaticResource Card}" Margin="0,22,0,0" HorizontalAlignment="Left" MaxWidth="760"
                         Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}">

@@ -165,6 +165,22 @@ public sealed class AppSettings
     /// <summary>Colour theme (per machine): default | majestic | circuit.</summary>
     public string Theme { get; set; } = "default";
 
+    /// <summary>
+    /// Game lab (this machine): newly detected games without presets get a lab request automatically instead of only the
+    /// local requests.yaml queue. Only applies once the lab is set up.
+    /// </summary>
+    public bool GameLabAutoRequest { get; set; } = true;
+
+    /// <summary>The last full game-lab check passed (every required setup step done). Gates the per-game actions and the background work.</summary>
+    public bool GameLabReady { get; set; }
+
+    /// <summary>The wizard's choices for the repo variables GAME_LAB_DAILY_MAX / GAME_LAB_MODEL.</summary>
+    public int GameLabDailyMax { get; set; } = 5;
+    public string GameLabModel { get; set; } = "claude-sonnet-5-5";
+
+    /// <summary>Pull the config repo in the background (startup, every 15 minutes, window re-activated) and before a game starts, so new presets arrive by themselves.</summary>
+    public bool AutoPull { get; set; } = true;
+
     /// <summary>Suggested name when creating the config repo.</summary>
     public const string SuggestedConfigRepoName = "optimus-vibe-config";
 }

@@ -251,9 +251,10 @@ public sealed class LibraryViewModel : ObservableObject
         var detected = rescanLaunchers ? null : _detected;
         IsScanning = true;
         LibraryScanResult? result = null;
+        var routeToLab = _main.Lab.RoutesToLab; // lab set up: new games go to the lab instead of the local requests.yaml queue
         try
         {
-            result = await Task.Run(() => LibraryScan.Run(session, games, detected, queue: true));
+            result = await Task.Run(() => LibraryScan.Run(session, games, detected, queue: !routeToLab));
         }
         catch (Exception ex)
         {
@@ -272,6 +273,8 @@ public sealed class LibraryViewModel : ObservableObject
         if (result.Pending is { } p) PendingRequests = p;
         else PendingRequests = result.Entries.Count(e => e.Status == LibraryStatus.NeedsPresets && !e.OptedOut);
         _ = LoadArtAsync();
+        if (routeToLab)
+            _ = _main.Lab.AutoRequestAsync(result.Entries.Where(e => e.Status == LibraryStatus.NeedsPresets && !e.OptedOut && e.Detected is not null).ToList());
 
         if (result.Warnings.Count > 0) _main.Notify(string.Join(" ", result.Warnings), error: true);
         if (result.SteamApplied > 0) _main.Notify($"Steam launch options updated for {result.SteamApplied} game(s).");

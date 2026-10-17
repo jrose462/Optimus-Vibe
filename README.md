@@ -235,6 +235,32 @@ for Claude's weekly bug squash (Thursdays, Pacific time): Claude audits them and
   `optimus-vibe library` lists what was detected and its status; `optimus-vibe library --queue` also queues
   missing games.
 
+## Game lab: Claude researches presets for you
+
+The game lab adds or refreshes a game's presets without you running anything: the app collects evidence from this PC, files an
+issue in your **private** config repo, a GitHub Actions workflow there has Claude research the game with your own Claude
+subscription, the result is validated and merged automatically, and the app pulls it. Details, limits, costs and privacy:
+[docs/game-lab.md](docs/game-lab.md).
+
+Set it up in **Settings > Game lab**, a step-by-step wizard you can re-run any time:
+
+1. **A config repo on GitHub** (the GitHub account provider, or a git checkout with a GitHub remote).
+2. **Sign in with the extra permissions** (`workflow` installs the lab workflow, `project` keeps a private board).
+3. **Request labels**, 4. **Install the lab workflow**.
+5. **Claude token**: run `claude setup-token` in a terminal and paste it; it goes to GitHub as an encrypted secret and is never kept on the PC.
+6. **Daily cap and model** (default 5 runs a day, Sonnet), 7. **Repository settings**, 8. **Project board** (optional), 9. **Test request** (optional).
+
+Once set up, each game's page offers **Request presets**, **Refresh presets** and **Re-check settings sync** (you see what would be
+sent first, and that it goes only to your config repo), plus a status chip with a link to the issue. In the background the app answers
+"needs evidence" follow-ups, starts queued requests and shows "New presets for ..." when a result lands. New games without presets are
+requested automatically (toggle in the same section); without the lab they are queued in `requests.yaml` as before.
+
+**New presets arrive by themselves.** With *Settings > Sync > Auto-update presets* on (default), the app pulls your config repo on
+start, every 15 minutes, when you come back to the window, and, for at most about 5 seconds, just before a game starts.
+
+**After you quit a game** that changed its settings, a full-screen, controller-friendly prompt offers **A** Save, **Y** Save as...,
+**B** Don't save, **X** Don't ask again for this game (turn it back on from the game's page). It closes without saving after 2 minutes.
+
 ## Appearance
 
 Settings → **Appearance** picks the colours for this machine: **Default** (navy and teal), **Majestic** (black and gold)

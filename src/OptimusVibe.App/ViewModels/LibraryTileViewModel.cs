@@ -2,6 +2,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using OptimusVibe.App.Services;
 using OptimusVibe.CloudSync;
+using OptimusVibe.GameLab;
 using OptimusVibe.Library;
 
 namespace OptimusVibe.App.ViewModels;
@@ -28,9 +29,14 @@ public sealed class LibraryTileViewModel : ObservableObject
         OpenCommand = new RelayCommand(() => owner.OpenDetail(this));
         SetManagedCommand = new AsyncRelayCommand(p => owner.SetManagedAsync(this, p is true), _ => Idle() && CanToggleManaged);
         SetSteamKeepCommand = new AsyncRelayCommand(p => owner.SetSteamKeepUpToDateAsync(this, p is true), _ => Idle() && IsSteam);
+        Lab = owner.Shell.Lab.ForGame(() => new LabGameContext(Name, Key, GameId, _entry.Detected is null ? null : LabTarget.From(_entry), HasConfig,
+            _entry.Status == LibraryStatus.NeedsPresets));
     }
 
     public LibraryEntry Entry => _entry;
+
+    /// <summary>Game-lab actions and status for this game.</summary>
+    public LabGameViewModel Lab { get; }
     public GameItemViewModel? GameItem => _gameItem;
     public string Key => _entry.Key;
     public string Name => _entry.Name;
@@ -132,6 +138,7 @@ public sealed class LibraryTileViewModel : ObservableObject
         _entry = entry;
         _gameItem = gameItem;
         OnPropertyChanged(string.Empty);
+        Lab.Refresh();
     }
 
     /// <summary>Re-read the game list badge (after Use / Apply in the detail page).</summary>

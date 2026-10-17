@@ -40,6 +40,7 @@ public partial class MainWindow : Window, IGamepadActions
         vm.MinimizeRequested += () => WindowState = WindowState.Minimized;
         vm.RestoreRequested += RestoreFromGame;
         SourceInitialized += (_, _) => UseDarkTitleBar();
+        Activated += (_, _) => _vm.OnWindowActivated();
     }
 
     [DllImport("dwmapi.dll")]

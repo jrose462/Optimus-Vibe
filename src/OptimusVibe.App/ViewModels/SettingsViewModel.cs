@@ -108,6 +108,7 @@ public sealed class SettingsViewModel : ObservableObject
     }
 
     public GitHubAccountViewModel Account { get; }
+    public GameLabViewModel Lab => _main.Lab;
     public UpdatesViewModel Updates => _main.Updates;
     public ObservableCollection<OptionViewModel> Stores { get; }
     public ObservableCollection<OptionViewModel> Modes { get; }
@@ -142,6 +143,30 @@ public sealed class SettingsViewModel : ObservableObject
         }
     }
 
+
+    private bool _autoPull = true;
+    private string _lastUpdatedText = "Never";
+
+    /// <summary>Pull new presets in the background and before a game starts.</summary>
+    public bool AutoPull
+    {
+        get => _autoPull;
+        set { if (Set(ref _autoPull, value) && !_loading) _ = SaveAsync(s => s.AutoPull = value, value ? "New presets will arrive by themselves" : "Presets are only updated when you sync"); }
+    }
+
+    public string LastUpdatedText { get => _lastUpdatedText; private set => Set(ref _lastUpdatedText, value); }
+
+    /// <summary>"Last updated 3 min ago" from the last successful pull on this machine.</summary>
+    public void RefreshLastUpdated()
+    {
+        var t = _main.LastUpdatedUtc;
+        if (t is null) { LastUpdatedText = "Last updated: not yet"; return; }
+        var ago = DateTime.UtcNow - t.Value;
+        LastUpdatedText = "Last updated " + (ago < TimeSpan.FromMinutes(1) ? "just now"
+            : ago < TimeSpan.FromHours(1) ? $"{(int)ago.TotalMinutes} min ago"
+            : ago < TimeSpan.FromDays(1) ? $"{(int)ago.TotalHours} h ago"
+            : t.Value.ToLocalTime().ToString("MMM d HH:mm"));
+    }
     public string DeviceName => _main.DeviceName;
     public string DeviceReason => _main.DeviceReason;
     public string? DeviceDescription => _main.DeviceDescription;
@@ -175,6 +200,8 @@ public sealed class SettingsViewModel : ObservableObject
             AppSettings s = await SettingsStore.LoadAsync();
             IsGitHub = SyncService.IsGitHub(s);
             AutoSync = s.AutoSync;
+            AutoPull = s.AutoPull;
+            RefreshLastUpdated();
             WriteSteamLaunchOptions = s.WriteSteamLaunchOptions;
             _forcedProfile = s.ForcedProfile;
             foreach (var o in Stores) o.IsOn = s.ScanStores.Contains(o.Value, StringComparer.OrdinalIgnoreCase);
@@ -208,6 +235,7 @@ public sealed class SettingsViewModel : ObservableObject
         await Devices.RefreshAsync();
         await Account.RefreshAsync();
         if (Account.IsSignedIn && !Account.HasRepos) _ = Account.LoadReposAsync();
+        _ = Lab.RefreshAsync();
     }
 
     /// <summary>Launcher toggles or the Steam option changed: rescan when leaving the page.</summary>

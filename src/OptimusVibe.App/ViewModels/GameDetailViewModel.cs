@@ -4,6 +4,9 @@ using OptimusVibe.App.Services;
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
 using OptimusVibe.Engine;
+using OptimusVibe.GameLab;
+using OptimusVibe.Launch;
+using OptimusVibe.Library;
 using OptimusVibe.Logging;
 
 namespace OptimusVibe.App.ViewModels;
@@ -41,6 +44,13 @@ public sealed class GameDetailViewModel : ObservableObject
         UseDefaultCommand = new AsyncRelayCommand(UseDefaultAsync, () => Idle() && CanUseDefault);
         NextTabCommand = new RelayCommand(() => SelectedTabIndex = (SelectedTabIndex + 1) % 2);
         PreviousTabCommand = new RelayCommand(() => SelectedTabIndex = (SelectedTabIndex + 1) % 2); // two tabs: previous == next
+        Lab = shell.Lab.ForGame(() =>
+        {
+            var game = _snap.Game;
+            var det = game is null ? null : shell.Lab.DetectedFor(game);
+            return new LabGameContext(Name, det?.Key ?? (game is null ? null : LibraryService.ConfiguredKey(game)), game?.Id ?? GameId,
+                det is null ? null : shell.Lab.TargetFor(game, det, Name), game is not null, _snap.Context?.Profile.IsEmpty == true);
+        });
         Rebuild();
     }
 
@@ -57,6 +67,21 @@ public sealed class GameDetailViewModel : ObservableObject
     public bool HasError => _snap.Error is not null;
     public bool HasGame => _snap.Context is not null;
     public string Device => Session.Device.DisplayName;
+
+    /// <summary>Game-lab actions and status for this game.</summary>
+    public LabGameViewModel Lab { get; }
+
+    /// <summary>After you quit, offer to keep settings changed in-game. Off = "don't ask again for this game" (this device only).</summary>
+    public bool AskToSaveAfterPlaying
+    {
+        get => !CapturePromptStore.IsSkipped(Session.Paths.DataDir, GameId);
+        set
+        {
+            CapturePromptStore.SetSkipped(Session.Paths.DataDir, GameId, !value);
+            OnPropertyChanged();
+            Shell.Notify(value ? $"{Name}: you'll be asked whether to keep changes after playing." : $"{Name}: won't ask to save changes after playing.");
+        }
+    }
 
     public string ActiveText
     {
@@ -214,6 +239,7 @@ public sealed class GameDetailViewModel : ObservableObject
         _snap = snapshot;
         Rebuild();
         OnPropertyChanged(string.Empty);
+        Lab.Refresh();
     }
 
     private void Rebuild()
@@ -246,7 +272,7 @@ public sealed class GameDetailViewModel : ObservableObject
     /// <summary>Close the diff panel, save form, rename or delete confirmation. True if anything was open.</summary>
     public bool CancelTransient()
     {
-        bool any = Preview is not null || IsSaveFormOpen;
+        bool any = (Preview is not null || IsSaveFormOpen) | Lab.CancelTransient();
         Preview = null;
         IsSaveFormOpen = false;
         foreach (var c in Recommended.Concat(Manual)) any |= c.CancelTransient();
