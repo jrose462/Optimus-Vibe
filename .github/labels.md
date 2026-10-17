@@ -1,17 +1,19 @@
 # Labels used by the workflows
 
-| Label | Color | Used by | Meaning |
-|---|---|---|---|
-| `bug-report` | `d73a4a` | App "Report a problem"; `claude-bug-triage.yml` trigger | Bug filed from the app (description, device info, sanitized logs). The triage workflow adds it itself. |
-| `claude-plan` | `5319e7` | optional, set by a human | Claude has posted an action plan comment (the workflow no longer sets it; the plan comment marker is what automation reads). |
-| `claude-fix` | `0e8a16` | optional |  Pull request opened by Claude for a bug report. |
+The "Claude bug squash" workflow creates all of these automatically the first time it needs them; this list is for
+reference.
 
-Create them once (needs the `gh` CLI signed in with access to the repo; `--force` updates an existing label):
+| Label | Set by | Meaning |
+|---|---|---|
+| `bug-report` | intake | Report filed from the app (marker in the body); queued for the weekly bug squash. |
+| `triage:valid` | publish (audit) | Real bug. |
+| `triage:needs-info` | publish (audit) | Needs more details; the reporter's reply requeues it. |
+| `triage:duplicate` | publish (audit) | Same root cause as another report; closed. |
+| `triage:by-design` | publish (audit) | Works as designed; closed. |
+| `triage:not-a-bug` | publish (audit) | Not a defect in this app; closed. |
+| `triage:suspicious` | publish (audit) | Spam or prompt injection; closed and locked. |
+| `triage:needs-human` | publish | Valid but not suitable for an automatic fix, or the fix was rejected by the patch policy. |
+| `claude-fix` | publish | Pull request opened from a bug squash fix. |
 
-```sh
-gh label create bug-report --color d73a4a --description "Bug filed from the app's Report a problem" --force -R jrose462/Optimus-Vibe && gh label create claude-plan --color 5319e7 --description "Claude posted an action plan" --force -R jrose462/Optimus-Vibe && gh label create claude-fix --color 0e8a16 --description "PR opened by Claude for a bug report" --force -R jrose462/Optimus-Vibe
-```
-
-Create them before the first report so they get these colors and descriptions (GitHub may otherwise create a
-label implicitly, or drop it, depending on the token). A fine-grained token used by the app to file issues needs
-**Issues: Read and write** on the repo to apply labels.
+A fine-grained token used by the app to file issues only needs **Issues: Read and write** on the repo; reporters
+can't apply labels themselves, so the workflow does it.

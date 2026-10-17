@@ -20,4 +20,4 @@ The app contains a built-in **issues-only token** so people without a GitHub sig
 and read issues on this public repository, which anyone with a GitHub account can already do. It is deliberately not secret.
 Please do not report its presence as a vulnerability. Abuse of it (spam) is handled by revoking and rotating it.
 
-Pull requests created by Claude are never merged automatically; the maintainer reviews and merges them (branch protection).
+Fix pull requests are proposed by Claude, but the bug-squash workflow (not Claude) opens them, and they are never merged automatically; the maintainer reviews and merges them (branch protection). Claude itself has file tools only and no GitHub access.

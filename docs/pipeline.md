@@ -7,33 +7,50 @@ protection) are in [ci.md](ci.md).
 ```mermaid
 flowchart TD
     A["User: App -> Report a problem<br/>(preview required; public issue, filed as the signed-in GitHub user or anonymously via the app)"]:::human
-    B["Issue lands in the board: Reported"]:::ci
-    C["Claude triage: posts an action plan comment"]:::claude
-    D["Board: Planned"]:::ci
-    E["Claude fix: opens a PR on a claude/* branch"]:::claude
-    F["Board: Fix in PR"]:::ci
+    B["Intake (no Claude): bug-report label,<br/>'queued' comment, card in Reported"]:::ci
+    Q["Weekly queue: Thursdays 00:01-09:30 PT<br/>oldest first, max SQUASH_WEEKLY_MAX<br/>(or an explicit maintainer run)"]:::ci
+    C["Claude audit (stronger model):<br/>verdict and implementation plan"]:::claude
+    P1["Publish (no Claude): audit comment, triage label,<br/>close / lock, board"]:::ci
+    N["needs-info: waits for the reporter's reply"]:::human
+    R["Closed: duplicate, by-design,<br/>not-a-bug or suspicious"]:::ci
+    F["Claude fix (cheaper model):<br/>edits files per the plan"]:::claude
+    P2["Publish (no Claude): patch policy check,<br/>push claude/issue-n, open PR, start CI, board Fix in PR"]:::ci
+    HF["Needs a human fix (triage:needs-human)"]:::human
     G["CI: build + 600+ tests on Windows for every PR"]:::ci
     H["Maintainer reviews and merges (branch protection)"]:::human
     I["Board: Fixed"]:::ci
     J["Maintainer tags a release; CI/CD builds and publishes the exes"]:::ci
-    K["Board: Released"]:::ci
+    K["Board: Released + 'Shipped in vX' comment"]:::ci
     L["The app updates itself from GitHub Releases"]:::ci
-    A --> B --> C --> D --> E --> F --> G --> H --> I --> J --> K --> L
+    A --> B --> Q --> C --> P1
+    P1 -->|"valid, small fix"| F
+    P1 -->|"valid, no small fix"| HF
+    P1 -->|"needs-info"| N
+    P1 -->|"other verdicts"| R
+    N -->|"reporter replies: requeued"| Q
+    F --> P2
+    P2 -->|"patch rejected"| HF
+    P2 --> G
+    HF --> H
+    G --> H --> I --> J --> K --> L
     classDef claude fill:#e8d9ff,stroke:#7a4fd0,color:#000;
     classDef ci fill:#d9f0ff,stroke:#2b7bb9,color:#000;
     classDef human fill:#ffe9c7,stroke:#c77d00,color:#000;
 ```
 
-Legend: purple = done automatically by Claude, blue = done automatically by GitHub Actions / the app, orange = a human.
+Legend: purple = Claude (file tools only, no GitHub access), blue = GitHub Actions / the app, orange = a human.
 
 ## Steps
 
 | Step | Who | Notes |
 |---|---|---|
 | Report a problem | User | Public issue. The user previews the exact text first; personal details are stripped ([PRIVACY.md](../PRIVACY.md)). |
-| Triage | **Claude (automatic)** | Posts an action-plan comment on the issue and labels it. |
-| Fix PR | **Claude (automatic)** | Opens a PR from a `claude/*` branch. Claude never merges. |
-| Project board | **Workflows (automatic)** | [Optimus-Vibe - bug squashing](https://github.com/users/jrose462/projects/5): Reported, Planned, Fix in PR, Fixed, Released. Cards move on their own. |
+| Intake | **GitHub Actions (automatic, any time)** | Labels the issue `bug-report`, comments that it is queued, and puts the card in Reported. No Claude. A reporter's reply to a `needs-info` audit requeues it. |
+| Weekly bug squash | **Claude (automatic, Thursdays only)** | Runs Thursdays 00:01-09:30 Pacific, oldest queued issues first, at most `SQUASH_WEEKLY_MAX` (default 10); leftovers wait a week. Keeps Claude usage inside the subscription's weekly window. |
+| Audit | **Claude (stronger model)** | Gives a verdict. For a valid small bug it also writes a plan that a smaller model can follow. |
+| Fix | **Claude (cheaper model)** | Carries out the plan with file edits only. |
+| Publish | **GitHub Actions (no Claude)** | Posts the audit, sets labels and board cards, and for fixes checks the patch against the policy before opening the PR. Claude never opens PRs or comments itself. |
+| Explicit runs | **Maintainer (any time)** | Actions "Claude bug squash" → Run workflow (optional issue number), or an `@claude` comment on an issue by an owner, member or collaborator. |
 | CI | **GitHub Actions (automatic)** | Build and 600+ tests on Windows for every PR. |
 | Review and merge | **Human (maintainer)** | Required by branch protection. |
 | Release | **CI/CD (automatic after a tag)** | Builds the self-contained exes, attaches them and [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) to a GitHub Release. |
@@ -47,5 +64,5 @@ not guarantees. No game presets are stored in this public repo (only a generic s
 
 ## What this means for you
 
-- Anything you put in a bug report is public and is read by Claude. Review the preview.
+- Anything you put in a bug report is public and is read by Claude during the weekly bug squash. Review the preview.
 - Claude can propose code, but nothing reaches a release without CI passing and the maintainer merging.

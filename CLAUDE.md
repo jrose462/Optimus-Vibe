@@ -29,8 +29,8 @@ green.
 (`GitHubAuth.LoadToken()`; they become the author), else with the built-in fine-grained, issues-only token (the owner's PAT, injected at build time
 from the `BUG_REPORT_TOKEN` secret, XOR-obfuscated, extractable: see `docs/ci.md`), else by copying the report and opening a prefilled
 `issues/new` page. The UI/CLI always say which ("Filed as @login" / "Filed anonymously via Optimus-Vibe"). Labels are tried and dropped when refused;
-every report body starts with the hidden marker `<!-- optimus-vibe:report v1 -->`, which is what the triage workflow keys on (it adds the
-`bug-report` label itself). At most 5 reports a day per machine. Never log or
+every report body starts with the hidden marker `<!-- optimus-vibe:report v1 -->`, which is what the intake step of the `Claude bug squash` workflow keys on (it adds the
+`bug-report` label and queues the report for the weekly squash; Claude is not run at intake). At most 5 reports a day per machine (client-side). Never log or
 display the token.
 
 ## Adding or refreshing a game: use the skill

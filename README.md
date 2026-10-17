@@ -25,8 +25,11 @@ so a desktop and a handheld stop overwriting each other's settings.
 The bug-fix loop is **automated by Claude** and GitHub Actions, with a human merge at the end:
 
 1. In the app, **Report a problem** files a *public* GitHub issue (as you if signed in, otherwise anonymously via the app).
-2. **Claude triages** it and posts an action plan (automatic).
-3. **Claude opens a fix PR** on a `claude/*` branch (automatic).
+   GitHub Actions labels it and queues it right away (no Claude involved).
+2. **Claude audits the queued reports once a week** (Thursdays, 00:01-09:30 Pacific, at most 10 a week, oldest first). It
+   gives each a verdict and, for a clear small bug, a plan. Maintainers can also run it on demand.
+3. For a clear small bug, **Claude implements the plan** and GitHub Actions opens a fix PR on a `claude/*` branch after
+   checking the patch against a policy (automatic).
 4. Cards move on the [Optimus-Vibe - bug squashing](https://github.com/users/jrose462/projects/5) board
    (Reported, Planned, Fix in PR, Fixed, Released) automatically.
 5. **CI** builds and runs 600+ tests on Windows for every PR (automatic).
@@ -73,7 +76,7 @@ Use the same path on every machine (`C:\Tools\Optimus-Vibe\`). Steam launch opti
 
 | Place | Role |
 |---|---|
-| `jrose462/Optimus-Vibe`, the **app repo** (public) | The code, docs, the Claude skill and a generic starter config. Its **GitHub Releases** are where the app's updater and `update-app` download `OptimusVibe.exe` and `optimus-vibe.exe` (anonymously, no sign-in). **Report a problem** files bug reports as issues here (a GitHub sign-in is optional; it only decides who the author is). CI, releases and bug triage: [docs/ci.md](docs/ci.md). |
+| `jrose462/Optimus-Vibe`, the **app repo** (public) | The code, docs, the Claude skill and a generic starter config. Its **GitHub Releases** are where the app's updater and `update-app` download `OptimusVibe.exe` and `optimus-vibe.exe` (anonymously, no sign-in). **Report a problem** files bug reports as issues here (a GitHub sign-in is optional; it only decides who the author is). CI, releases and the weekly bug squash: [docs/ci.md](docs/ci.md). |
 | Your **config repo or folder** (private, yours) | Your devices, game configs, presets, manual saves, opt-outs and the request queue. A private GitHub repo that the app creates or picks for you, **or** a local folder (your own git checkout, or any folder). Nothing of it is stored in the app repo. |
 
 Signing in to GitHub does two things: it lets you keep your config in a private repo of yours (the alternative is a local folder), and it makes you the author of the bug reports you file. Updates never need a sign-in, and neither does reporting (without one, reports are filed anonymously through the app's built-in access).
@@ -183,8 +186,8 @@ requests from your network the app says so and you can try again later. **Report
 shows a preview of the report (version, device, recent log, with tokens and your user folder redacted) before anything is
 sent. The panel tells you who it is filed as: "Filed as @you" when you are signed in to GitHub (you get the notifications),
 otherwise "Filed anonymously via Optimus-Vibe" through the app's built-in, issues-only access (official builds; at most 5
-reports a day per machine). A build with neither copies the report to your clipboard and opens a prefilled GitHub issue page in your browser (`optimus-vibe report-bug`, with `--dry-run` to print instead). Issues are public. Claude triages reports sent by the app
-(they carry a hidden marker line): it posts an action plan on the issue and, for clear small fixes, opens a PR. See [docs/ci.md](docs/ci.md).
+reports a day per machine). A build with neither copies the report to your clipboard and opens a prefilled GitHub issue page in your browser (`optimus-vibe report-bug`, with `--dry-run` to print instead). Issues are public. Reports sent by the app are queued
+for Claude's weekly bug squash (Thursdays, Pacific time): Claude audits them and, for clear small fixes, implements a PR that CI tests before the maintainer merges it. See [docs/ci.md](docs/ci.md).
 
 ## Library: auto-detect, opt-out, request queue
 
