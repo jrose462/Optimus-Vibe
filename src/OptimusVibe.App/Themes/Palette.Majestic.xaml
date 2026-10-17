@@ -1,0 +1,80 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- ============================================================ palette: majestic
+         Black and gold. Near-black page with a warm gold glow, charcoal cards, gold accent; the one feature card is
+         gold-to-amber with dark text. Same keys as Palette.Default.xaml.
+         Contrast (WCAG): text #F5EFE0 on card #17150F ~16:1, dim #C9BFA6 ~10:1, faint #9A9078 ~5.9:1,
+         dark #1A1405 on gold #D4AF37 ~8.6:1, dark text on the feature gradient >= 6:1. -->
+
+    <!-- page -->
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#0B0A08" />
+    <LinearGradientBrush x:Key="PageBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#0B0A08" Offset="0" />
+        <GradientStop Color="#14110B" Offset="1" />
+    </LinearGradientBrush>
+    <!-- soft warm-gold glow toward the lower-left -->
+    <RadialGradientBrush x:Key="PageGlowBrush" Center="0.0,0.78" GradientOrigin="0.0,0.78" RadiusX="0.7" RadiusY="0.6">
+        <GradientStop Color="#55D4AF37" Offset="0" />
+        <GradientStop Color="#00D4AF37" Offset="1" />
+    </RadialGradientBrush>
+    <SolidColorBrush x:Key="PagePatternBrush" Color="Transparent" />
+
+    <!-- surfaces -->
+    <SolidColorBrush x:Key="CardBrush" Color="#F217150F" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#33D4AF37" />
+    <SolidColorBrush x:Key="InsetBrush" Color="#27231A" />
+    <SolidColorBrush x:Key="InsetDeepBrush" Color="#1D1A12" />
+    <SolidColorBrush x:Key="CoverTileBrush" Color="#221F16" />
+    <SolidColorBrush x:Key="CardActiveBrush" Color="#F2282110" />
+    <LinearGradientBrush x:Key="FeatureBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#C9962A" Offset="0" />
+        <GradientStop Color="#F0B93E" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="FeatureBorderBrush" Color="#66F1D27A" />
+    <SolidColorBrush x:Key="OutlineBrush" Color="#4DD4AF37" />
+    <SolidColorBrush x:Key="SelectedPillBrush" Color="#33D4AF37" />
+    <SolidColorBrush x:Key="NavBrush" Color="#F217150F" />
+    <SolidColorBrush x:Key="ToastBrush" Color="#F51F1B12" />
+    <SolidColorBrush x:Key="ToolTipBrush" Color="#221F16" />
+    <SolidColorBrush x:Key="TileDimBrush" Color="#990B0A08" />
+    <SolidColorBrush x:Key="TileHoverButtonBrush" Color="#E617150F" />
+    <SolidColorBrush x:Key="LaunchBackdropBrush" Color="#EB0B0A08" />
+
+    <!-- text -->
+    <SolidColorBrush x:Key="TextBrush" Color="#F5EFE0" />
+    <SolidColorBrush x:Key="TextDimBrush" Color="#C9BFA6" />
+    <SolidColorBrush x:Key="TextFaintBrush" Color="#9A9078" />
+    <SolidColorBrush x:Key="FeatureTextBrush" Color="#1A1405" />
+    <SolidColorBrush x:Key="OnFeatureDimBrush" Color="#3B2B07" />
+    <SolidColorBrush x:Key="FeatureButtonBrush" Color="#1A1405" />
+    <SolidColorBrush x:Key="FeatureButtonTextBrush" Color="#F1D27A" />
+    <SolidColorBrush x:Key="FeatureScrimBrush" Color="#26000000" />
+
+    <!-- accent: gold; lighter gold for focus -->
+    <Color x:Key="AccentColor">#D4AF37</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#3A3016" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#F1D27A" />
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#1A1405" />
+    <SolidColorBrush x:Key="FocusBrush" Color="#F1D27A" />
+    <DropShadowEffect x:Key="FocusGlow" Color="#D4AF37" BlurRadius="12" ShadowDepth="0" Opacity="0.7" />
+
+    <!-- metric icons: gold, champagne, bronze -->
+    <SolidColorBrush x:Key="MetricGreenBrush" Color="#D4AF37" />
+    <SolidColorBrush x:Key="MetricCyanBrush" Color="#F1E5C3" />
+    <SolidColorBrush x:Key="MetricPurpleBrush" Color="#CD7F32" />
+    <SolidColorBrush x:Key="MetricGlyphBrush" Color="#17120A" />
+
+    <!-- needs attention dots (amber); errors -->
+    <SolidColorBrush x:Key="AttentionBrush" Color="#FFA21F" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#FF8F85" />
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="#3A2220" />
+    <SolidColorBrush x:Key="DangerFillBrush" Color="#C0392B" />
+
+    <SolidColorBrush x:Key="TonalBrush" Color="#2C281C" />
+    <SolidColorBrush x:Key="HoverOverlayBrush" Color="#18F1D27A" />
+    <SolidColorBrush x:Key="PressOverlayBrush" Color="#26000000" />
+    <SolidColorBrush x:Key="BackdropBrush" Color="#C0050403" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#55D4AF37" />
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#88D4AF37" />
+</ResourceDictionary>

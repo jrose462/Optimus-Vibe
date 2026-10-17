@@ -1,0 +1,136 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- ============================================================ palette: circuit
+         Blue-black board with faint circuit traces, cyan and green accents, a green glow on controller focus.
+         Same keys as Palette.Default.xaml.
+         Contrast (WCAG): text #E8F6FA on card #0C1A24 ~15:1, dim #9FC2CE ~9:1, faint #7699A6 ~5.5:1,
+         dark #04141C on cyan #20E3FF ~11:1, white on the feature gradient >= 5:1. -->
+
+    <!-- page -->
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#05101A" />
+    <LinearGradientBrush x:Key="PageBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#05101A" Offset="0" />
+        <GradientStop Color="#071B24" Offset="1" />
+    </LinearGradientBrush>
+    <!-- soft green glow toward the lower-left -->
+    <RadialGradientBrush x:Key="PageGlowBrush" Center="0.0,0.78" GradientOrigin="0.0,0.78" RadiusX="0.65" RadiusY="0.55">
+        <GradientStop Color="#3339FF88" Offset="0" />
+        <GradientStop Color="#0039FF88" Offset="1" />
+    </RadialGradientBrush>
+
+    <!-- Circuit traces: one 240 x 240 tile of thin lines with square pads and round nodes, ~10% opacity, repeated.
+         A tiny drawing, rendered once and cached, so it costs next to nothing. -->
+    <DrawingBrush x:Key="PagePatternBrush" TileMode="Tile" Stretch="None" ViewportUnits="Absolute" Viewport="0,0,240,240"
+                  ViewboxUnits="Absolute" Viewbox="0,0,240,240" RenderOptions.CachingHint="Cache">
+        <DrawingBrush.Drawing>
+            <DrawingGroup>
+                <!-- traces -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#1920E3FF" Thickness="1" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                    </GeometryDrawing.Pen>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M0,40 H50 L70,60 H130 L150,40 H240
+                                               M0,120 H34 L54,140 V200 L74,220 H160 L180,200 V160 L200,140 H240
+                                               M40,0 V40
+                                               M130,60 V100 L110,120 H34
+                                               M150,40 V0
+                                               M200,140 V90 L220,70 H240
+                                               M100,240 V220
+                                               M180,200 H240" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <!-- a few brighter green traces -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#1739FF88" Thickness="1" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                    </GeometryDrawing.Pen>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M0,190 H20 L40,170 H90 M90,170 V130 M170,0 V30 L190,50 H240" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <!-- pads and nodes -->
+                <GeometryDrawing Brush="#2820E3FF">
+                    <GeometryDrawing.Geometry>
+                        <GeometryGroup>
+                            <EllipseGeometry Center="50,40" RadiusX="3" RadiusY="3" />
+                            <EllipseGeometry Center="150,40" RadiusX="3" RadiusY="3" />
+                            <EllipseGeometry Center="34,120" RadiusX="3" RadiusY="3" />
+                            <EllipseGeometry Center="200,140" RadiusX="3" RadiusY="3" />
+                            <RectangleGeometry Rect="106,116,8,8" />
+                            <RectangleGeometry Rect="196,66,8,8" RadiusX="1" RadiusY="1" />
+                        </GeometryGroup>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <GeometryDrawing Brush="#2839FF88">
+                    <GeometryDrawing.Geometry>
+                        <GeometryGroup>
+                            <EllipseGeometry Center="90,130" RadiusX="3" RadiusY="3" />
+                            <EllipseGeometry Center="40,170" RadiusX="3" RadiusY="3" />
+                            <EllipseGeometry Center="190,50" RadiusX="3" RadiusY="3" />
+                        </GeometryGroup>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingBrush.Drawing>
+    </DrawingBrush>
+
+    <!-- surfaces -->
+    <SolidColorBrush x:Key="CardBrush" Color="#F20C1A24" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#3320E3FF" />
+    <SolidColorBrush x:Key="InsetBrush" Color="#13293A" />
+    <SolidColorBrush x:Key="InsetDeepBrush" Color="#0A1620" />
+    <SolidColorBrush x:Key="CoverTileBrush" Color="#102331" />
+    <SolidColorBrush x:Key="CardActiveBrush" Color="#F20F2A38" />
+    <LinearGradientBrush x:Key="FeatureBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#0A6573" Offset="0" />
+        <GradientStop Color="#0C7F55" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="FeatureBorderBrush" Color="#6639FF88" />
+    <SolidColorBrush x:Key="OutlineBrush" Color="#4D20E3FF" />
+    <SolidColorBrush x:Key="SelectedPillBrush" Color="#3320E3FF" />
+    <SolidColorBrush x:Key="NavBrush" Color="#F20C1A24" />
+    <SolidColorBrush x:Key="ToastBrush" Color="#F50C1E2A" />
+    <SolidColorBrush x:Key="ToolTipBrush" Color="#0F2431" />
+    <SolidColorBrush x:Key="TileDimBrush" Color="#99050E16" />
+    <SolidColorBrush x:Key="TileHoverButtonBrush" Color="#E60C1A24" />
+    <SolidColorBrush x:Key="LaunchBackdropBrush" Color="#EB05101A" />
+
+    <!-- text -->
+    <SolidColorBrush x:Key="TextBrush" Color="#E8F6FA" />
+    <SolidColorBrush x:Key="TextDimBrush" Color="#9FC2CE" />
+    <SolidColorBrush x:Key="TextFaintBrush" Color="#7699A6" />
+    <SolidColorBrush x:Key="FeatureTextBrush" Color="White" />
+    <SolidColorBrush x:Key="OnFeatureDimBrush" Color="#D2F5EC" />
+    <SolidColorBrush x:Key="FeatureButtonBrush" Color="White" />
+    <SolidColorBrush x:Key="FeatureButtonTextBrush" Color="#04503A" />
+    <SolidColorBrush x:Key="FeatureScrimBrush" Color="#33000000" />
+
+    <!-- accent: cyan; green focus ring with a glow -->
+    <Color x:Key="AccentColor">#20E3FF</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#0F3A4A" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#7FF0FF" />
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#04141C" />
+    <SolidColorBrush x:Key="FocusBrush" Color="#39FF88" />
+    <DropShadowEffect x:Key="FocusGlow" Color="#39FF88" BlurRadius="14" ShadowDepth="0" Opacity="0.85" />
+
+    <!-- metric icons: green, cyan, blue -->
+    <SolidColorBrush x:Key="MetricGreenBrush" Color="#39FF88" />
+    <SolidColorBrush x:Key="MetricCyanBrush" Color="#20E3FF" />
+    <SolidColorBrush x:Key="MetricPurpleBrush" Color="#6C8CFF" />
+    <SolidColorBrush x:Key="MetricGlyphBrush" Color="#04141C" />
+
+    <!-- needs attention dots; errors -->
+    <SolidColorBrush x:Key="AttentionBrush" Color="#FF8A1F" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#FF8A8A" />
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="#33202A" />
+    <SolidColorBrush x:Key="DangerFillBrush" Color="#D9484F" />
+
+    <SolidColorBrush x:Key="TonalBrush" Color="#15303F" />
+    <SolidColorBrush x:Key="HoverOverlayBrush" Color="#1820E3FF" />
+    <SolidColorBrush x:Key="PressOverlayBrush" Color="#26000000" />
+    <SolidColorBrush x:Key="BackdropBrush" Color="#C0020A10" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#5520E3FF" />
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#8820E3FF" />
+</ResourceDictionary>

@@ -7,8 +7,8 @@
         Title="Optimus-Vibe"
         Width="1360" Height="880" MinWidth="880" MinHeight="560"
         WindowStartupLocation="CenterScreen"
-        Background="#0E2436"
-        Foreground="{StaticResource TextBrush}"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource TextBrush}"
         FontFamily="{StaticResource UiFont}" FontSize="15"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
 
@@ -19,8 +19,9 @@
 
     <Grid>
         <!-- page: navy to teal with a soft warm glow at the lower left -->
-        <Border Background="{StaticResource PageBrush}" />
-        <Border Background="{StaticResource PageGlowBrush}" IsHitTestVisible="False" />
+        <Border Background="{DynamicResource PageBrush}" />
+        <Border Background="{DynamicResource PageGlowBrush}" IsHitTestVisible="False" />
+        <Border Background="{DynamicResource PagePatternBrush}" IsHitTestVisible="False" />
 
         <Grid>
             <Grid.RowDefinitions>
@@ -99,7 +100,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsLoading, Converter={StaticResource VisibleWhen}}">
                         <TextBlock Text="&#xE9F5;" FontFamily="{StaticResource IconFont}" FontSize="40" HorizontalAlignment="Center"
-                                   Foreground="{StaticResource AccentBrush}" />
+                                   Foreground="{DynamicResource AccentBrush}" />
                         <TextBlock Text="Getting your games ready…" Style="{StaticResource Text.H3}" Margin="0,14,0,0" />
                     </StackPanel>
 
@@ -129,7 +130,7 @@
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Top" Style="{StaticResource Text.H2}" Margin="12,0,0,12">
                                     <Run Text="Your games" />
-                                    <Run Text="{Binding Games.Count, Mode=OneWay}" Foreground="{StaticResource TextFaintBrush}" FontWeight="Normal" />
+                                    <Run Text="{Binding Games.Count, Mode=OneWay}" Foreground="{DynamicResource TextFaintBrush}" FontWeight="Normal" />
                                 </TextBlock>
                                 <ListBox x:Name="GameList" Style="{StaticResource GameList}" ItemContainerStyle="{StaticResource GameListItem}"
                                          ItemsSource="{Binding Games}" SelectedItem="{Binding SelectedGame}">
@@ -173,10 +174,10 @@
                 <!-- starting a game -->
                 <Grid DataContext="{Binding Launching}"
                       Visibility="{Binding DataContext.IsLaunching, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhen}}">
-                    <Border Background="#EB0A1624" />
+                    <Border Background="{DynamicResource LaunchBackdropBrush}" />
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid Width="200" Height="300">
-                            <Border CornerRadius="24" Background="{StaticResource CoverTileBrush}">
+                            <Border CornerRadius="24" Background="{DynamicResource CoverTileBrush}">
                                 <Image Source="{Binding Icon}" Width="64" Height="64" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <Border CornerRadius="24" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
@@ -197,7 +198,7 @@
                 <!-- report a problem (modal panel; B / Esc closes) -->
                 <Grid DataContext="{Binding Report}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
                       Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
-                    <Border Background="{StaticResource BackdropBrush}" />
+                    <Border Background="{DynamicResource BackdropBrush}" />
                     <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top">
@@ -248,7 +249,7 @@
                 <!-- review Steam launch options (modal panel; B / Esc closes) -->
                 <Grid DataContext="{Binding SteamReview}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
                       Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
-                    <Border Background="{StaticResource BackdropBrush}" />
+                    <Border Background="{DynamicResource BackdropBrush}" />
                     <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top">
@@ -292,7 +293,7 @@
 
                 <!-- toast -->
                 <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="24,0,24,12" MaxWidth="640"
-                        Background="#F5232429" CornerRadius="26"
+                        Background="{DynamicResource ToastBrush}" CornerRadius="26"
                         Visibility="{Binding HasToast, Converter={StaticResource VisibleWhen}}">
                     <Grid Margin="24,10,10,10">
                         <Grid.ColumnDefinitions>
@@ -301,7 +302,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Border Style="{StaticResource Dot}" Margin="0,0,12,0" Background="{StaticResource DangerBrush}"
+                        <Border Style="{StaticResource Dot}" Margin="0,0,12,0" Background="{DynamicResource DangerBrush}"
                                 Visibility="{Binding ToastIsError, Converter={StaticResource VisibleWhen}}" />
                         <TextBlock Grid.Column="1" Text="{Binding ToastText}" Style="{StaticResource Text.Body}" VerticalAlignment="Center" />
                         <Button Grid.Column="2" Content="{Binding ToastActionText}" Command="{Binding ToastActionCommand}" Margin="14,0,0,0"
@@ -328,7 +329,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="1" Background="{StaticResource NavBrush}" CornerRadius="38" Padding="8" HorizontalAlignment="Center">
+                <Border Grid.Column="1" Background="{DynamicResource NavBrush}" CornerRadius="38" Padding="8" HorizontalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
                         <Button Style="{StaticResource Button.NavItem}" Tag="{Binding NavLibrary}" Command="{Binding ShowLibraryCommand}"
                                 AutomationProperties.Name="Library" ToolTip="Your games as covers">

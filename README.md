@@ -222,11 +222,47 @@ for Claude's weekly bug squash (Thursdays, Pacific time): Claude audits them and
   game file's `cloudSyncsSettings`, the card shows an orange dot and recommends keeping the game managed.
   `optimus-vibe cloud-check [<game>] [--all] [--json]` prints the same report; `validate` warns about games whose
   sync status is unknown.
+- **Filters**: two rows of pills above the covers, combinable. The first row is the status (All, Tuned, Needs presets,
+  Opted out; LB / RB on a controller switch it). The second row, **Settings sync**, shows whether a game's settings
+  travel between your devices: *Stays on device* (the check found medium or high confidence that they are per machine),
+  *Syncs* (medium or better confidence, or settings were seen arriving from another device) or *Maybe* (unknown, low
+  confidence, not checked yet). Every pill shows its count, and each tile carries a small cloud, device or question-mark
+  glyph with the reason as its tooltip. On a controller, press D-pad down from the status pills (or up from the first row
+  of covers) to reach the sync row.
 - **Request queue**: an installed game with no config is added to `config/requests.yaml` (store, id, name,
   install folder, exes, device) and synced. Ask Claude to "process Optimus-Vibe requests"; it works through the
   queue with the `game-settings-recommender` skill, one commit per game, removing each entry as its config lands.
   `optimus-vibe library` lists what was detected and its status; `optimus-vibe library --queue` also queues
   missing games.
+
+## Appearance
+
+Settings → **Appearance** picks the colours for this machine: **Default** (navy and teal), **Majestic** (black and gold)
+or **Circuit** (blue-black with cyan and green, faint circuit traces and a green glow on controller focus). Each card
+previews its page, card and accent colours, works with mouse, touch and gamepad, and applies at once without a restart.
+The choice is saved per machine in `settings.json` (`theme`: `default`, `majestic` or `circuit`). The palettes are the
+`Themes\Palette.*.xaml` files; a new one only needs the same keys.
+
+## Devices
+
+Settings → **Devices** edits `config/devices.yaml` (it syncs like `library.yaml` when Sync automatically is on):
+
+- **Add this device** looks at this machine (CPU, GPU, model, computer name, current display mode) and fills the form:
+  handhelds are matched on the CPU, desktops on the GPU model, and if another device already matches this machine the
+  computer name (`machine`) is added to tell them apart. Change the name, the match rules (key/value rows), display mode,
+  driver (NVIDIA, AMD, none, or auto), default preset and **Use presets from** another device before saving.
+- The **id** (the `devices.yaml` key, kebab-case) can only be chosen when a device is created: presets and saves are filed
+  under it. **Rename** changes the display name (`name:`) only; the name is what the app shows everywhere, the id is the
+  fallback.
+- **presetsFrom**: a device can name another device whose presets it uses for games that have none of their own (one
+  level, no loops; `validate` reports unknown or looping `presetsFrom`).
+- The first device whose rules fit wins, so use the up and down arrows to order them. Deleting a device (with a
+  confirmation) leaves its presets and saves in the repo; they are just not used. Comments and the order of the rest of
+  the file are kept when the app edits it.
+- After a change the app re-detects this machine and tells you if it now matches a different device.
+
+On the command line: `optimus-vibe devices list`, `devices add <id> --name <n> [--match key=value ...] [--presets-from <id>]
+[--from-this-machine]`, `devices rename <id> <name>` and `devices remove <id> [--yes]`.
 
 ## Commands
 
@@ -243,6 +279,7 @@ Global options: `--config <dir>` (config root), `--profile <device>` (override d
 | `delete-save <game> <slug>` | Delete one of this device's manual saves |
 | `sync` | Commit manual saves, pull, and push the config repo (through the selected sync provider) |
 | `library [--queue] [--stores <list>] [--json]` | List detected games with their `store:id` key and status; `--queue` adds games without a config to `config/requests.yaml`; `--stores` limits the launchers scanned (`steam,battlenet,ea,xbox,epic,gog`) |
+| `devices list` / `add <id> --name <n> [--match k=v ...] [--presets-from <id>] [--from-this-machine]` / `rename <id> <name>` / `remove <id>` | Edit `config/devices.yaml` (comments and order kept; ids never change) |
 | `opt-out <key>` / `opt-in <key>` | Stop / resume managing a detected game (`key` = `store:id`, e.g. `steam:1285190`); stored in `config/library.yaml` |
 | `steam-options [<game>] [--enable \| --disable \| --skip \| --unskip \| --sync-all] [--dry-run] [--exit-steam]` | Show or change the Optimus-Vibe wrapper in Steam launch options (Steam must be closed to write; see "Steam games") |
 | `github login [--client-id <id>] \| token <PAT> \| repos \| use <owner/name> [--branch <b>] \| create <name> [--public] \| logout \| status` | GitHub sign-in (device code or PAT), list repos you can push to, select or create the config repo and switch to the `github` provider, sign out, show the current setup |

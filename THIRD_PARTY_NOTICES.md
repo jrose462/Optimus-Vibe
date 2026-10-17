@@ -11,6 +11,8 @@ the list. **This file should ship next to the exes in every release.**
 | System.CommandLine (CLI exe only) | 2.0.0 | (c) .NET Foundation and Contributors | MIT |
 | System.Management | 8.0.0 | (c) .NET Foundation and Contributors; Microsoft Corporation | MIT |
 | System.CodeDom (dependency of System.Management) | 8.0.0 | (c) .NET Foundation and Contributors; Microsoft Corporation | MIT |
+| Sodium.Core (game lab: sealed-box encryption of the Actions secret) | 1.4.1 | (c) Adam Caudill, Tom Hotchkiss, Christian Weyer and contributors | MIT |
+| libsodium (native library behind Sodium.Core, win-x64) | 1.0.22 | (c) Frank Denis and contributors | ISC |
 
 Sources: https://github.com/dotnet/runtime, https://github.com/aaubry/YamlDotNet, https://github.com/dotnet/command-line-api.
 
@@ -38,3 +40,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## ISC License text (libsodium)
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted,
+provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

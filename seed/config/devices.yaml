@@ -12,6 +12,7 @@
 #                 Parsec, Microsoft Basic Display, IDD, spacedesk) are filtered out before matching.
 #   machine       the Windows computer name (alias: hostname)
 #
+# name:    display name shown in the app instead of the id (the id, the key below, never changes: presets and saves use it).
 # description: free text (shown in the app, and read by Claude when it recommends settings: put the GPU, CPU,
 #          RAM, display and anything else that matters for choosing presets).
 # display: the mode used when a game preset says `display: inherit` (a preset can also override parts of it).
@@ -20,6 +21,8 @@
 #          is used. Conventions: desktop = quality | performance; handheld = performance | battery.
 # driver:  nvidia | amd | none. Picks the driver-settings backend (the `nvidia:` / `amd:` blocks in game presets).
 #          Derived from the detected GPUs when omitted, but set it explicitly when a CPU also exposes an iGPU.
+# presetsFrom: another device id whose recommended presets this device uses for games that have none of their own
+#          (one level, no loops). The app edits all of this for you under Settings > Devices.
 #
 # Override detection with `--profile <device>` or once per machine with `optimus-vibe setup --force-profile <device>`.
 

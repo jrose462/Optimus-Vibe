@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
              xmlns:vm="clr-namespace:OptimusVibe.App.ViewModels"
+             xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              xmlns:input="clr-namespace:OptimusVibe.App.Input"
              x:Name="Root">
     <!-- DataContext: SettingsViewModel. One column of cards; every control reachable with the D-pad, B goes back. -->
@@ -31,17 +32,17 @@
                 <Border Style="{StaticResource Card.Feature}" Margin="0,0,0,16" DataContext="{Binding Updates}"
                         Visibility="{Binding IsAvailable, Converter={StaticResource VisibleWhen}}">
                     <StackPanel>
-                        <TextBlock Text="A new version is ready" Style="{StaticResource Text.H2}" Foreground="White" />
-                        <TextBlock Text="{Binding AvailableText}" FontSize="14.5" Foreground="{StaticResource OnFeatureDimBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="A new version is ready" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
+                        <TextBlock Text="{Binding AvailableText}" FontSize="14.5" Foreground="{DynamicResource OnFeatureDimBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
                         <TextBox Text="{Binding NotesText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                                  VerticalScrollBarVisibility="Auto" MaxHeight="200" VerticalContentAlignment="Top" Margin="0,16,0,0"
-                                 Background="#33000000" FontSize="14" AutomationProperties.Name="Release notes" />
+                                 Background="{DynamicResource FeatureScrimBrush}" FontSize="14" AutomationProperties.Name="Release notes" />
                         <Button Style="{StaticResource Button.Large}" Command="{Binding InstallCommand}" HorizontalAlignment="Left" Margin="0,16,0,0"
-                                Background="White" Foreground="#0B4A94" AutomationProperties.Name="Download and restart" Content="Download and restart" />
+                                Background="{DynamicResource FeatureButtonBrush}" Foreground="{DynamicResource FeatureButtonTextBrush}" AutomationProperties.Name="Download and restart" Content="Download and restart" />
                         <StackPanel Margin="0,12,0,0" Visibility="{Binding IsDownloading, Converter={StaticResource VisibleWhen}}">
-                            <ProgressBar Style="{StaticResource BusyBar}" IsIndeterminate="False" Minimum="0" Maximum="1" Height="8" Foreground="White"
+                            <ProgressBar Style="{StaticResource BusyBar}" IsIndeterminate="False" Minimum="0" Maximum="1" Height="8" Foreground="{DynamicResource FeatureTextBrush}"
                                          Value="{Binding Progress, Mode=OneWay}" />
-                            <TextBlock Text="{Binding ProgressText}" FontSize="14" Foreground="{StaticResource OnFeatureDimBrush}" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding ProgressText}" FontSize="14" Foreground="{DynamicResource OnFeatureDimBrush}" Margin="0,6,0,0" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -112,7 +113,7 @@
                         </Grid>
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
                             <Run Text="Your game settings live in" />
-                            <Run Text="{Binding CurrentRepoText, Mode=OneWay}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" />
+                            <Run Text="{Binding CurrentRepoText, Mode=OneWay}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" />
                         </TextBlock>
 
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,10,0,0" Text="Sign in to GitHub above to pick a repository."
@@ -139,7 +140,7 @@
                                             <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                                                 <TextBlock Text="Private" Style="{StaticResource Text.Caption}" Margin="0,0,10,0"
                                                            Visibility="{Binding IsPrivate, Converter={StaticResource VisibleWhen}}" />
-                                                <TextBlock Text="In use" Style="{StaticResource Text.Caption}" Foreground="{StaticResource AccentTextBrush}"
+                                                <TextBlock Text="In use" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource AccentTextBrush}"
                                                            Visibility="{Binding IsCurrent, Converter={StaticResource VisibleWhen}}" />
                                             </StackPanel>
                                         </StackPanel>
@@ -191,7 +192,7 @@
                                 <StackPanel>
                                     <TextBlock Text="New repository name" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
                                     <TextBox Text="{Binding NewRepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
-                                             input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="New repository name" Background="#1C1D21" />
+                                             input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="New repository name" Background="{DynamicResource InsetDeepBrush}" />
                                     <CheckBox IsChecked="{Binding NewRepoPrivate}" Content="Private repository (recommended)" Margin="0,12,0,0" />
                                     <TextBlock Style="{StaticResource Text.Caption}" Margin="4,8,0,0"
                                                Text="Creates the repo under your account, fills it with a starter config and switches sync to it." />
@@ -221,7 +222,7 @@
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Dim}">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding StatusIsError}" Value="True">
-                                            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -253,7 +254,7 @@
                                 <Run Text="Keep Steam launch options up to date" FontWeight="SemiBold" />
                                 <LineBreak />
                                 <Run Text="Games start through Optimus-Vibe even from Steam or Big Picture. Steam must be closed to write them."
-                                     Foreground="{StaticResource TextDimBrush}" FontSize="14" />
+                                     Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
                             </TextBlock>
                         </CheckBox>
 
@@ -280,16 +281,272 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ======================================================== device -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <!-- ======================================================== appearance -->
+                <Border x:Name="AppearanceCard" Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="This device" Style="{StaticResource Text.H2}" />
+                        <TextBlock Text="Appearance" Style="{StaticResource Text.H2}" />
+                        <TextBlock Text="The colours for this machine. A change applies at once." Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
+                        <ItemsControl ItemsSource="{Binding Themes}" Focusable="False" Margin="0,16,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:ThemeOptionViewModel}">
+                                    <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,10,0" VerticalAlignment="Stretch" Padding="14"
+                                            AutomationProperties.Name="{Binding Label}"
+                                            Command="{Binding DataContext.SetThemeCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                        <StackPanel>
+                                            <!-- mini preview: page, glow, a card with two text lines, an accent pill and the feature colour -->
+                                            <Border Height="108" CornerRadius="16" Background="{Binding PageBrush}" ClipToBounds="True">
+                                                <Grid>
+                                                    <Border Background="{Binding GlowBrush}" />
+                                                    <Border Background="{Binding PatternBrush}" />
+                                                    <Border Margin="12" CornerRadius="12" Background="{Binding CardBrush}" BorderBrush="{Binding CardBorderBrush}" BorderThickness="1" Padding="12,10">
+                                                        <Grid>
+                                                            <StackPanel VerticalAlignment="Top">
+                                                                <Border Height="8" Width="86" CornerRadius="4" HorizontalAlignment="Left" Background="{Binding TextBrush}" />
+                                                                <Border Height="6" Width="58" CornerRadius="3" HorizontalAlignment="Left" Margin="0,7,0,0" Background="{Binding TextFaintBrush}" />
+                                                            </StackPanel>
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                                                <Border Height="16" Width="52" CornerRadius="8" Background="{Binding AccentBrush}" />
+                                                                <Border Height="16" Width="34" CornerRadius="8" Margin="8,0,0,0" Background="{Binding FeatureBrush}" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </Grid>
+                                            </Border>
+                                            <Grid Margin="2,12,2,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Label}" FontSize="16" FontWeight="SemiBold" />
+                                                <TextBlock Grid.Column="1" Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="16" Foreground="{DynamicResource AccentTextBrush}"
+                                                           Visibility="{Binding IsOn, Converter={StaticResource VisibleWhen}}" />
+                                            </Grid>
+                                            <TextBlock Text="{Binding Hint}" Style="{StaticResource Text.Dim}" Margin="2,2,2,0" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- ======================================================== devices -->
+                <Border x:Name="DevicesCard" Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Devices" Style="{StaticResource Text.H2}" />
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
                             <Run Text="Optimus-Vibe treats this machine as" />
-                            <Run Text="{Binding DeviceName, Mode=OneWay}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" /><Run Text="." />
+                            <Run Text="{Binding DeviceName, Mode=OneWay}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" /><Run Text="." />
+                            <Run Text="The first device below whose match rules fit is the one used, so order matters." />
                         </TextBlock>
 
-                        <TextBlock Text="Use a different device profile" Style="{StaticResource Text.H3}" Margin="0,18,0,10" />
+                        <ItemsControl ItemsSource="{Binding Devices.Items}" Focusable="False" Margin="0,16,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:DeviceItemViewModel}">
+                                    <Border Style="{StaticResource Card.Inset}" Margin="0,0,0,8" Padding="20,14,12,14">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" FontSize="16.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="12,0,0,0" VerticalAlignment="Center"
+                                                            Visibility="{Binding IsCurrent, Converter={StaticResource VisibleWhen}}">
+                                                        <TextBlock Text="This device" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding IdLine}" Style="{StaticResource Text.Caption}" Margin="0,3,0,0" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding IdLine}" />
+                                                <TextBlock Text="{Binding PresetsFromText}" Style="{StaticResource Text.Caption}" Margin="0,2,0,0" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                                           Visibility="{Binding HasPresetsFrom, Converter={StaticResource VisibleWhen}}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button Style="{StaticResource Button.Icon}" IsEnabled="{Binding CanMoveUp}" ToolTip="Move up (checked earlier)" AutomationProperties.Name="Move up"
+                                                        Command="{Binding DataContext.Devices.MoveUpCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="&#xE70E;" />
+                                                </Button>
+                                                <Button Style="{StaticResource Button.Icon}" IsEnabled="{Binding CanMoveDown}" ToolTip="Move down (checked later)" AutomationProperties.Name="Move down"
+                                                        Command="{Binding DataContext.Devices.MoveDownCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="&#xE70D;" />
+                                                </Button>
+                                                <Button Style="{StaticResource Button.Icon}" ToolTip="Rename" AutomationProperties.Name="Rename"
+                                                        Command="{Binding DataContext.Devices.RenameCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="&#xE8AC;" />
+                                                </Button>
+                                                <Button Style="{StaticResource Button.Icon}" ToolTip="Edit" AutomationProperties.Name="Edit"
+                                                        Command="{Binding DataContext.Devices.EditCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="&#xE70F;" />
+                                                </Button>
+                                                <Button Style="{StaticResource Button.Icon}" ToolTip="Delete" AutomationProperties.Name="Delete"
+                                                        Command="{Binding DataContext.Devices.DeleteCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="&#xE74D;" />
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- delete confirmation -->
+                        <Border Style="{StaticResource Card.Inset}" Margin="0,0,0,8" Visibility="{Binding Devices.HasPendingDelete, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Devices.DeleteText}" Style="{StaticResource Text.Body}" />
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button Style="{StaticResource Button.Danger}" Command="{Binding Devices.ConfirmDeleteCommand}" Margin="0,0,8,0"
+                                            input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Delete device" Content="Delete" />
+                                    <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding Devices.CancelDeleteCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <WrapPanel Margin="0,4,0,0" Visibility="{Binding Devices.IsFormOpen, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                            <Button Style="{StaticResource Button.Primary}" Command="{Binding Devices.AddThisCommand}" Margin="0,0,8,0" Content="Add this device"
+                                    ToolTip="Look at this machine's hardware and fill the form in" AutomationProperties.Name="Add this device" />
+                            <Button Command="{Binding Devices.AddManualCommand}" Content="Add another…" ToolTip="Describe a device by hand"
+                                    AutomationProperties.Name="Add another device" />
+                        </WrapPanel>
+
+                        <!-- the form: add / edit / rename -->
+                        <Border x:Name="DeviceForm" Style="{StaticResource Card.Inset}" Background="{DynamicResource InsetDeepBrush}" BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="1" Margin="0,4,0,0" Padding="22,18"
+                                Visibility="{Binding Devices.IsFormOpen, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Devices.FormTitle}" Style="{StaticResource Text.H3}" />
+                                <TextBlock Text="{Binding Devices.FormHint}" Style="{StaticResource Text.Caption}" Margin="0,4,0,0"
+                                           Visibility="{Binding Devices.HasFormHint, Converter={StaticResource VisibleWhen}}" />
+
+                                <TextBlock Text="Name" Style="{StaticResource Text.Dim}" Margin="4,16,0,6" />
+                                <TextBox Text="{Binding Devices.Name, UpdateSourceTrigger=PropertyChanged}" input:FocusCue.FocusWhenShown="True"
+                                         AutomationProperties.Name="Device name" />
+
+                                <StackPanel Visibility="{Binding Devices.IsRename, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                                    <TextBlock Margin="4,14,0,6" Style="{StaticResource Text.Dim}">
+                                        <Run Text="Id" />
+                                        <Run Text="(kebab-case; can't change later)" Foreground="{DynamicResource TextFaintBrush}" FontSize="13" />
+                                    </TextBlock>
+                                    <TextBox Text="{Binding Devices.Id, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding Devices.IdEditable}"
+                                             FontFamily="{StaticResource MonoFont}" AutomationProperties.Name="Device id" />
+                                    <TextBlock Text="{Binding Devices.IdError}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource DangerBrush}" Margin="4,6,0,0"
+                                               Visibility="{Binding Devices.HasIdError, Converter={StaticResource VisibleWhen}}" />
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding Devices.ShowFullForm, Converter={StaticResource VisibleWhen}}">
+                                    <!-- match rules -->
+                                    <TextBlock Margin="4,18,0,2" Style="{StaticResource Text.Dim}">
+                                        <Run Text="Match rules" />
+                                        <Run Text="(all must fit; * and ? are wildcards; click a key to change it)" Foreground="{DynamicResource TextFaintBrush}" FontSize="13" />
+                                    </TextBlock>
+                                    <ItemsControl ItemsSource="{Binding Devices.Rules}" Focusable="False" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:MatchRowViewModel}">
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="150" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button Command="{Binding CycleKeyCommand}" Content="{Binding Key}" Margin="0,0,8,0" ToolTip="Change what is compared"
+                                                            AutomationProperties.Name="Match key" />
+                                                    <TextBox Grid.Column="1" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                                             AutomationProperties.Name="Match value" />
+                                                    <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Command="{Binding RemoveCommand}" ToolTip="Remove this rule" Margin="6,0,0,0"
+                                                            AutomationProperties.Name="Remove rule">
+                                                        <TextBlock Text="&#xE711;" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="No rules: this device is only used when you pick it by hand." Style="{StaticResource Text.Caption}" Margin="4,0,0,8"
+                                               Visibility="{Binding Devices.HasRules, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
+                                    <WrapPanel>
+                                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding Devices.AddRuleCommand}" Margin="0,0,12,0" Content="Add a rule"
+                                                AutomationProperties.Name="Add a match rule" />
+                                        <CheckBox IsChecked="{Binding Devices.UseMachineName}" Content="{Binding Devices.MachineToggleText}" />
+                                    </WrapPanel>
+
+                                    <!-- display -->
+                                    <TextBlock Margin="4,18,0,6" Style="{StaticResource Text.Dim}">
+                                        <Run Text="Display mode" />
+                                        <Run Text="(used by presets that say display: inherit; leave empty to keep the screen as it is)" Foreground="{DynamicResource TextFaintBrush}" FontSize="13" />
+                                    </TextBlock>
+                                    <WrapPanel>
+                                        <TextBox Text="{Binding Devices.DisplayWidth, UpdateSourceTrigger=PropertyChanged}" Width="118" TextAlignment="Center" AutomationProperties.Name="Width" ToolTip="Width" />
+                                        <TextBlock Text="×" Style="{StaticResource Text.Body}" VerticalAlignment="Center" Margin="10,0" />
+                                        <TextBox Text="{Binding Devices.DisplayHeight, UpdateSourceTrigger=PropertyChanged}" Width="118" TextAlignment="Center" AutomationProperties.Name="Height" ToolTip="Height" />
+                                        <TextBlock Text="@" Style="{StaticResource Text.Body}" VerticalAlignment="Center" Margin="10,0" />
+                                        <TextBox Text="{Binding Devices.DisplayRefresh, UpdateSourceTrigger=PropertyChanged}" Width="104" TextAlignment="Center" AutomationProperties.Name="Refresh rate" ToolTip="Refresh rate (Hz)" />
+                                        <TextBlock Text="Hz" Style="{StaticResource Text.Body}" VerticalAlignment="Center" Margin="10,0,16,0" />
+                                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding Devices.UseCurrentDisplayCommand}" Content="Use the current mode"
+                                                AutomationProperties.Name="Use the current display mode" />
+                                    </WrapPanel>
+
+                                    <!-- driver -->
+                                    <TextBlock Text="Graphics driver" Style="{StaticResource Text.Dim}" Margin="4,18,0,6" />
+                                    <ItemsControl ItemsSource="{Binding Devices.Drivers}" Focusable="False">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                                <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,8,8" MinWidth="110" Padding="20,10" MinHeight="46"
+                                                        AutomationProperties.Name="{Binding Label}" ToolTip="{Binding Hint}"
+                                                        Command="{Binding DataContext.Devices.SetDriverCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- default preset -->
+                                    <TextBlock Margin="4,10,0,6" Style="{StaticResource Text.Dim}">
+                                        <Run Text="Default preset" />
+                                        <Run Text="(used for a game until you pick one: quality, performance, battery...)" Foreground="{DynamicResource TextFaintBrush}" FontSize="13" />
+                                    </TextBlock>
+                                    <TextBox Text="{Binding Devices.DefaultPreset, UpdateSourceTrigger=PropertyChanged}" Width="260" HorizontalAlignment="Left"
+                                             FontFamily="{StaticResource MonoFont}" AutomationProperties.Name="Default preset" />
+
+                                    <!-- presetsFrom -->
+                                    <TextBlock Margin="4,18,0,6" Style="{StaticResource Text.Dim}">
+                                        <Run Text="Use presets from" />
+                                        <Run Text="(for games with no presets of their own for this device)" Foreground="{DynamicResource TextFaintBrush}" FontSize="13" />
+                                    </TextBlock>
+                                    <ItemsControl ItemsSource="{Binding Devices.PresetsFromOptions}" Focusable="False">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                                <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,8,8" MinWidth="110" Padding="20,10" MinHeight="46"
+                                                        AutomationProperties.Name="{Binding Label}" ToolTip="{Binding Hint}"
+                                                        Command="{Binding DataContext.Devices.SetPresetsFromCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+
+                                <WrapPanel Margin="0,16,0,0">
+                                    <Button Style="{StaticResource Button.Primary}" Command="{Binding Devices.SaveCommand}" Content="{Binding Devices.SaveLabel}" MinWidth="130"
+                                            Margin="0,0,8,0" AutomationProperties.Name="Save device" />
+                                    <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding Devices.CancelCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Use a different device profile" Style="{StaticResource Text.H3}" Margin="0,22,0,10" />
                         <WrapPanel>
                             <ItemsControl ItemsSource="{Binding DeviceChoices}" Focusable="False">
                                 <ItemsControl.ItemsPanel>
@@ -298,9 +555,9 @@
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Button Content="{Binding}" Margin="0,0,8,8" MinWidth="120"
-                                                Command="{Binding DataContext.ForceDeviceCommand, ElementName=Root}" CommandParameter="{Binding}" />
+                                    <DataTemplate DataType="{x:Type svc:DeviceChoice}">
+                                        <Button Content="{Binding Name}" Margin="0,0,8,8" MinWidth="120"
+                                                Command="{Binding DataContext.ForceDeviceCommand, ElementName=Root}" CommandParameter="{Binding Id}" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>

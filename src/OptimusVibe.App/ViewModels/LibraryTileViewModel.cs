@@ -1,6 +1,7 @@
 using System.Windows.Input;
 using System.Windows.Media;
 using OptimusVibe.App.Services;
+using OptimusVibe.CloudSync;
 using OptimusVibe.Library;
 
 namespace OptimusVibe.App.ViewModels;
@@ -84,6 +85,21 @@ public sealed class LibraryTileViewModel : ObservableObject
     public bool KeepSteamOptionUpToDate => !_entry.SteamLaunchOptionSkipped;
     public bool SuggestOptOut => _entry.SuggestOptOut;
     public bool IsQueued => _entry.Status == LibraryStatus.NeedsPresets && IsManaged;
+    // ---------------------------------------------------------------- settings sync
+
+    /// <summary>Do this game's settings travel between devices? Stays on device / Syncs / Maybe (unknown, low confidence, no report).</summary>
+    public SyncBucket SyncBucket => SyncBuckets.Classify(_entry.CloudSync);
+
+    public string SyncGlyph => SyncBucket switch
+    {
+        SyncBucket.Syncs => "\uE753",          // cloud
+        SyncBucket.StaysOnDevice => "\uE7F8",  // device
+        _ => "\uE897",                         // question mark
+    };
+
+    /// <summary>The cloud-sync report's headline ("Settings stay on this device"), or "Not known yet".</summary>
+    public string SyncTip => _entry.CloudSync?.Headline ?? "Not known yet";
+
     public bool CanPlay => GameLauncher.CanLaunch(_entry.Game, _entry.Detected);
 
     public string PlayHint => Status switch

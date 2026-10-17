@@ -59,7 +59,37 @@ public static class Validator
                 report.Errors.Add($"devices.{name}: driver must be one of {string.Join(", ", Drivers)}");
             if (d.Display is { } m && (m.Width <= 0 || m.Height <= 0 || m.Refresh <= 0))
                 report.Errors.Add($"devices.{name}: display values must be positive");
+            CheckPresetsFrom(devices, name, d, report);
         }
+    }
+
+    private static void CheckPresetsFrom(DevicesFile devices, string name, DeviceDef d, ValidationReport report)
+    {
+        var from = d.PresetsFrom?.Trim();
+        if (string.IsNullOrEmpty(from)) return;
+        if (string.Equals(from, name, StringComparison.Ordinal))
+        {
+            report.Errors.Add($"devices.{name}: presetsFrom points at the device itself");
+            return;
+        }
+        if (!devices.Devices.TryGetValue(from, out var target))
+        {
+            report.Errors.Add($"devices.{name}: presetsFrom '{from}' is not a device in devices.yaml");
+            return;
+        }
+        // follow the chain: a loop back to this device is an error; a longer chain is legal but only one level is used
+        var seen = new List<string> { name, from };
+        for (var next = target.PresetsFrom?.Trim(); !string.IsNullOrEmpty(next); next = devices.Devices.GetValueOrDefault(next)?.PresetsFrom?.Trim())
+        {
+            if (seen.Contains(next, StringComparer.Ordinal))
+            {
+                report.Errors.Add($"devices.{name}: presetsFrom cycle: {string.Join(" -> ", seen)} -> {next}");
+                return;
+            }
+            seen.Add(next);
+        }
+        if (!string.IsNullOrWhiteSpace(target.PresetsFrom))
+            report.Warnings.Add($"devices.{name}: presetsFrom '{from}' itself uses presets from '{target.PresetsFrom}'; only one level is followed");
     }
 
     private static void CheckGame(ConfigStore store, string id, DevicesFile devices, ValidationReport report)
@@ -141,7 +171,7 @@ public static class Validator
             if (deviceDef.DefaultPreset is { } dp && !presets.ContainsKey(dp))
                 report.Warnings.Add($"{where}: presets.{device} has no '{dp}' (the device default); the first preset is used instead");
         }
-        foreach (var device in devices.Devices.Keys.Where(d => !game.Presets.ContainsKey(d)))
+        foreach (var device in devices.Devices.Where(d => !ProfileResolver.PresetNames(game, d.Key, d.Value).Any()).Select(d => d.Key))
             report.Warnings.Add($"{where}: no recommended presets for device '{device}' (only manual saves will apply there)");
 
         foreach (var (device, deviceDef) in devices.Devices)

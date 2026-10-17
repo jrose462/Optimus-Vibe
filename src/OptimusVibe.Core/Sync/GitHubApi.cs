@@ -20,6 +20,12 @@ public sealed record GitTree(string Sha, IReadOnlyList<GitTreeEntry> Entries, bo
 /// <summary>A change for <see cref="GitHubApi.CreateTreeAsync"/>: Sha = blob to put at Path, or null to delete Path.</summary>
 public sealed record GitTreeChange(string Path, string? Sha);
 
+/// <summary>A raw REST answer from <see cref="GitHubApi.RequestAsync"/>. <see cref="Next"/> is the Link rel="next" URL, if any.</summary>
+public sealed record GitHubResponse(HttpStatusCode Status, JsonNode? Json, IReadOnlyDictionary<string, string> Headers, string? Next = null)
+{
+    public bool Ok => (int)Status is >= 200 and < 300;
+}
+
 /// <summary>Minimal GitHub REST client: account, repos, and the git data API used by <see cref="GitHubMirror"/>.</summary>
 public sealed partial class GitHubApi
 {
@@ -248,6 +254,60 @@ public sealed partial class GitHubApi
         if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
         return true;
     }
+
+    // ------------------------------------------------------------ generic REST (used by the game lab)
+
+    /// <summary>
+    /// Any REST call. <paramref name="url"/> is relative to https://api.github.com/ (or an absolute "next" link). With
+    /// <paramref name="throwOnError"/> false a non-2xx answer is returned instead of thrown (404 probes, 422 "already exists").
+    /// An empty body (204) gives a null <see cref="GitHubResponse.Json"/>.
+    /// </summary>
+    public async Task<GitHubResponse> RequestAsync(HttpMethod method, string url, JsonNode? body = null, string? repo = null,
+        bool throwOnError = true, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(method, url, body, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode && throwOnError) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
+        var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        JsonNode? json = null;
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            try { json = JsonNode.Parse(text); }
+            catch (System.Text.Json.JsonException) when (!resp.IsSuccessStatusCode) { }
+            catch (System.Text.Json.JsonException ex) { throw new GitHubApiException(resp.StatusCode, "GitHub returned a response that isn't JSON.", ex); }
+        }
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in resp.Headers) headers[h.Key] = string.Join(", ", h.Value);
+        return new GitHubResponse(resp.StatusCode, json, headers, NextLink(resp));
+    }
+
+    /// <summary>All pages of a list endpoint (follows Link rel=next, at most <paramref name="maxPages"/>). <paramref name="arrayProperty"/> names the array inside an object answer ("secrets", "variables", "workflow_runs").</summary>
+    public async Task<List<JsonNode>> GetAllAsync(string url, string? repo = null, string? arrayProperty = null, int maxPages = 10, CancellationToken ct = default)
+    {
+        var all = new List<JsonNode>();
+        string? next = url;
+        for (var page = 0; next is not null && page < maxPages; page++)
+        {
+            var r = await RequestAsync(HttpMethod.Get, next, null, repo, true, ct).ConfigureAwait(false);
+            var arr = arrayProperty is null ? r.Json as JsonArray : r.Json?[arrayProperty] as JsonArray;
+            foreach (var n in arr ?? []) if (n is not null) all.Add(n);
+            next = r.Next;
+        }
+        return all;
+    }
+
+    /// <summary>
+    /// Scopes of an OAuth / classic-PAT token (X-OAuth-Scopes of GET /user), lower-case. Null when GitHub sends no such
+    /// header (fine-grained tokens and GitHub App tokens: their permissions can't be read back).
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> GetTokenScopesAsync(CancellationToken ct = default)
+    {
+        var r = await RequestAsync(HttpMethod.Get, "user", null, null, true, ct).ConfigureAwait(false);
+        return ParseScopes(r.Headers.GetValueOrDefault("X-OAuth-Scopes"));
+    }
+
+    internal static IReadOnlyList<string>? ParseScopes(string? header) =>
+        header is null ? null : header.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => s.ToLowerInvariant()).ToList();
 
     // ------------------------------------------------------------ plumbing
 

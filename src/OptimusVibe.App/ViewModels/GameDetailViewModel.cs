@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using OptimusVibe.App.Services;
 using OptimusVibe.Config;
+using OptimusVibe.Devices;
 using OptimusVibe.Engine;
 using OptimusVibe.Logging;
 
@@ -55,7 +56,7 @@ public sealed class GameDetailViewModel : ObservableObject
     public string? Error => _snap.Error;
     public bool HasError => _snap.Error is not null;
     public bool HasGame => _snap.Context is not null;
-    public string Device => DeviceName;
+    public string Device => Session.Device.DisplayName;
 
     public string ActiveText
     {
@@ -84,7 +85,7 @@ public sealed class GameDetailViewModel : ObservableObject
         }
     }
 
-    public string DeviceFriendly => DeviceName.Equals("ally-x", StringComparison.OrdinalIgnoreCase) ? "Ally X" : DeviceName.Replace('-', ' ');
+    public string DeviceFriendly => DeviceNames.Friendly(Session.Device.Name, Session.Device.Def);
 
     /// <summary>"Quality", "Manual: Steady 40" — empty when the device has no presets.</summary>
     public string ActivePresetLabel

@@ -11,8 +11,8 @@ namespace OptimusVibe.App.Services;
 /// </summary>
 public static class SyncService
 {
-    /// <summary>Folders/files the app publishes: manual saves, library opt-outs and the request queue.</summary>
-    public static string[] SharedPaths(AppPaths paths) => [paths.SavesDir, paths.LibraryFile, paths.RequestsFile];
+    /// <summary>Folders/files the app publishes: manual saves, library opt-outs, the request queue and the device list.</summary>
+    public static string[] SharedPaths(AppPaths paths) => [paths.SavesDir, paths.LibraryFile, paths.RequestsFile, paths.DevicesFile];
 
     public static GitResult CommitAndSync(AppPaths paths, string message, params string[] files)
     {

@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using OptimusVibe.App.Services;
 using OptimusVibe.Config;
+using OptimusVibe.Devices;
 using OptimusVibe.Engine;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
@@ -253,12 +254,10 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         }
     }
 
-    public string DeviceName => Session?.Device.Name ?? "no device";
+    public string DeviceName => Session?.Device.DisplayName ?? "no device";
 
     /// <summary>"desktop", "Ally X" — for friendly sentences.</summary>
-    public string DeviceFriendly => DeviceName.Equals("ally-x", StringComparison.OrdinalIgnoreCase)
-        ? "Ally X"
-        : DeviceName.Replace('-', ' ');
+    public string DeviceFriendly => Session is { } s ? DeviceNames.Friendly(s.Device.Name, s.Device.Def) : "device";
     public string DeviceReason => Session?.Device.Reason ?? "";
     public string? DeviceDescription => Session?.Device.Def?.Description;
     public string ConfigRoot => Session?.Paths.ConfigRoot ?? _setupConfigRoot ?? "config folder not set";
@@ -318,7 +317,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public bool ToastIsError { get => _toastIsError; private set => Set(ref _toastIsError, value); }
 
     public string? SetupMessage { get => _setupMessage; private set => Set(ref _setupMessage, value); }
-    public ObservableCollection<string> DeviceChoices { get; } = new();
+    public ObservableCollection<DeviceChoice> DeviceChoices { get; } = new();
     public bool HasDeviceChoices => DeviceChoices.Count > 0;
 
     // ---------------------------------------------------------------- steam banner
@@ -605,13 +604,13 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         OnPropertyChanged(nameof(DetailHasConfig));
 
         var errors = Games.Count(g => g.HasError);
-        SetStatus($"{Games.Count} game(s) for {Session.Device.Name}{(errors > 0 ? $" — {errors} with config errors" : "")}", errors > 0);
+        SetStatus($"{Games.Count} game(s) for {Session.Device.DisplayName}{(errors > 0 ? $" — {errors} with config errors" : "")}", errors > 0);
         Log.Info($"App loaded: device {Session.Device.Name} ({Session.Device.Reason}), config {Session.Paths.ConfigRoot}, {Games.Count} game(s)");
 
         _ = Library.ScanAsync(rescanLaunchers: rescan || Library.Detected.Count == 0);
     }
 
-    private void EnterSetup(string? message, List<string> deviceChoices, string? configRoot)
+    private void EnterSetup(string? message, List<DeviceChoice> deviceChoices, string? configRoot)
     {
         if (State != AppState.Setup) SetupStep = "choose";
         Session = null;

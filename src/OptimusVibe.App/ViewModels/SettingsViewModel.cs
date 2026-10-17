@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using OptimusVibe.App.Services;
 using OptimusVibe.Config;
+using OptimusVibe.Devices;
 using OptimusVibe.Logging;
 using OptimusVibe.Sync;
 
@@ -15,6 +16,42 @@ public sealed class OptionViewModel(string value, string label, string? hint = n
     public string Label { get; } = label;
     public string? Hint { get; } = hint;
     public bool IsOn { get => _isOn; set => Set(ref _isOn, value); }
+}
+
+/// <summary>A theme card in Settings → Appearance: name, blurb and the brushes its mini preview paints (read from the palette).</summary>
+public sealed class ThemeOptionViewModel : ObservableObject
+{
+    private bool _isOn;
+
+    public ThemeOptionViewModel(ThemeInfo info)
+    {
+        Info = info;
+        PageBrush = ThemeManager.PreviewBrush(info.Id, "PageBrush");
+        GlowBrush = ThemeManager.PreviewBrush(info.Id, "PageGlowBrush");
+        PatternBrush = ThemeManager.PreviewBrush(info.Id, "PagePatternBrush");
+        CardBrush = ThemeManager.PreviewBrush(info.Id, "CardBrush");
+        CardBorderBrush = ThemeManager.PreviewBrush(info.Id, "CardBorderBrush");
+        AccentBrush = ThemeManager.PreviewBrush(info.Id, "AccentBrush");
+        FeatureBrush = ThemeManager.PreviewBrush(info.Id, "FeatureBrush");
+        TextBrush = ThemeManager.PreviewBrush(info.Id, "TextBrush");
+        TextFaintBrush = ThemeManager.PreviewBrush(info.Id, "TextFaintBrush");
+    }
+
+    public ThemeInfo Info { get; }
+    public string Value => Info.Id;
+    public string Label => Info.Name;
+    public string Hint => Info.Blurb;
+    public bool IsOn { get => _isOn; set => Set(ref _isOn, value); }
+
+    public System.Windows.Media.Brush? PageBrush { get; }
+    public System.Windows.Media.Brush? GlowBrush { get; }
+    public System.Windows.Media.Brush? PatternBrush { get; }
+    public System.Windows.Media.Brush? CardBrush { get; }
+    public System.Windows.Media.Brush? CardBorderBrush { get; }
+    public System.Windows.Media.Brush? AccentBrush { get; }
+    public System.Windows.Media.Brush? FeatureBrush { get; }
+    public System.Windows.Media.Brush? TextBrush { get; }
+    public System.Windows.Media.Brush? TextFaintBrush { get; }
 }
 
 /// <summary>Settings page: sync, GitHub account + repo, library scanning, device. Each change is saved immediately.</summary>
@@ -50,9 +87,19 @@ public sealed class SettingsViewModel : ObservableObject
             new("list", "Manage", "Game list with presets side by side"),
         ];
 
+        Themes = new(ThemeManager.Themes.Select(t => new ThemeOptionViewModel(t)));
+        foreach (var t in Themes) t.IsOn = t.Value == ThemeManager.Current;
+        Devices = new DevicesViewModel(main);
+        main.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(MainViewModel.DeviceName) or nameof(MainViewModel.DeviceReason) or nameof(MainViewModel.DeviceDescription))
+                OnPropertyChanged(e.PropertyName);
+        };
+
         bool Idle() => !main.IsBusy;
         SyncNowCommand = main.SyncCommand;
         UseLocalGitCommand = main.PickConfigFolderCommand;
+        SetThemeCommand = new AsyncRelayCommand(p => SetThemeAsync(p as ThemeOptionViewModel), _ => true);
         SetModeCommand = new AsyncRelayCommand(p => SetModeAsync(p as OptionViewModel), _ => Idle());
         ForceDeviceCommand = main.ForceDeviceCommand;
         AutoDetectDeviceCommand = new AsyncRelayCommand(() => main.ForceDeviceAsync(null), () => Idle() && _forcedProfile is not null);
@@ -64,7 +111,9 @@ public sealed class SettingsViewModel : ObservableObject
     public UpdatesViewModel Updates => _main.Updates;
     public ObservableCollection<OptionViewModel> Stores { get; }
     public ObservableCollection<OptionViewModel> Modes { get; }
-    public ObservableCollection<string> DeviceChoices { get; } = new();
+    public ObservableCollection<DeviceChoice> DeviceChoices { get; } = new();
+    public ObservableCollection<ThemeOptionViewModel> Themes { get; }
+    public DevicesViewModel Devices { get; }
 
     /// <summary>The saved provider is the GitHub account (vs. a local git checkout).</summary>
     public bool IsGitHub
@@ -103,6 +152,7 @@ public sealed class SettingsViewModel : ObservableObject
     public ICommand SyncNowCommand { get; }
     public ICommand UseLocalGitCommand { get; }
     public ICommand SetModeCommand { get; }
+    public ICommand SetThemeCommand { get; }
     public ICommand ForceDeviceCommand { get; }
     public ICommand AutoDetectDeviceCommand { get; }
     public ICommand CloseCommand { get; }
@@ -134,10 +184,13 @@ public sealed class SettingsViewModel : ObservableObject
             ProviderText = "…";
             ProviderText = await Task.Run(() => SyncService.Describe(session?.Paths, s));
 
+            var theme = ThemeManager.Normalize(s.Theme);
+            foreach (var t in Themes) t.IsOn = t.Value == theme;
+
             var devices = await Task.Run(() =>
             {
-                try { return session?.Store.LoadDevices().Devices.Keys.ToList() ?? new List<string>(); }
-                catch (Exception ex) { Log.Warn($"devices.yaml: {ex.Message}"); return new List<string>(); }
+                try { return session?.Store.LoadDevices().Devices.Select(kv => new DeviceChoice(kv.Key, DeviceNames.Display(kv.Key, kv.Value))).ToList() ?? new List<DeviceChoice>(); }
+                catch (Exception ex) { Log.Warn($"devices.yaml: {ex.Message}"); return new List<DeviceChoice>(); }
             });
             DeviceChoices.Clear();
             foreach (var d in devices) DeviceChoices.Add(d);
@@ -152,6 +205,7 @@ public sealed class SettingsViewModel : ObservableObject
         {
             _loading = false;
         }
+        await Devices.RefreshAsync();
         await Account.RefreshAsync();
         if (Account.IsSignedIn && !Account.HasRepos) _ = Account.LoadReposAsync();
     }
@@ -180,6 +234,14 @@ public sealed class SettingsViewModel : ObservableObject
         _main.ApplyLibraryMode(mode.Value);
     }
 
+    private async Task SetThemeAsync(ThemeOptionViewModel? theme)
+    {
+        if (theme is null) return;
+        ThemeManager.Apply(theme.Value); // instant; styles use DynamicResource
+        foreach (var t in Themes) t.IsOn = t == theme;
+        await SaveAsync(s => s.Theme = theme.Value, null);
+    }
+
     private async Task SaveAsync(Action<AppSettings> change, string? toast)
     {
         try
@@ -194,5 +256,5 @@ public sealed class SettingsViewModel : ObservableObject
         }
     }
 
-    public bool CancelTransient() => Account.CancelTransient();
+    public bool CancelTransient() => Devices.CancelTransient() || Account.CancelTransient();
 }

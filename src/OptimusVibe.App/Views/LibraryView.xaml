@@ -10,13 +10,13 @@
             <StackPanel Width="{Binding TileWidth, ElementName=Root}" ToolTip="{Binding StoreText}">
                 <Grid Height="{Binding ArtHeight, ElementName=Root}">
                     <!-- no cover art: the game's own exe icon on a quiet tile, with its name -->
-                    <Border CornerRadius="24" Background="{StaticResource CoverTileBrush}">
+                    <Border CornerRadius="24" Background="{DynamicResource CoverTileBrush}">
                         <StackPanel VerticalAlignment="Center" Margin="16,0,16,0">
                             <Image Source="{Binding Icon}" Width="56" Height="56" Stretch="Uniform" HorizontalAlignment="Center"
                                    RenderOptions.BitmapScalingMode="HighQuality"
                                    Visibility="{Binding HasIcon, Converter={StaticResource VisibleWhen}}" />
                             <TextBlock Text="&#xE7FC;" FontFamily="{StaticResource IconFont}" FontSize="44" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextFaintBrush}"
+                                       Foreground="{DynamicResource TextFaintBrush}"
                                        Visibility="{Binding HasIcon, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
                             <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" TextAlignment="Center"
                                        TextWrapping="Wrap" MaxHeight="68" TextTrimming="CharacterEllipsis" Margin="0,14,0,0" />
@@ -39,7 +39,7 @@
                         </Border.Background>
                     </Border>
                     <!-- dimmed when not installed -->
-                    <Border CornerRadius="24" Background="#99101820" IsHitTestVisible="False">
+                    <Border CornerRadius="24" Background="{DynamicResource TileDimBrush}" IsHitTestVisible="False">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -71,18 +71,41 @@
                             </StackPanel>
                         </Button>
                         <Button Focusable="False" Command="{Binding OpenCommand}" MinWidth="120" Margin="0,10,0,0" AutomationProperties.Name="Presets"
-                                Background="#E61C1D21">
+                                Background="{DynamicResource TileHoverButtonBrush}">
                             <TextBlock Text="Details" />
                         </Button>
                     </StackPanel>
                 </Grid>
 
                 <TextBlock Text="{Binding Name}" FontSize="16.5" FontWeight="SemiBold" Margin="6,12,6,0" TextTrimming="CharacterEllipsis" />
-                <StackPanel Orientation="Horizontal" Margin="6,3,6,0">
+                <Grid Margin="6,3,6,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal">
                     <Border Style="{StaticResource Dot.Attention}" Margin="0,1,8,0"
                             Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
                     <TextBlock Text="{Binding StatusLine}" Style="{StaticResource Text.Caption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                    </StackPanel>
+                    <!-- does this game's settings sync? cloud / device / question mark; the tooltip says why -->
+                    <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="15" VerticalAlignment="Center" Margin="8,1,0,0"
+                               ToolTip="{Binding SyncTip}" AutomationProperties.Name="{Binding SyncTip}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SyncBucket}" Value="Syncs">
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SyncBucket}" Value="StaysOnDevice">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -90,6 +113,7 @@
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
         <Grid Margin="32,10,32,12">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -115,19 +139,19 @@
                             <Run Text="{Binding DeviceName, Mode=OneWay}" />
                         </TextBlock>
                         <UniformGrid Columns="3" Margin="0,20,0,2">
-                            <views:MetricRow Glyph="&#xE73E;" IconBrush="{StaticResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
-                            <views:MetricRow Glyph="&#xE916;" IconBrush="{StaticResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
-                            <views:MetricRow Glyph="&#xE711;" IconBrush="{StaticResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
+                            <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
+                            <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
+                            <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
                         </UniformGrid>
                     </StackPanel>
                 </Border>
                 <Border Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="340"
                         Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="White" />
-                        <TextBlock DockPanel.Dock="Top" Text="{Binding QueuedNote}" FontSize="14" Foreground="{StaticResource OnFeatureDimBrush}" Margin="0,2,0,0" />
+                        <TextBlock DockPanel.Dock="Top" Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding QueuedNote}" FontSize="14" Foreground="{DynamicResource OnFeatureDimBrush}" Margin="0,2,0,0" />
                         <TextBlock Text="Ask Claude to “process Optimus-Vibe requests” and they will get presets. Until then they start normally."
-                                   Style="{StaticResource Text.Body}" Foreground="White" VerticalAlignment="Bottom" Margin="0,18,0,0" />
+                                   Style="{StaticResource Text.Body}" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Bottom" Margin="0,18,0,0" />
                     </DockPanel>
                 </Border>
             </Grid>
@@ -148,12 +172,13 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:FilterPillViewModel}">
                                 <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsSelected}"
-                                        AutomationProperties.Name="{Binding Label}" ToolTip="{Binding ToolTipText}"
+                                        AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding ToolTipText}"
                                         Command="{Binding DataContext.SetFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="19" VerticalAlignment="Center" />
                                         <TextBlock Text="{Binding Label}" Margin="10,0,0,0" VerticalAlignment="Center"
                                                    Visibility="{Binding IsSelected, Converter={StaticResource VisibleWhen}}" />
+                                        <TextBlock Text="{Binding Count}" Margin="8,0,0,0" FontSize="13.5" Opacity="0.75" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
                             </DataTemplate>
@@ -162,12 +187,41 @@
                 </Border>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                             Visibility="{Binding IsScanning, Converter={StaticResource VisibleWhen}}">
-                    <TextBlock Text="Looking for games…" FontSize="14.5" Foreground="{StaticResource TextDimBrush}" />
+                    <TextBlock Text="Looking for games…" FontSize="14.5" Foreground="{DynamicResource TextDimBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- settings sync filter (second row, combines with the status filters above; the D-pad reaches it, LB/RB stay on the first row) -->
+            <Grid Grid.Row="3" Margin="0,4,0,6">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Settings sync" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="4,0,12,0" />
+                    <Border Style="{StaticResource SegmentStrip}">
+                        <ItemsControl x:Name="SyncPills" ItemsSource="{Binding SyncFilters}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:SyncPillViewModel}">
+                                    <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsSelected}" MinHeight="44" Padding="16,0"
+                                            AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding ToolTipText}"
+                                            Command="{Binding DataContext.SetSyncFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="17" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Label}" Margin="9,0,0,0" FontSize="14.5" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Count}" Margin="9,0,0,0" FontSize="13.5" Opacity="0.75" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
                 </StackPanel>
             </Grid>
 
             <!-- the grid -->
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="4">
                 <ListBox x:Name="TileList" Margin="-14,6,-14,0" Padding="14,0,14,24"
                          Style="{StaticResource TileGrid}" ItemContainerStyle="{StaticResource LibraryTile}"
                          ItemsSource="{Binding Tiles}" SelectedItem="{Binding SelectedTile}" ItemTemplate="{StaticResource Tile}"

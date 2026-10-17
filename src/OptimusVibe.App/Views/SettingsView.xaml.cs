@@ -21,7 +21,7 @@ public partial class SettingsView : UserControl
     private void OnSectionRequested(string section)
     {
         // The page was just made visible (and re-scrolled to the top): scroll after that settles.
-        FrameworkElement? target = section switch { "updates" => UpdatesCard, "account" => AccountCard, _ => null };
+        FrameworkElement? target = section switch { "updates" => UpdatesCard, "account" => AccountCard, "appearance" => AppearanceCard, "devices" => DevicesCard, _ => null };
         target?.BringIntoView();
     }
 

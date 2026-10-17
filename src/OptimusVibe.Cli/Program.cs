@@ -52,7 +52,8 @@ public static class Program
             AppCommands.VersionCommand(), AppCommands.UpdateAppCommand(), AppCommands.ReportBugCommand(),
             SteamCommands.SteamOptionsCommand(),
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
-            CloudCheckCommands.CloudCheckCommand(),
+            CloudCheckCommands.CloudCheckCommand(), DeviceCommands.DevicesCommand(),
+            GameLabCommands.LabCommand(),
         };
         return root.Parse(args).Invoke();
     }
@@ -408,7 +409,7 @@ public static class Program
                         continue;
                     }
                     var ctx = GameContext.Load(store, id, device);
-                    var presets = string.Join(", ", ProfileResolver.PresetNames(ctx.Game, device.Name));
+                    var presets = string.Join(", ", ProfileResolver.PresetNames(ctx.Game, device.Name, device.Def));
                     var saves = store.ListSaves(ctx.Game.Id, device.Name).Count;
                     Console.WriteLine($"  {ctx.Game.Id,-24} {ctx.Game.Name,-32} active: {ctx.Preset?.ToString() ?? "(none)",-26} " +
                                       $"presets: {(presets.Length == 0 ? "-" : presets)}; manual saves: {saves}");

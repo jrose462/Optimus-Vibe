@@ -1,0 +1,714 @@
+# Optimus-Vibe game lab. The app files an issue in THIS private repo whose body starts with
+# `<!-- optimus-vibe:game-lab v1 -->` (title "[game-lab] <name> - <kind>"), then answers with evidence comments
+# (`<!-- optimus-vibe:lab-evidence v1 -->`) collected from the owner's PC. This workflow:
+#   gate      (no Claude)  checks the request, runs one game at a time, enforces the daily cap, queues the rest.
+#   research  (Claude)     reads the evidence + the Optimus-Vibe skill, writes config/games/<id>.yaml, or asks for more evidence.
+#   publish   (no Claude)  checks Claude's output, validates it with the real optimus-vibe CLI, opens a PR and merges it,
+#                          or asks the app for more evidence, or flags the issue for a human.
+#   drain     (no Claude)  starts the next queued request if there is one.
+# No schedule: it runs when the app files a request / answers with evidence, or when you press Run workflow
+# (the app uses that to drain the queue). Details: .github/game-lab/README.md.
+#
+# Repo variables: GAME_LAB_DAILY_MAX (default 5), GAME_LAB_MODEL (default claude-sonnet-5-5).
+# Secret: CLAUDE_CODE_OAUTH_TOKEN. Repo setting needed: Actions > "Allow GitHub Actions to create and approve pull requests",
+# and squash merging allowed.
+name: Game lab
+
+run-name: game-lab #${{ github.event.issue.number || github.event.inputs.issue }}
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: 'Request issue number to run now (blank = the oldest open lab:queued issue)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  GAME_LAB_MODEL: ${{ vars.GAME_LAB_MODEL || 'claude-sonnet-5-5' }}
+  APP_REPO: jrose462/Optimus-Vibe
+  # Claude gets read tools, web research, and writes only under config/games and .claude-out. No shell.
+  ALLOW_TOOLS: >-
+    Read,Glob,Grep,WebSearch,WebFetch,
+    Write(.claude-out/**),Edit(.claude-out/**),MultiEdit(.claude-out/**),
+    Write(config-repo/config/games/**),Edit(config-repo/config/games/**),MultiEdit(config-repo/config/games/**)
+  DENY_TOOLS: >-
+    Bash,Task,NotebookEdit,
+    Read(/proc/**),Read(/etc/**),Read(/sys/**),Read(/root/**),Read(/tmp/**),Read(/home/runner/work/_temp/**),
+    Read(/home/runner/.*/**),Read(~/.*/**),Read(**/.git/**),
+    Write(config-repo/.github/**),Edit(config-repo/.github/**),MultiEdit(config-repo/.github/**),
+    Write(config-repo/config/saves/**),Edit(config-repo/config/saves/**),MultiEdit(config-repo/config/saves/**),
+    Write(config-repo/config/schema/**),Edit(config-repo/config/schema/**),MultiEdit(config-repo/config/schema/**),
+    Write(config-repo/config/library.yaml),Edit(config-repo/config/library.yaml),MultiEdit(config-repo/config/library.yaml),
+    Write(config-repo/config/devices.yaml),Edit(config-repo/config/devices.yaml),MultiEdit(config-repo/config/devices.yaml),
+    Write(config-repo/config/requests.yaml),Edit(config-repo/config/requests.yaml),MultiEdit(config-repo/config/requests.yaml),
+    Write(app/**),Edit(app/**),MultiEdit(app/**),Write(.claude-in/**),Edit(.claude-in/**),MultiEdit(.claude-in/**)
+
+jobs:
+  # ------------------------------------------------------------------ gate (no Claude)
+  gate:
+    name: Gate
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      ||
+      (github.event_name == 'issues' && github.event.issue.state == 'open' &&
+        github.event.issue.author_association == 'OWNER' &&
+        contains(github.event.issue.body, '<!-- optimus-vibe:game-lab v1 -->') &&
+        (github.event.action == 'opened' || contains(fromJSON('["game-lab","lab:queued"]'), github.event.label.name)))
+      ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+        github.event.comment.author_association == 'OWNER' &&
+        startsWith(github.event.comment.body, '<!-- optimus-vibe:lab-evidence v1 -->') &&
+        contains(github.event.issue.labels.*.name, 'game-lab'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      issue: ${{ steps.gate.outputs.issue }}
+      kind: ${{ steps.gate.outputs.kind }}
+      game_id: ${{ steps.gate.outputs.game_id }}
+      name: ${{ steps.gate.outputs.name }}
+      store: ${{ steps.gate.outputs.store }}
+      store_id: ${{ steps.gate.outputs.store_id }}
+      device: ${{ steps.gate.outputs.device }}
+      round: ${{ steps.gate.outputs.round }}
+    steps:
+      - name: Check the request, queue or claim it
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+          INPUT_ISSUE: ${{ github.event.inputs.issue }}
+          HAS_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          DAILY_MAX: ${{ vars.GAME_LAB_DAILY_MAX || '5' }}
+        run: |
+          set -uo pipefail
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          stop() { echo "::notice::$1"; out run false; exit 0; }
+          say() { gh issue comment "$ISSUE" --body "$1" >/dev/null || true; }
+          addl() { gh issue edit "$ISSUE" --add-label "$1" >/dev/null 2>&1 || true; }
+          dell() { gh issue edit "$ISSUE" --remove-label "$1" >/dev/null 2>&1 || true; }
+
+          for spec in "game-lab|1d76db|Optimus-Vibe game lab request" "lab:queued|fbca04|Waiting for a free slot or the daily limit" \
+                      "lab:researching|0e8a16|Claude is researching" "lab:needs-evidence|d93f0b|Waiting for the app to send more evidence" \
+                      "lab:review|b60205|Needs a human" "lab:done|0e8a16|Added or updated and merged" "lab:failed|b60205|The run failed"; do
+            IFS='|' read -r lname lcolor ldesc <<< "$spec"
+            gh label create "$lname" --color "$lcolor" --description "$ldesc" 2>/dev/null || true
+          done
+
+          ISSUE=""
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -n "$INPUT_ISSUE" ]; then
+              ISSUE="$INPUT_ISSUE"
+            else
+              ISSUE=$(gh issue list --state open --label game-lab --label lab:queued --limit 100 --json number,createdAt \
+                        --jq 'sort_by(.createdAt) | .[0].number // empty')
+            fi
+          else
+            ISSUE="$EVENT_ISSUE"
+          fi
+          [[ "$ISSUE" =~ ^[0-9]+$ ]] || stop "No request to run."
+
+          # ---- the issue itself
+          is_pr=$(gh api "repos/$GH_REPO/issues/$ISSUE" --jq '(.pull_request != null)' 2>/dev/null || echo true)
+          [ "$is_pr" = "false" ] || stop "#$ISSUE is not an issue."
+          assoc=$(gh api "repos/$GH_REPO/issues/$ISSUE" --jq .author_association)
+          [ "$assoc" = "OWNER" ] || stop "#$ISSUE was not opened by the repo owner."
+          json=$(gh issue view "$ISSUE" --json state,body,labels) || stop "Cannot read #$ISSUE."
+          [ "$(jq -r .state <<<"$json")" = "OPEN" ] || stop "#$ISSUE is closed."
+          labels=",$(jq -r '[.labels[].name] | join(",")' <<<"$json"),"
+          case "$labels" in *,lab:done,*) stop "#$ISSUE is already done." ;; esac
+          case "$labels" in *,game-lab,*) ;; *) stop "#$ISSUE has no game-lab label." ;; esac
+          body=$(jq -r .body <<<"$json" | tr -d '\r')
+          printf '%s' "$body" | grep -qF '<!-- optimus-vibe:game-lab v1 -->' || stop "#$ISSUE has no game-lab marker."
+
+          # ---- the machine line
+          req=$(printf '%s\n' "$body" | grep -o '<!-- lab-request {.*} -->' | head -1 | sed -e 's/^<!-- lab-request //' -e 's/ -->$//')
+          if ! jq -e '
+                (.kind | IN("new","refresh","sync-check")) and
+                ((.gameId // "") | test("^([a-z0-9][a-z0-9-]{0,63})?$")) and
+                (.store | IN("steam","battlenet","ea","xbox","epic","gog")) and
+                ((.storeId | type) == "string" and (.storeId | length) > 0 and (.storeId | length) <= 200) and
+                ((.name | type) == "string" and (.name | length) > 0 and (.name | length) <= 200) and
+                ((.device | type) == "string" and (.device | test("^[A-Za-z0-9_-]{1,64}$")))
+              ' <<<"$req" >/dev/null 2>&1; then
+            say "The game lab could not read the \`lab-request\` line of this issue (it must be one valid JSON object). Nothing was run."
+            addl lab:failed; stop "Invalid lab-request JSON."
+          fi
+          one() { jq -r "$1" <<<"$req" | tr -d '\r\n\t' | cut -c1-200; }
+          kind=$(one .kind); game_id=$(one '.gameId // ""'); name=$(one .name); store=$(one .store)
+          store_id=$(one .storeId); device=$(one .device)
+
+          # ---- credentials
+          if [ "$HAS_OAUTH" != "true" ]; then
+            say "The game lab needs the repo secret \`CLAUDE_CODE_OAUTH_TOKEN\` (Settings > Secrets and variables > Actions). Add it, then press Run now in the app."
+            addl lab:failed; dell lab:researching; stop "No CLAUDE_CODE_OAUTH_TOKEN."
+          fi
+
+          # ---- one at a time
+          MY_TITLE=$(gh run view "$GITHUB_RUN_ID" --json displayTitle --jq .displayTitle 2>/dev/null || echo "")
+          for st in queued in_progress waiting pending; do
+            gh run list -w game-lab.yml --status "$st" -L 50 --json databaseId,displayTitle \
+              --jq '.[] | "\(.databaseId)\t\(.displayTitle)"' 2>/dev/null || true
+          done | sort -u > "$RUNNER_TEMP/others.txt"
+          busy=0; dupe=0
+          while IFS=$'\t' read -r rid rtitle; do
+            [ -n "$rid" ] || continue
+            [ "$rid" = "$GITHUB_RUN_ID" ] && continue
+            rjobs=$(gh api "repos/$GH_REPO/actions/runs/$rid/jobs" --jq '.jobs[] | "\(.name)|\(.status)"' 2>/dev/null || true)
+            same=0; [ "$rtitle" = "$MY_TITLE" ] && [ "$MY_TITLE" != "game-lab #" ] && same=1
+            if printf '%s\n' "$rjobs" | grep -qE '^(Research|Publish)\|(queued|in_progress|waiting|pending)'; then
+              # Another request is being worked on. If it is THIS request (double event), it is a duplicate.
+              if [ "$same" = "1" ]; then case "$labels" in *,lab:researching,*) dupe=1 ;; *) busy=1 ;; esac; else busy=1; fi
+            elif printf '%s\n' "$rjobs" | grep -qE '^Gate\|(queued|in_progress|waiting|pending)'; then
+              [ "$same" = "1" ] && [ "$rid" -lt "$GITHUB_RUN_ID" ] && dupe=1
+            fi
+          done < "$RUNNER_TEMP/others.txt"
+          [ "$dupe" = "0" ] || stop "Duplicate trigger for #$ISSUE; another run has it."
+          if [ "$busy" = "1" ]; then
+            addl lab:queued
+            stop "Another game-lab run is in progress; #$ISSUE is queued."
+          fi
+
+          # ---- daily cap (UTC): runs today whose Research job actually ran
+          [[ "$DAILY_MAX" =~ ^[0-9]+$ ]] || DAILY_MAX=5
+          today=$(date -u +%F)
+          ran=0
+          for rid in $(gh run list -w game-lab.yml --created ">=$today" -L 100 --json databaseId --jq '.[].databaseId' 2>/dev/null); do
+            [ "$rid" = "$GITHUB_RUN_ID" ] && continue
+            c=$(gh api "repos/$GH_REPO/actions/runs/$rid/jobs" --jq '[.jobs[] | select(.name == "Research" and (.conclusion == "success" or .conclusion == "failure"))] | length' 2>/dev/null || echo 0)
+            ran=$(( ran + ${c:-0} ))
+          done
+          echo "Research runs today (UTC $today): $ran of $DAILY_MAX"
+          if [ "$ran" -ge "$DAILY_MAX" ]; then
+            addl lab:queued
+            if ! gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq '.[].body' | grep -qF '<!-- optimus-vibe:lab-queued v1 -->'; then
+              say "<!-- optimus-vibe:lab-queued v1 -->
+          Daily limit reached ($DAILY_MAX game-lab runs per UTC day); it will run when you open the app tomorrow or press Run now."
+            fi
+            stop "Daily limit reached; #$ISSUE stays queued."
+          fi
+
+          # ---- claim it
+          rounds=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate \
+                     --jq '.[] | select(.body | startswith("<!-- optimus-vibe:lab-needs-evidence v1 -->")) | .id' | grep -c . || true)
+          for l in lab:queued lab:needs-evidence lab:failed lab:review; do dell "$l"; done
+          addl lab:researching
+          out run true; out issue "$ISSUE"; out kind "$kind"; out game_id "$game_id"; out name "$name"
+          out store "$store"; out store_id "$store_id"; out device "$device"; out round "${rounds:-0}"
+
+  # ------------------------------------------------------------------ research (Claude; read-only token)
+  research:
+    name: Research
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # One research at a time even if two gates raced.
+    concurrency:
+      group: game-lab-research
+      cancel-in-progress: false
+    # Read-only token: Claude cannot change anything on GitHub. The only secret here is the Claude credential.
+    permissions:
+      contents: read
+      issues: read
+    env:
+      ISSUE: ${{ needs.gate.outputs.issue }}
+    steps:
+      - name: Checkout the config repo (no credentials)
+        uses: actions/checkout@v4
+        with:
+          path: config-repo
+          persist-credentials: false
+
+      - name: Checkout the Optimus-Vibe skill and notes (public)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          ref: main
+          path: app
+          persist-credentials: false
+
+      - name: Copy the request and evidence into .claude-in (untrusted data) and build the prompt
+        id: prompts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KIND: ${{ needs.gate.outputs.kind }}
+          GAME_ID: ${{ needs.gate.outputs.game_id }}
+          GAME_NAME: ${{ needs.gate.outputs.name }}
+          STORE: ${{ needs.gate.outputs.store }}
+          STORE_ID: ${{ needs.gate.outputs.store_id }}
+          DEVICE: ${{ needs.gate.outputs.device }}
+          ROUND: ${{ needs.gate.outputs.round }}
+        run: |
+          set -euo pipefail
+          mkdir -p .claude-in/evidence .claude-out
+          gh issue view "$ISSUE" --json number,title,body \
+            --jq '"# Issue #\(.number): \(.title)\n\n\(.body)\n"' > .claude-in/request.md
+          jq -n --arg kind "$KIND" --arg gameId "$GAME_ID" --arg name "$GAME_NAME" --arg store "$STORE" \
+                --arg storeId "$STORE_ID" --arg device "$DEVICE" --argjson round "$ROUND" \
+            '{kind:$kind, gameId:$gameId, name:$name, store:$store, storeId:$storeId, device:$device, round:$round, maxRounds:2}' \
+            > .claude-in/meta.json
+          # Evidence = comments by the repo owner that start with the evidence marker, oldest first.
+          n=0
+          gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq '
+              .[] | select(.author_association == "OWNER" and (.body | startswith("<!-- optimus-vibe:lab-evidence v1 -->"))) | .body | @json' \
+            > "$RUNNER_TEMP/evidence.jsonl"
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            n=$(( n + 1 ))
+            printf '%s' "$line" | jq -r . > "$(printf '.claude-in/evidence/%02d.md' "$n")"
+          done < "$RUNNER_TEMP/evidence.jsonl"
+          # Earlier "needs evidence" requests (posted by this workflow).
+          gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq '
+              .[] | select(.body | startswith("<!-- optimus-vibe:lab-needs-evidence v1 -->")) | .body' \
+            > .claude-in/needs-evidence-history.md
+          echo "Evidence comments: $n"
+          test -s config-repo/.github/game-lab/research-prompt.md
+          delim="P_$(openssl rand -hex 16)"
+          {
+            echo "prompt<<$delim"
+            cat config-repo/.github/game-lab/research-prompt.md
+            echo
+            echo "## This run"
+            echo "- Request issue #$ISSUE; kind: $KIND; device: $DEVICE; evidence rounds already used: $ROUND of 2; evidence comments: $n."
+            echo "- Model: $GAME_LAB_MODEL."
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Claude - research
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ github.token }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.prompts.outputs.prompt }}
+          claude_args: >-
+            --model ${{ env.GAME_LAB_MODEL }} --max-turns 80
+            --allowedTools "${{ env.ALLOW_TOOLS }}" --disallowedTools "${{ env.DENY_TOOLS }}"
+
+      - name: Refused tool calls
+        if: always() && steps.claude.outputs.execution_file != ''
+        env: { EXEC_FILE: '${{ steps.claude.outputs.execution_file }}' }
+        run: |
+          jq -c '[.. | objects | select(has("permission_denials")) | .permission_denials[]?] | .[] | {tool: .tool_name, input: .tool_input}' "$EXEC_FILE" 2>/dev/null | head -20 || true
+
+      - name: Package the result (only config/games/*.yaml may travel)
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p .claude-out/changes
+          cd config-repo
+          git add -A
+          git diff --cached --name-status --no-renames > ../.claude-out/changes.txt || true
+          while IFS=$'\t' read -r st path; do
+            case "$st" in A|M) ;; *) continue ;; esac
+            printf '%s' "$path" | grep -qE '^config/games/[a-z0-9][a-z0-9-]*\.yaml$' || continue
+            mkdir -p "../.claude-out/changes/$(dirname "$path")"
+            cp "$path" "../.claude-out/changes/$path"
+          done < ../.claude-out/changes.txt
+          cd ..
+          ls -laR .claude-out | head -40
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-lab-${{ github.run_id }}
+          path: .claude-out/
+          retention-days: 3
+          if-no-files-found: ignore
+          include-hidden-files: true
+
+  # ------------------------------------------------------------------ publish (no Claude)
+  publish:
+    name: Publish
+    needs: [gate, research]
+    if: always() && needs.gate.outputs.run == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: write        # push lab/<id>-<issue>, merge the PR
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE: ${{ needs.gate.outputs.issue }}
+      KIND: ${{ needs.gate.outputs.kind }}
+      REQ_GAME_ID: ${{ needs.gate.outputs.game_id }}
+      GAME_NAME: ${{ needs.gate.outputs.name }}
+      STORE: ${{ needs.gate.outputs.store }}
+      STORE_ID: ${{ needs.gate.outputs.store_id }}
+      ROUND: ${{ needs.gate.outputs.round }}
+      RESEARCH_RESULT: ${{ needs.research.result }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Helpers
+        run: |
+          mkdir -p .lab
+          cat > .lab/lib.sh <<'LIBEOF'
+          # Neutralise @mentions and HTML comments in text that came from Claude; cap the size.
+          clean() { head -c "${2:-20000}" "$1" 2>/dev/null | tr -d '\r' | sed -e 's/@/@\xe2\x80\x8b/g' -e 's/<!--/\&lt;!--/g'; }
+          addl() { gh issue edit "$ISSUE" --add-label "$1" >/dev/null 2>&1 || true; }
+          dell() { gh issue edit "$ISSUE" --remove-label "$1" >/dev/null 2>&1 || true; }
+          post() { gh issue comment "$ISSUE" --body-file "$1" >/dev/null; }
+          setout() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          LIBEOF
+          jq --version
+
+      - name: Download results
+        id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: game-lab-${{ github.run_id }}
+          path: out
+
+      - name: Decide what Claude produced
+        id: triage
+        env:
+          DL_OUTCOME: ${{ steps.dl.outcome }}
+        run: |
+          set -uo pipefail
+          . .lab/lib.sh
+          fail() { setout mode fail; setout review "$2"; setout reason "$1"; exit 0; }
+          tab=$(printf '\t')
+          if [ "$RESEARCH_RESULT" = "cancelled" ]; then setout mode requeue; exit 0; fi
+          [ "$RESEARCH_RESULT" = "success" ] || fail "The research job ended with status \`$RESEARCH_RESULT\`." false
+          [ "$DL_OUTCOME" = "success" ] && [ -d out ] || fail "The research output could not be downloaded." false
+
+          if [ -f out/needs-evidence.json ]; then
+            if [ "${ROUND:-0}" -ge 2 ]; then fail "Claude asked for more evidence after the limit of 2 rounds." true; fi
+            jq -e 'type == "object"' out/needs-evidence.json >/dev/null 2>&1 || fail "needs-evidence.json is not a JSON object." true
+            setout mode evidence; exit 0
+          fi
+
+          jq -e 'type == "object"' out/result.json >/dev/null 2>&1 || fail "Claude did not write a valid .claude-out/result.json." true
+          tr -d '\r' < out/changes.txt > out/changes.clean 2>/dev/null || : > out/changes.clean
+          n=$(grep -c . out/changes.clean || true)
+          bad=$(grep -vE "^[AM]${tab}config/games/[a-z0-9][a-z0-9-]*\.yaml$" out/changes.clean | head -5 || true)
+          [ -z "$bad" ] || fail "Claude changed files outside config/games/*.yaml; nothing was applied." true
+
+          if [ "$n" = "0" ]; then
+            [ "$KIND" != "new" ] && [ -n "$REQ_GAME_ID" ] || fail "Claude produced no game file." true
+            gid="$REQ_GAME_ID"
+            mode=nochange
+          elif [ "$n" = "1" ]; then
+            path=$(cut -f2 out/changes.clean)
+            gid=$(basename "$path" .yaml)
+            [ -f "out/changes/$path" ] || fail "The changed game file is missing from the artifact." true
+            size=$(wc -c < "out/changes/$path")
+            [ "$size" -le 200000 ] || fail "The game file is unusually large ($size bytes)." true
+            if [ -n "$REQ_GAME_ID" ] && [ "$REQ_GAME_ID" != "$gid" ]; then fail "Claude wrote $gid.yaml but the request is for $REQ_GAME_ID." true; fi
+            mode=apply
+          else
+            fail "Claude changed $n files; exactly one game file is expected." true
+          fi
+          [ "$(jq -r '.gameId // ""' out/result.json)" = "$gid" ] || fail "result.json gameId does not match $gid." true
+
+          jq -c --arg id "$gid" '{
+              gameId: $id,
+              presets: ((if (.presets | type) == "object" then .presets else {} end)
+                        | with_entries(select(.key | test("^[a-z0-9-]{1,40}$"))
+                                       | .value |= ([.[]? | strings | select(test("^[a-z0-9-]{1,40}$"))]))),
+              cloudSyncsSettings: (if .cloudSyncsSettings == true then true elif .cloudSyncsSettings == false then false else null end),
+              syncConfidence: (if (.syncConfidence | IN("high","medium","low")) then .syncConfidence else "low" end)
+            }' out/result.json > out/result.clean.json
+          setout mode "$mode"; setout game_id "$gid"
+
+      - name: Ask the app for more evidence
+        if: steps.triage.outputs.mode == 'evidence'
+        run: |
+          set -uo pipefail
+          . .lab/lib.sh
+          jq '{
+                files:    [(.files    // [])[] | strings | select(length <= 300 and (test("[\r\n]") | not))][:12],
+                registry: [(.registry // [])[] | strings | select(length <= 300 and (test("[\r\n]") | not))][:12],
+                listDirs: [(.listDirs // [])[] | strings | select(length <= 300 and (test("[\r\n]") | not))][:12]
+              }' out/needs-evidence.json > out/needs.clean.json
+          total=$(jq '(.files | length) + (.registry | length) + (.listDirs | length)' out/needs.clean.json)
+          fence='```'
+          if [ "$total" = "0" ]; then
+            printf '%s\n' "Claude asked for more evidence but listed nothing to collect. A human needs to look at this request: $RUN_URL" > out/c.md
+            post out/c.md; addl lab:review; addl lab:failed; dell lab:researching; exit 0
+          fi
+          {
+            echo '<!-- optimus-vibe:lab-needs-evidence v1 -->'
+            echo "Claude needs a little more evidence from your PC to find the real settings keys for **$GAME_NAME** (round $(( ROUND + 1 )) of 2)."
+            echo "Open Optimus-Vibe: it will collect these and answer here automatically."
+            echo
+            echo "${fence}json"
+            cat out/needs.clean.json
+            echo "$fence"
+          } > out/c.md
+          post out/c.md
+          addl lab:needs-evidence; dell lab:researching
+
+      - name: Put the issue back in the queue (the run was cancelled)
+        if: steps.triage.outputs.mode == 'requeue'
+        run: |
+          . .lab/lib.sh
+          addl lab:queued; dell lab:researching
+
+      - name: Report a failed or rejected run
+        if: steps.triage.outputs.mode == 'fail'
+        env:
+          REASON: ${{ steps.triage.outputs.reason }}
+          REVIEW: ${{ steps.triage.outputs.review }}
+        run: |
+          . .lab/lib.sh
+          {
+            echo "The game lab could not finish this request: $REASON"
+            echo
+            echo "Run log: $RUN_URL"
+            if [ -s out/summary.md ]; then echo; echo "Claude's notes:"; echo; clean out/summary.md 4000; fi
+          } > out/c.md
+          post out/c.md
+          addl lab:failed; [ "$REVIEW" = "true" ] && addl lab:review
+          dell lab:researching
+
+      - name: Checkout the config repo
+        if: steps.triage.outputs.mode == 'apply'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: config-repo
+          persist-credentials: false
+
+      - name: Apply the game file and update the request queue
+        if: steps.triage.outputs.mode == 'apply'
+        env:
+          GAME_ID: ${{ steps.triage.outputs.game_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p config-repo/config/games
+          cp "out/changes/config/games/$GAME_ID.yaml" "config-repo/config/games/$GAME_ID.yaml"
+          if [ "$KIND" = "new" ]; then
+            python - <<'PYEOF'
+          import os, re, sys
+          store = os.environ["STORE"].strip().lower()
+          sid = os.environ["STORE_ID"].strip()
+          p = "config-repo/config/requests.yaml"
+          if not os.path.exists(p):
+              print("no requests.yaml"); sys.exit(0)
+          lines = open(p, "rb").read().decode("utf-8").splitlines(keepends=True)
+          start = next((i for i, l in enumerate(lines) if re.match(r"^requests:", l)), None)
+          if start is None:
+              print("no requests key"); sys.exit(0)
+          limit = len(lines)
+          for i in range(start + 1, len(lines)):
+              if re.match(r"^[A-Za-z_]", lines[i]):
+                  limit = i; break
+          begins = [i for i in range(start + 1, limit) if re.match(r"^\s*-\s", lines[i])]
+          blocks = []
+          for k, b in enumerate(begins):
+              e = begins[k + 1] if k + 1 < len(begins) else limit
+              while e > b + 1 and (not lines[e - 1].strip() or lines[e - 1].lstrip().startswith("#")):
+                  e -= 1
+              blocks.append((b, e))
+          def val(text, key):
+              m = re.search(r"(?m)^\s*(?:-\s+)?" + key + r":\s*[\"']?([^\"'#\r\n]*?)[\"']?\s*(?:#.*)?$", text)
+              return m.group(1).strip() if m else ""
+          drop = [(b, e) for (b, e) in blocks
+                  if val("".join(lines[b:e]), "store").lower() == store and val("".join(lines[b:e]), "storeId") == sid]
+          if not drop:
+              print("no matching request entry"); sys.exit(0)
+          dropped = set()
+          for b, e in drop:
+              dropped.update(range(b, e))
+          kept = [l for i, l in enumerate(lines) if i not in dropped]
+          if len(drop) == len(blocks):
+              eol = "\r\n" if lines[start].endswith("\r\n") else "\n"
+              kept[start] = "requests: []" + eol
+          open(p, "wb").write("".join(kept).encode("utf-8"))
+          print("removed %d request entr%s" % (len(drop), "y" if len(drop) == 1 else "ies"))
+          PYEOF
+          fi
+          cd config-repo
+          git status --short
+
+      - name: Validate with the real CLI
+        id: validate
+        if: steps.triage.outputs.mode == 'apply'
+        run: |
+          set -uo pipefail
+          . .lab/lib.sh
+          mkdir -p tools
+          if ! gh release download --repo jrose462/Optimus-Vibe --pattern 'optimus-vibe.exe*' --dir tools --clobber; then
+            setout ok false; echo "Could not download optimus-vibe.exe from the latest Optimus-Vibe release." > validate.log; exit 0
+          fi
+          if ! (cd tools && sha256sum -c optimus-vibe.exe.sha256); then
+            setout ok false; echo "The downloaded optimus-vibe.exe did not match its .sha256 file; refusing to run it." > validate.log; exit 0
+          fi
+          cd config-repo
+          ../tools/optimus-vibe.exe validate --config config > ../validate.log 2>&1
+          code=$?
+          cat ../validate.log
+          if [ "$code" = "0" ]; then setout ok true; else setout ok false; fi
+
+      - name: Commit and push the branch
+        id: commit
+        if: steps.triage.outputs.mode == 'apply'
+        env:
+          GAME_ID: ${{ steps.triage.outputs.game_id }}
+        run: |
+          set -euo pipefail
+          cd config-repo
+          branch="lab/${GAME_ID}-${ISSUE}"
+          case "$KIND" in
+            new)        title="feat(games): add $GAME_ID recommendations" ;;
+            refresh)    title="feat(games): refresh $GAME_ID recommendations" ;;
+            *)          title="fix(games): re-check $GAME_ID cloud sync" ;;
+          esac
+          git config user.name "optimus-vibe-game-lab[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "config/games/$GAME_ID.yaml"
+          [ -f config/requests.yaml ] && git add config/requests.yaml
+          if git diff --cached --quiet; then
+            echo "empty=true" >> "$GITHUB_OUTPUT"; echo "Nothing changed against $DEFAULT_BRANCH."; exit 0
+          fi
+          git commit -q -m "$title" -m "Game lab request #$ISSUE (model: $GAME_LAB_MODEL)."
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "$branch"
+          echo "empty=false" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+
+      - name: Validation failed - hand it to a human
+        if: steps.triage.outputs.mode == 'apply' && steps.validate.outputs.ok == 'false'
+        env:
+          BRANCH: ${{ steps.commit.outputs.branch }}
+        run: |
+          . .lab/lib.sh
+          fence='```'
+          {
+            echo "The game lab wrote presets for **$GAME_NAME**, but \`optimus-vibe validate\` rejected them, so nothing was merged."
+            [ -n "$BRANCH" ] && echo "The branch \`$BRANCH\` was kept so you (or Claude locally with the game-settings-recommender skill) can fix it."
+            echo
+            echo "${fence}text"
+            clean validate.log 5000 | sed 's/```/'"'''"'/g'
+            echo "$fence"
+            echo
+            echo "Run log: $RUN_URL"
+          } > out/c.md
+          post out/c.md
+          addl lab:review; addl lab:failed; dell lab:researching
+
+      - name: Open the PR and merge it
+        id: pr
+        if: steps.triage.outputs.mode == 'apply' && steps.validate.outputs.ok == 'true' && steps.commit.outputs.empty == 'false'
+        env:
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          TITLE: ${{ steps.commit.outputs.title }}
+        run: |
+          set -uo pipefail
+          . .lab/lib.sh
+          {
+            echo "Game lab request #$ISSUE ($KIND): $GAME_NAME"
+            echo
+            if [ -s out/summary.md ]; then clean out/summary.md 15000; fi
+            echo
+            echo "Validated with \`optimus-vibe validate\` before merging."
+          } > out/pr-body.md
+          pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            url=$(gh pr create --base "$DEFAULT_BRANCH" --head "$BRANCH" --title "$TITLE" --body-file out/pr-body.md) || url=""
+            pr="${url##*/}"
+          fi
+          if ! [[ "$pr" =~ ^[0-9]+$ ]]; then
+            printf '%s\n' "The branch was pushed but the pull request could not be created. In the repo settings, enable Actions > General > \"Allow GitHub Actions to create and approve pull requests\". Branch: \`$BRANCH\`. Run log: $RUN_URL" > out/c.md
+            post out/c.md; addl lab:review; addl lab:failed; dell lab:researching
+            setout merged false; exit 0
+          fi
+          setout pr "$pr"
+          # Validation passed = auto-merge (the owner's choice).
+          if gh pr merge "$pr" --squash --subject "$TITLE (#$pr)"; then
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
+            setout merged true
+          else
+            printf '%s\n' "Validation passed but pull request #$pr could not be merged automatically (branch protection, or squash merging is disabled). Please review and merge it. Run log: $RUN_URL" > out/c.md
+            post out/c.md; addl lab:review; dell lab:researching
+            setout merged false
+          fi
+
+      - name: Post the result and close the issue
+        if: >-
+          steps.triage.outputs.mode == 'nochange' ||
+          (steps.triage.outputs.mode == 'apply' && steps.validate.outputs.ok == 'true' &&
+            (steps.commit.outputs.empty == 'true' || steps.pr.outputs.merged == 'true'))
+        env:
+          PR: ${{ steps.pr.outputs.pr }}
+          MERGED: ${{ steps.pr.outputs.merged }}
+        run: |
+          set -uo pipefail
+          . .lab/lib.sh
+          fence='```'
+          if [ "$MERGED" = "true" ]; then
+            jq --argjson pr "$PR" '. + {prNumber: $pr, merged: true}' out/result.clean.json > out/result.final.json
+            head="Merged pull request #$PR."
+          else
+            jq '. + {prNumber: null, merged: false}' out/result.clean.json > out/result.final.json
+            head="No file changes were needed, so there is no pull request."
+          fi
+          {
+            echo '<!-- optimus-vibe:lab-result v1 -->'
+            echo "Game lab finished for **$GAME_NAME** ($KIND). $head"
+            echo
+            echo "${fence}json"
+            cat out/result.final.json
+            echo "$fence"
+            echo
+            if [ -s out/summary.md ]; then clean out/summary.md 15000; else jq -r '.summary // ""' out/result.json | head -c 2000; fi
+          } > out/c.md
+          post out/c.md
+          addl lab:done
+          for l in lab:researching lab:queued lab:needs-evidence lab:review lab:failed; do dell "$l"; done
+          gh issue close "$ISSUE" --reason completed >/dev/null || true
+
+  # ------------------------------------------------------------------ drain (no Claude)
+  drain:
+    name: Drain
+    needs: [gate, publish]
+    if: always() && needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      actions: write
+    steps:
+      - name: Start the next queued request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -uo pipefail
+          next=$(gh issue list --state open --label game-lab --label lab:queued --limit 100 --json number,createdAt \
+                   --jq "sort_by(.createdAt) | map(select(.number != $ISSUE)) | .[0].number // empty")
+          if [ -n "$next" ]; then
+            echo "Continuing the queue with #$next (the gate enforces the daily limit)."
+            gh workflow run game-lab.yml --ref "$DEFAULT_BRANCH" -f issue="$next"
+          else
+            echo "Queue is empty."
+          fi

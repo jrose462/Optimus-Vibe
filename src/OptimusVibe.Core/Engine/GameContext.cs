@@ -158,7 +158,7 @@ public sealed class GameContext
     /// <summary>The device's defaultPreset if this game has it, else the first preset, else null.</summary>
     public static string? DefaultFor(GameDef game, DeviceSelection device)
     {
-        var names = ProfileResolver.PresetNames(game, device.Name);
+        var names = ProfileResolver.PresetNames(game, device.Name, device.Def);
         if (device.Def?.DefaultPreset is { } d && names.Contains(d)) return d;
         return names.FirstOrDefault();
     }

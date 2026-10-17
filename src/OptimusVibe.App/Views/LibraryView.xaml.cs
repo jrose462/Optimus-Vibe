@@ -39,7 +39,12 @@ public partial class LibraryView : UserControl
         TileList.MouseDoubleClick += OnTilesDoubleClick;
         Pills.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Down && FocusSelectedTile()) e.Handled = true;
+            if (e.Key == Key.Down && (FocusSyncPills() || FocusSelectedTile())) e.Handled = true;
+        };
+        SyncPills.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Up && FocusPills()) e.Handled = true;
+            else if (e.Key == Key.Down && FocusSelectedTile()) e.Handled = true;
         };
     }
 
@@ -96,6 +101,21 @@ public partial class LibraryView : UserControl
         return false;
     }
 
+    /// <summary>The "Settings sync" row: reached with the D-pad (down from the status pills, up from the first tile row).</summary>
+    public bool FocusSyncPills()
+    {
+        var vm = Vm;
+        if (vm is null) return false;
+        var idx = vm.SyncFilters.ToList().FindIndex(f => f.IsSelected);
+        if (SyncPills.ItemContainerGenerator.ContainerFromIndex(Math.Max(0, idx)) is ContentPresenter cp &&
+            VisualTreeHelper.GetChildrenCount(cp) > 0 && VisualTreeHelper.GetChild(cp, 0) is Button b)
+        {
+            b.BringIntoView();
+            return b.Focus();
+        }
+        return false;
+    }
+
     public bool IsTile(DependencyObject? d) =>
         d is ListBoxItem lbi && ItemsControl.ItemsControlFromItemContainer(lbi) == TileList;
 
@@ -103,7 +123,12 @@ public partial class LibraryView : UserControl
     public bool TryMove(UIElement focused, FocusNavigationDirection dir)
     {
         if (IsInside(Pills, focused))
+            return dir == FocusNavigationDirection.Down && (FocusSyncPills() || FocusSelectedTile());
+        if (IsInside(SyncPills, focused))
+        {
+            if (dir == FocusNavigationDirection.Up) return FocusPills();
             return dir == FocusNavigationDirection.Down && FocusSelectedTile();
+        }
         if (!IsTile(focused)) return false;
 
         int count = TileList.Items.Count;
@@ -122,7 +147,7 @@ public partial class LibraryView : UserControl
         };
         if (target < 0)
         {
-            if (dir == FocusNavigationDirection.Up) return FocusPills();
+            if (dir == FocusNavigationDirection.Up) return FocusSyncPills() || FocusPills();
             return true; // edge of the grid: stay put rather than jumping somewhere unexpected
         }
         if (TileList.ItemContainerGenerator.ContainerFromIndex(target) is ListBoxItem next)

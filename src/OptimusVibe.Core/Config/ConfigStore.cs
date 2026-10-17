@@ -17,6 +17,13 @@ public sealed class ConfigStore(AppPaths paths)
         return Yaml.Load<DevicesFile>(Paths.DevicesFile);
     }
 
+    /// <summary>One device definition by id; null when devices.yaml is missing, unreadable or has no such device.</summary>
+    public DeviceDef? TryGetDevice(string id)
+    {
+        try { return LoadDevices().Devices.GetValueOrDefault(id); }
+        catch (Exception) { return null; }
+    }
+
     public IEnumerable<string> GameIds() =>
         Directory.Exists(Paths.GamesDir)
             ? Directory.EnumerateFiles(Paths.GamesDir, "*.yaml")

@@ -11,7 +11,7 @@
         <Style x:Key="PresetCard" TargetType="Border" BasedOn="{StaticResource Card}">
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsActive}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource CardActiveBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource CardActiveBrush}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -42,7 +42,7 @@
                                    Visibility="{Binding StateLine, Converter={StaticResource VisibleWhen}}" />
                         <TextBlock Text="{Binding Description}" Style="{StaticResource Text.Dim}" Margin="0,12,0,0"
                                    Visibility="{Binding HasDescription, Converter={StaticResource VisibleWhen}}" />
-                        <TextBlock Text="{Binding Error}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" FontSize="14" Margin="0,8,0,0"
+                        <TextBlock Text="{Binding Error}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" FontSize="14" Margin="0,8,0,0"
                                    Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}" />
                     </StackPanel>
                 </DockPanel>
@@ -101,12 +101,12 @@
                                     ToolTip="Overwrite this save with the game's current settings (and make it active)" />
                             <Button AutomationProperties.Name="Rename" Style="{StaticResource Button.Quiet}" Command="{Binding BeginRenameCommand}" Content="Rename" />
                             <Button AutomationProperties.Name="Delete" Style="{StaticResource Button.Quiet}" Command="{Binding BeginDeleteCommand}" Content="Delete"
-                                    Foreground="{StaticResource DangerBrush}" />
+                                    Foreground="{DynamicResource DangerBrush}" />
                         </WrapPanel>
                     </StackPanel>
 
                     <!-- inline delete confirmation -->
-                    <Border Style="{StaticResource Card.Inset}" Background="{StaticResource DangerSoftBrush}" Margin="0,16,0,0"
+                    <Border Style="{StaticResource Card.Inset}" Background="{DynamicResource DangerSoftBrush}" Margin="0,16,0,0"
                             Visibility="{Binding IsConfirmingDelete, Converter={StaticResource VisibleWhen}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -133,9 +133,9 @@
                 <StackPanel>
                     <TextBlock Style="{StaticResource Text.H3}">
                         <Run Text="{Binding Id, Mode=OneWay}" />
-                        <Run Text="{Binding StatusText, Mode=OneWay}" FontWeight="Normal" Foreground="{StaticResource TextDimBrush}" FontSize="14" />
+                        <Run Text="{Binding StatusText, Mode=OneWay}" FontWeight="Normal" Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
                     </TextBlock>
-                    <TextBlock Text="{Binding Path}" Style="{StaticResource Text.Mono}" Foreground="{StaticResource TextFaintBrush}"
+                    <TextBlock Text="{Binding Path}" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource TextFaintBrush}"
                                FontSize="12" Margin="0,4,0,0" Visibility="{Binding Path, Converter={StaticResource VisibleWhen}}" />
                     <TextBlock Text="{Binding SkipReason}" Style="{StaticResource Text.Dim}" Margin="0,6,0,0"
                                Visibility="{Binding IsSkipped, Converter={StaticResource VisibleWhen}}" />
@@ -152,11 +152,11 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="{Binding Key}" Style="{StaticResource Text.Mono}" Margin="0,0,12,0" />
                                     <TextBlock Grid.Column="1" Text="{Binding Current}" Style="{StaticResource Text.Mono}"
-                                               Foreground="{StaticResource TextFaintBrush}" />
+                                               Foreground="{DynamicResource TextFaintBrush}" />
                                     <TextBlock Grid.Column="2" Text="&#xE72A;" FontFamily="{StaticResource IconFont}" FontSize="12"
-                                               Foreground="{StaticResource TextFaintBrush}" Margin="10,2" VerticalAlignment="Top" />
+                                               Foreground="{DynamicResource TextFaintBrush}" Margin="10,2" VerticalAlignment="Top" />
                                     <TextBlock Grid.Column="3" Text="{Binding Target}" Style="{StaticResource Text.Mono}"
-                                               Foreground="{StaticResource AccentTextBrush}" />
+                                               Foreground="{DynamicResource AccentTextBrush}" />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -190,17 +190,17 @@
                                 <Run Text="{Binding DeviceFriendly, Mode=OneWay}" />
                             </TextBlock>
                             <StackPanel Margin="0,18,0,0">
-                                <views:MetricRow Glyph="&#xE735;" IconBrush="{StaticResource MetricGreenBrush}" Value="{Binding ActivePresetLabel}" Unit="preset" Margin="0,0,0,12" />
-                                <views:MetricRow Glyph="&#xE9D9;" IconBrush="{StaticResource MetricCyanBrush}" Value="{Binding TargetFpsValue}" Unit="fps target" Margin="0,0,0,12" />
-                                <views:MetricRow Glyph="&#xE713;" IconBrush="{StaticResource MetricPurpleBrush}" Value="{Binding SettingsCountValue}" Unit="settings" />
+                                <views:MetricRow Glyph="&#xE735;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding ActivePresetLabel}" Unit="preset" Margin="0,0,0,12" />
+                                <views:MetricRow Glyph="&#xE9D9;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding TargetFpsValue}" Unit="fps target" Margin="0,0,0,12" />
+                                <views:MetricRow Glyph="&#xE713;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding SettingsCountValue}" Unit="settings" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
                     <Border Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="340"
                             Visibility="{Binding HasIntent, Converter={StaticResource VisibleWhen}}">
                         <DockPanel>
-                            <TextBlock DockPanel.Dock="Top" Text="What you want from it" Style="{StaticResource Text.H2}" Foreground="White" />
-                            <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource Text.Body}" Foreground="White" VerticalAlignment="Bottom" Margin="0,16,0,0" />
+                            <TextBlock DockPanel.Dock="Top" Text="What you want from it" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
+                            <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource Text.Body}" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Bottom" Margin="0,16,0,0" />
                         </DockPanel>
                     </Border>
                 </Grid>
@@ -213,14 +213,14 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Border Style="{StaticResource MetricIcon}" Background="{StaticResource MetricCyanBrush}" VerticalAlignment="Top">
+                        <Border Style="{StaticResource MetricIcon}" Background="{DynamicResource MetricCyanBrush}" VerticalAlignment="Top">
                             <TextBlock Text="&#xE753;" FontFamily="{StaticResource IconFont}" FontSize="17"
-                                       Foreground="{StaticResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                       Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <StackPanel Grid.Column="1" Margin="14,0,0,0">
                             <TextBlock Style="{StaticResource Text.H3}">
                                 <Run Text="Settings sync" />
-                                <Run Text="{Binding SyncSummary, Mode=OneWay}" FontWeight="Normal" Foreground="{StaticResource TextDimBrush}" />
+                                <Run Text="{Binding SyncSummary, Mode=OneWay}" FontWeight="Normal" Foreground="{DynamicResource TextDimBrush}" />
                             </TextBlock>
                             <ItemsControl ItemsSource="{Binding SyncEvidence}" Margin="0,6,0,0" Focusable="False">
                                 <ItemsControl.ItemTemplate>
@@ -244,7 +244,7 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Text.H2}" Text="This game's config needs a fix" />
                         <TextBlock Text="Fix the game's yaml, then refresh." Style="{StaticResource Text.Dim}" Margin="0,6,0,0" />
-                        <TextBlock Text="{Binding Error}" Style="{StaticResource Text.Mono}" Foreground="{StaticResource TextFaintBrush}" Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding Error}" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource TextFaintBrush}" Margin="0,12,0,0" />
                     </StackPanel>
                 </Border>
 
@@ -312,7 +312,7 @@
                         <TabItem.Header>
                             <TextBlock>
                                 <Run Text="Manual saves" />
-                                <Run Text="{Binding Manual.Count, Mode=OneWay}" Foreground="{StaticResource TextFaintBrush}" />
+                                <Run Text="{Binding Manual.Count, Mode=OneWay}" Foreground="{DynamicResource TextFaintBrush}" />
                             </TextBlock>
                         </TabItem.Header>
                         <StackPanel>
@@ -373,7 +373,7 @@
         <Grid x:Name="Overlay" DataContext="{Binding Preview}" KeyboardNavigation.TabNavigation="Cycle"
               KeyboardNavigation.DirectionalNavigation="Cycle"
               Visibility="{Binding DataContext.IsPreviewOpen, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}">
-            <Border Background="{StaticResource BackdropBrush}" />
+            <Border Background="{DynamicResource BackdropBrush}" />
             <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">

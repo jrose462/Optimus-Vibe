@@ -209,6 +209,7 @@ public static class SteamLaunchOptions
     {
         var optOut = LoadOptOuts(store.Paths);
         var skip = LoadSkips(store.Paths);
+        var deviceDef = store.TryGetDevice(device);
         var enable = new List<(int, string)>();
         var disable = new List<int>();
         foreach (var id in store.GameIds())
@@ -223,7 +224,7 @@ public static class SteamLaunchOptions
             if (game.SteamAppId is not { } appId) continue;
             if (skip.Contains($"steam:{appId}") || skip.Contains(game.Id)) continue;
             if (optOut.Contains($"steam:{appId}") || optOut.Contains(game.Id)) disable.Add(appId);
-            else if (ProfileResolver.PresetNames(game, device).Count > 0) enable.Add((appId, game.Id));
+            else if (ProfileResolver.PresetNames(game, device, deviceDef).Count > 0) enable.Add((appId, game.Id));
         }
         foreach (var key in optOut)
             if (key.StartsWith("steam:", StringComparison.OrdinalIgnoreCase)

@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Sodium.Core" Version="1.4.1" />
     <PackageReference Include="System.Management" Version="8.0.0" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
@@ -25,6 +26,13 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\seed\config\**\*" Exclude="..\..\seed\config\**\*.local-conflict"
                       LogicalName="seed/config/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- The game-lab workflow + prompt files (seed\config-repo\**) are embedded so the guided setup can install them into the user's
+       config repo. Logical names look like "seed/config-repo/.github/workflows/game-lab.yml". -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\seed\config-repo\**\*" Exclude="..\..\seed\config-repo\**\*.local-conflict"
+                      LogicalName="seed/config-repo/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- GitHub OAuth App client id (public, not a secret): set OptimusVibeGitHubClientId in Directory.Build.props or with

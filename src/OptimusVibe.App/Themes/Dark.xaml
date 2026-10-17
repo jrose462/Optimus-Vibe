@@ -7,60 +7,9 @@
     <sys:Boolean x:Key="True">True</sys:Boolean>
     <conv:PillRadiusConverter x:Key="PillRadius" />
 
-    <!-- ============================================================ palette
-         Navy-to-teal page, charcoal cards, one restrained blue. Green / cyan / purple exist ONLY for metric icons;
-         orange exists ONLY for small "needs attention" dots. -->
-
-    <!-- page -->
-    <LinearGradientBrush x:Key="PageBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#0E2436" Offset="0" />
-        <GradientStop Color="#12344A" Offset="1" />
-    </LinearGradientBrush>
-    <!-- soft warm glow toward the lower-left -->
-    <RadialGradientBrush x:Key="PageGlowBrush" Center="0.0,0.72" GradientOrigin="0.0,0.72" RadiusX="0.6" RadiusY="0.5">
-        <GradientStop Color="#668A6420" Offset="0" />
-        <GradientStop Color="#008A6420" Offset="1" />
-    </RadialGradientBrush>
-
-    <!-- surfaces -->
-    <SolidColorBrush x:Key="CardBrush" Color="#F21C1D21" />
-    <SolidColorBrush x:Key="InsetBrush" Color="#2A2C32" />
-    <SolidColorBrush x:Key="CoverTileBrush" Color="#26282D" />
-    <SolidColorBrush x:Key="CardActiveBrush" Color="#F21E2B40" />
-    <SolidColorBrush x:Key="FeatureBrush" Color="#1167C9" />
-    <SolidColorBrush x:Key="OutlineBrush" Color="#38FFFFFF" />
-    <SolidColorBrush x:Key="SelectedPillBrush" Color="#2EFFFFFF" />
-    <SolidColorBrush x:Key="NavBrush" Color="#F21C1D21" />
-
-    <!-- text -->
-    <SolidColorBrush x:Key="TextBrush" Color="#F4F6F9" />
-    <SolidColorBrush x:Key="TextDimBrush" Color="#B9C0CB" />
-    <SolidColorBrush x:Key="TextFaintBrush" Color="#8C94A1" />
-    <SolidColorBrush x:Key="OnFeatureDimBrush" Color="#D7E6FA" />
-
-    <!-- accent: primary actions, selection -->
-    <Color x:Key="AccentColor">#3E91FF</Color>
-    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
-    <SolidColorBrush x:Key="AccentSoftBrush" Color="#203C66" />
-    <SolidColorBrush x:Key="AccentTextBrush" Color="#8FBEFF" />
-    <SolidColorBrush x:Key="FocusBrush" Color="#FFFFFF" />
-
-    <!-- metric icons only -->
-    <SolidColorBrush x:Key="MetricGreenBrush" Color="#7ED321" />
-    <SolidColorBrush x:Key="MetricCyanBrush" Color="#29B6F6" />
-    <SolidColorBrush x:Key="MetricPurpleBrush" Color="#A855F7" />
-    <SolidColorBrush x:Key="MetricGlyphBrush" Color="#10151C" />
-
-    <!-- needs attention dots; errors -->
-    <SolidColorBrush x:Key="AttentionBrush" Color="#FF6B1A" />
-    <SolidColorBrush x:Key="DangerBrush" Color="#FF8A8A" />
-    <SolidColorBrush x:Key="DangerSoftBrush" Color="#3B2226" />
-    <SolidColorBrush x:Key="DangerFillBrush" Color="#D9484F" />
-
-    <SolidColorBrush x:Key="TonalBrush" Color="#2D2F36" />
-    <SolidColorBrush x:Key="HoverOverlayBrush" Color="#16FFFFFF" />
-    <SolidColorBrush x:Key="PressOverlayBrush" Color="#26000000" />
-    <SolidColorBrush x:Key="BackdropBrush" Color="#C0060E16" />
+    <!-- Colours, brushes, gradients and glows are NOT defined here: they live in the swappable Palette.*.xaml dictionaries
+         (App.xaml merges the active one before this file; ThemeManager swaps it). Every palette reference below is a
+         DynamicResource so a theme change restyles the open window. -->
 
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
     <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
@@ -72,76 +21,79 @@
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
         <Setter Property="FontSize" Value="34" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style x:Key="Text.Lead" TargetType="TextBlock">
         <Setter Property="FontSize" Value="17" />
         <Setter Property="LineHeight" Value="24" />
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.H2" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
         <Setter Property="FontSize" Value="20" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.H3" TargetType="TextBlock">
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.Body" TargetType="TextBlock">
         <Setter Property="FontSize" Value="15" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="LineHeight" Value="22" />
     </Style>
     <Style x:Key="Text.Dim" TargetType="TextBlock" BasedOn="{StaticResource Text.Body}">
         <Setter Property="FontSize" Value="14.5" />
         <Setter Property="LineHeight" Value="21" />
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
     </Style>
     <Style x:Key="Text.Caption" TargetType="TextBlock">
         <Setter Property="FontSize" Value="13.5" />
-        <Setter Property="Foreground" Value="{StaticResource TextFaintBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.Mono" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
         <Setter Property="FontSize" Value="13" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.Metric" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
         <Setter Property="FontSize" Value="34" />
         <Setter Property="FontWeight" Value="Bold" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
     </Style>
     <Style x:Key="Text.Unit" TargetType="TextBlock">
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
     </Style>
 
     <!-- ============================================================ containers -->
     <Style x:Key="Card" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="Background" Value="{DynamicResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="28" />
         <Setter Property="Padding" Value="26" />
     </Style>
     <!-- The one saturated card per screen. -->
     <Style x:Key="Card.Feature" TargetType="Border" BasedOn="{StaticResource Card}">
-        <Setter Property="Background" Value="{StaticResource FeatureBrush}" />
-        <Setter Property="TextElement.Foreground" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource FeatureBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FeatureBorderBrush}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource FeatureTextBrush}" />
     </Style>
     <!-- A soft inset on a card (previews, forms); no outline. -->
     <Style x:Key="Card.Inset" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource InsetBrush}" />
+        <Setter Property="Background" Value="{DynamicResource InsetBrush}" />
         <Setter Property="CornerRadius" Value="20" />
         <Setter Property="Padding" Value="18,14" />
     </Style>
@@ -151,10 +103,10 @@
         <Setter Property="Height" Value="8" />
         <Setter Property="CornerRadius" Value="4" />
         <Setter Property="VerticalAlignment" Value="Center" />
-        <Setter Property="Background" Value="{StaticResource TextFaintBrush}" />
+        <Setter Property="Background" Value="{DynamicResource TextFaintBrush}" />
     </Style>
     <Style x:Key="Dot.Attention" TargetType="Border" BasedOn="{StaticResource Dot}">
-        <Setter Property="Background" Value="{StaticResource AttentionBrush}" />
+        <Setter Property="Background" Value="{DynamicResource AttentionBrush}" />
     </Style>
 
     <!-- Round coloured icon in front of a metric. Child: a TextBlock with the glyph. -->
@@ -169,8 +121,8 @@
     <!-- One template for every button: pill, hover/press overlay, and a 2px white ring that only shows while the user
          navigates with keyboard or gamepad (FocusCue.Show). -->
     <Style x:Key="Btn" TargetType="ButtonBase">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="Background" Value="{StaticResource TonalBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource TonalBrush}" />
         <Setter Property="Padding" Value="22,8" />
         <Setter Property="MinHeight" Value="46" />
         <Setter Property="MinWidth" Value="46" />
@@ -190,14 +142,14 @@
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                         <Border x:Name="Ring" Margin="-3" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Overlay" Property="Background" Value="{StaticResource HoverOverlayBrush}" />
+                            <Setter TargetName="Overlay" Property="Background" Value="{DynamicResource HoverOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Overlay" Property="Background" Value="{StaticResource PressOverlayBrush}" />
+                            <Setter TargetName="Overlay" Property="Background" Value="{DynamicResource PressOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4" />
@@ -219,17 +171,17 @@
     <Style TargetType="Button" BasedOn="{StaticResource Btn}" />
 
     <Style x:Key="Button.Primary" TargetType="ButtonBase" BasedOn="{StaticResource Btn}">
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
     </Style>
     <Style x:Key="Button.Danger" TargetType="ButtonBase" BasedOn="{StaticResource Btn}">
-        <Setter Property="Background" Value="{StaticResource DangerFillBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerFillBrush}" />
         <Setter Property="Foreground" Value="White" />
     </Style>
     <!-- quiet text action -->
     <Style x:Key="Button.Quiet" TargetType="ButtonBase" BasedOn="{StaticResource Btn}">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
         <Setter Property="Padding" Value="16,8" />
     </Style>
     <Style x:Key="Button.Large" TargetType="ButtonBase" BasedOn="{StaticResource Button.Primary}">
@@ -249,7 +201,7 @@
     </Style>
     <!-- floating action button -->
     <Style x:Key="Button.Fab" TargetType="ButtonBase" BasedOn="{StaticResource Btn}">
-        <Setter Property="Background" Value="{StaticResource NavBrush}" />
+        <Setter Property="Background" Value="{DynamicResource NavBrush}" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Width" Value="64" />
         <Setter Property="Height" Value="64" />
@@ -258,26 +210,26 @@
         <Setter Property="FontWeight" Value="Normal" />
     </Style>
     <Style x:Key="Button.Fab.Primary" TargetType="ButtonBase" BasedOn="{StaticResource Button.Fab}">
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
     </Style>
 
     <!-- Segmented filter / tab strip: a pill with a subtle outline; the selected item is a lighter pill. Tag=True = selected. -->
     <Style x:Key="Button.Segment" TargetType="ButtonBase" BasedOn="{StaticResource Btn}">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
         <Setter Property="MinHeight" Value="52" />
         <Setter Property="Padding" Value="20,0" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Style.Triggers>
             <Trigger Property="Tag" Value="{StaticResource True}">
-                <Setter Property="Background" Value="{StaticResource SelectedPillBrush}" />
-                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                <Setter Property="Background" Value="{DynamicResource SelectedPillBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             </Trigger>
         </Style.Triggers>
     </Style>
     <Style x:Key="SegmentStrip" TargetType="Border">
-        <Setter Property="BorderBrush" Value="{StaticResource OutlineBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" />
         <Setter Property="Padding" Value="4" />
@@ -287,7 +239,7 @@
     <!-- Bottom navigation item: icon over a short label; Tag=True = current page. -->
     <Style x:Key="Button.NavItem" TargetType="ButtonBase" BasedOn="{StaticResource Btn}">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
         <Setter Property="MinWidth" Value="88" />
         <Setter Property="MinHeight" Value="62" />
         <Setter Property="Padding" Value="14,6" />
@@ -295,16 +247,16 @@
         <Setter Property="FontWeight" Value="Normal" />
         <Style.Triggers>
             <Trigger Property="Tag" Value="{StaticResource True}">
-                <Setter Property="Background" Value="{StaticResource SelectedPillBrush}" />
-                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                <Setter Property="Background" Value="{DynamicResource SelectedPillBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             </Trigger>
         </Style.Triggers>
     </Style>
 
     <!-- Choice (settings): a soft rounded block; Tag=True = current choice. -->
     <Style x:Key="Button.Choice" TargetType="ButtonBase">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="Background" Value="{StaticResource InsetBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource InsetBrush}" />
         <Setter Property="Padding" Value="20,14" />
         <Setter Property="MinHeight" Value="56" />
         <Setter Property="FontSize" Value="15" />
@@ -321,14 +273,14 @@
                         <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                         <Border x:Name="Ring" Margin="-3" CornerRadius="25" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Overlay" Property="Background" Value="{StaticResource HoverOverlayBrush}" />
+                            <Setter TargetName="Overlay" Property="Background" Value="{DynamicResource HoverOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Overlay" Property="Background" Value="{StaticResource PressOverlayBrush}" />
+                            <Setter TargetName="Overlay" Property="Background" Value="{DynamicResource PressOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4" />
@@ -346,7 +298,7 @@
         </Setter>
         <Style.Triggers>
             <Trigger Property="Tag" Value="{StaticResource True}">
-                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -372,7 +324,7 @@
 
     <!-- A cover tile: 2px focus ring + a small grow while the gamepad / keyboard is on it. -->
     <Style x:Key="LibraryTile" TargetType="ListBoxItem">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
@@ -390,7 +342,7 @@
                     <Grid Background="Transparent" HorizontalAlignment="Left">
                         <ContentPresenter />
                         <Border x:Name="Ring" Margin="-6,-6,-6,36" CornerRadius="28" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <MultiTrigger>
@@ -433,12 +385,12 @@
 
     <!-- ============================================================ text box -->
     <Style TargetType="TextBox">
-        <Setter Property="Background" Value="{StaticResource InsetBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource InsetBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
-        <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}" />
         <Setter Property="Padding" Value="16,10" />
         <Setter Property="MinHeight" Value="48" />
         <Setter Property="FontSize" Value="15" />
@@ -454,11 +406,11 @@
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                         </Border>
                         <Border x:Name="Ring" Margin="-3" CornerRadius="21" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <MultiTrigger>
                             <MultiTrigger.Conditions>
@@ -477,11 +429,11 @@
     </Style>
 
     <Style TargetType="PasswordBox">
-        <Setter Property="Background" Value="{StaticResource InsetBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource InsetBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
-        <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}" />
         <Setter Property="Padding" Value="16,10" />
         <Setter Property="MinHeight" Value="48" />
         <Setter Property="FontSize" Value="15" />
@@ -496,11 +448,11 @@
                             <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
                         </Border>
                         <Border x:Name="Ring" Margin="-3" CornerRadius="21" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <MultiTrigger>
                             <MultiTrigger.Conditions>
@@ -517,7 +469,7 @@
 
     <!-- ============================================================ check box -->
     <Style TargetType="CheckBox">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FontSize" Value="15" />
         <Setter Property="MinHeight" Value="46" />
         <Setter Property="Cursor" Value="Hand" />
@@ -528,20 +480,20 @@
                     <Grid Background="Transparent">
                         <StackPanel Orientation="Horizontal" Margin="6,0">
                             <Border x:Name="Box" Width="26" Height="26" CornerRadius="13" BorderThickness="2"
-                                    BorderBrush="{StaticResource TextFaintBrush}" Background="Transparent"
+                                    BorderBrush="{DynamicResource TextFaintBrush}" Background="Transparent"
                                     VerticalAlignment="Center">
-                                <Path x:Name="Check" Data="M 5,12 L 10,17 L 19,7" Stroke="White" StrokeThickness="2.5"
+                                <Path x:Name="Check" Data="M 5,12 L 10,17 L 19,7" Stroke="{DynamicResource OnAccentBrush}" StrokeThickness="2.5"
                                       Visibility="Collapsed" Margin="-1,-1,0,0" StrokeEndLineCap="Round" StrokeStartLineCap="Round" />
                             </Border>
                             <ContentPresenter Margin="12,0,6,0" VerticalAlignment="Center" RecognizesAccessKey="True" />
                         </StackPanel>
                         <Border x:Name="Ring" Margin="-2" CornerRadius="24" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}" />
-                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                             <Setter TargetName="Check" Property="Visibility" Value="Visible" />
                         </Trigger>
                         <MultiTrigger>
@@ -579,7 +531,7 @@
     </Style>
 
     <Style x:Key="GameListItem" TargetType="ListBoxItem">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Margin" Value="0,2" />
@@ -591,15 +543,15 @@
                         <Border x:Name="Bd" CornerRadius="20" Background="Transparent" Padding="18,12" MinHeight="62">
                             <ContentPresenter />
                         </Border>
-                        <Border x:Name="Ring" CornerRadius="20" BorderThickness="2" BorderBrush="{StaticResource FocusBrush}"
+                        <Border x:Name="Ring" CornerRadius="20" BorderThickness="2" BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}"
                                 Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverOverlayBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource InsetBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource InsetBrush}" />
                         </Trigger>
                         <MultiTrigger>
                             <MultiTrigger.Conditions>
@@ -640,7 +592,7 @@
     </Style>
 
     <Style TargetType="TabItem">
-        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
         <Setter Property="FontSize" Value="15.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
@@ -653,15 +605,15 @@
                             <ContentPresenter ContentSource="Header" VerticalAlignment="Center" HorizontalAlignment="Center" />
                         </Border>
                         <Border x:Name="Ring" Margin="-3" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" BorderThickness="2"
-                                BorderBrush="{StaticResource FocusBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverOverlayBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SelectedPillBrush}" />
-                            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectedPillBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                         </Trigger>
                         <MultiTrigger>
                             <MultiTrigger.Conditions>
@@ -681,10 +633,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
-                    <Border x:Name="T" CornerRadius="4" Background="#44FFFFFF" Margin="3" />
+                    <Border x:Name="T" CornerRadius="4" Background="{DynamicResource ScrollThumbBrush}" Margin="3" />
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="T" Property="Background" Value="#70FFFFFF" />
+                            <Setter TargetName="T" Property="Background" Value="{DynamicResource ScrollThumbHoverBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -734,8 +686,8 @@
     </Style>
 
     <Style TargetType="ToolTip">
-        <Setter Property="Background" Value="#26272C" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource ToolTipBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="12,8" />
         <Setter Property="Template">
@@ -751,7 +703,7 @@
 
     <Style x:Key="BusyBar" TargetType="ProgressBar">
         <Setter Property="Height" Value="3" />
-        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="IsIndeterminate" Value="True" />

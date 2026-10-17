@@ -4,6 +4,9 @@ using OptimusVibe.Engine;
 
 namespace OptimusVibe.App.Services;
 
+/// <summary>A device to pick in a button list: the id is what gets forced, the name is what people read.</summary>
+public sealed record DeviceChoice(string Id, string Name);
+
 /// <summary>Resolved config folder, store and detected device for this run of the app. Immutable; Refresh makes a new one.</summary>
 public sealed class AppSession
 {
@@ -22,7 +25,7 @@ public sealed class StartupResult
     public string? SetupMessage { get; init; }
 
     /// <summary>Set when the config folder is fine but this machine matches no device: choose one to force.</summary>
-    public List<string> DeviceChoices { get; init; } = new();
+    public List<DeviceChoice> DeviceChoices { get; init; } = new();
 
     public string? ConfigRoot { get; init; }
 
@@ -52,8 +55,8 @@ public sealed class StartupResult
         }
         catch (ConfigException ex)
         {
-            List<string> choices;
-            try { choices = store.LoadDevices().Devices.Keys.ToList(); }
+            List<DeviceChoice> choices;
+            try { choices = store.LoadDevices().Devices.Select(kv => new DeviceChoice(kv.Key, DeviceNames.Display(kv.Key, kv.Value))).ToList(); }
             catch (Exception) { choices = new(); }
             return new StartupResult { SetupMessage = ex.Message, DeviceChoices = choices, ConfigRoot = paths.ConfigRoot };
         }

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using OptimusVibe.App.Services;
+using OptimusVibe.CloudSync;
 using OptimusVibe.Config;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
@@ -8,6 +9,24 @@ using OptimusVibe.Logging;
 namespace OptimusVibe.App.ViewModels;
 
 public enum LibraryFilter { All, Managed, NeedsPresets, OptedOut }
+
+/// <summary>The second filter row: do the game's settings travel between devices? (Combines with <see cref="LibraryFilter"/>.)</summary>
+public enum SyncFilter { All, StaysOnDevice, Syncs, Maybe }
+
+public sealed class SyncPillViewModel(SyncFilter filter, string label, string glyph, string hint) : ObservableObject
+{
+    private bool _isSelected;
+    private int _count;
+
+    public SyncFilter Filter { get; } = filter;
+    public string Label { get; } = label;
+    public string Glyph { get; } = glyph;
+    public string Hint { get; } = hint;
+    public int Count { get => _count; set { if (Set(ref _count, value)) { OnPropertyChanged(nameof(ToolTipText)); OnPropertyChanged(nameof(AutomationName)); } } }
+    public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
+    public string ToolTipText => $"{Hint} · {Count}";
+    public string AutomationName => $"{Label}, {Count}";
+}
 
 public sealed class FilterPillViewModel(LibraryFilter filter, string label) : ObservableObject
 {
@@ -26,8 +45,9 @@ public sealed class FilterPillViewModel(LibraryFilter filter, string label) : Ob
 
     public LibraryFilter Filter { get; } = filter;
     public string Label { get; } = label;
-    public int Count { get => _count; set { if (Set(ref _count, value)) OnPropertyChanged(nameof(ToolTipText)); } }
+    public int Count { get => _count; set { if (Set(ref _count, value)) { OnPropertyChanged(nameof(ToolTipText)); OnPropertyChanged(nameof(AutomationName)); } } }
     public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
+    public string AutomationName => $"{Label}, {Count}";
 }
 
 /// <summary>
@@ -40,6 +60,7 @@ public sealed class LibraryViewModel : ObservableObject
     private readonly Dictionary<string, LibraryTileViewModel> _byKey = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<DetectedGame>? _detected;
     private LibraryFilter _filter = LibraryFilter.All;
+    private SyncFilter _syncFilter = SyncFilter.All;
     private LibraryTileViewModel? _selectedTile;
     private bool _isScanning;
     private bool _hasScanned;
@@ -57,6 +78,15 @@ public sealed class LibraryViewModel : ObservableObject
             new(LibraryFilter.OptedOut, "Opted out"),
         ];
         Filters[0].IsSelected = true;
+        SyncFilters =
+        [
+            new(SyncFilter.All, "All", "\uE80F", "Every game, whether or not its settings sync"),
+            new(SyncFilter.StaysOnDevice, "Stays on device", "\uE7F8", "Settings stay on each device"),
+            new(SyncFilter.Syncs, "Syncs", "\uE753", "Settings sync between your devices"),
+            new(SyncFilter.Maybe, "Maybe", "\uE897", "Not known yet"),
+        ];
+        SyncFilters[0].IsSelected = true;
+        SetSyncFilterCommand = new RelayCommand(p => { if (p is SyncPillViewModel f) SetSyncFilter(f.Filter); });
         SetFilterCommand = new RelayCommand(p => { if (p is FilterPillViewModel f) SetFilter(f.Filter); });
         RescanCommand = new AsyncRelayCommand(() => ScanAsync(rescanLaunchers: true), () => !IsScanning && main.Session is not null);
     }
@@ -65,10 +95,12 @@ public sealed class LibraryViewModel : ObservableObject
 
     public ObservableCollection<LibraryTileViewModel> Tiles { get; } = new();
     public ObservableCollection<FilterPillViewModel> Filters { get; }
+    public ObservableCollection<SyncPillViewModel> SyncFilters { get; }
 
     public LibraryTileViewModel? SelectedTile { get => _selectedTile; set => Set(ref _selectedTile, value); }
 
     public LibraryFilter Filter => _filter;
+    public SyncFilter SyncFilter => _syncFilter;
 
     public bool IsScanning
     {
@@ -80,7 +112,9 @@ public sealed class LibraryViewModel : ObservableObject
 
     public bool ShowEmpty => Tiles.Count == 0 && !IsScanning && HasScanned;
 
-    public string EmptyText => _filter switch
+    public string EmptyText => _syncFilter != SyncFilter.All
+        ? "No games match this settings-sync filter. Pick All to see everything."
+        : _filter switch
     {
         LibraryFilter.Managed => "Nothing is tuned yet. Games get presets once Claude has processed the queue.",
         LibraryFilter.NeedsPresets => "Every installed game already has presets for this device.",
@@ -133,6 +167,7 @@ public sealed class LibraryViewModel : ObservableObject
     public string QueuedNote => PendingRequests == 1 ? "1 game queued for Claude" : $"{PendingRequests} games queued for Claude";
 
     public ICommand SetFilterCommand { get; }
+    public ICommand SetSyncFilterCommand { get; }
     public ICommand RescanCommand { get; }
 
     // ---------------------------------------------------------------- filter
@@ -149,13 +184,33 @@ public sealed class LibraryViewModel : ObservableObject
         OnPropertyChanged(nameof(EmptyText));
     }
 
-    private bool Matches(LibraryTileViewModel t) => _filter switch
+    public void SetSyncFilter(SyncFilter filter)
+    {
+        _syncFilter = filter;
+        foreach (var f in SyncFilters) f.IsSelected = f.Filter == filter;
+        ApplyFilter();
+        OnPropertyChanged(nameof(SyncFilter));
+        OnPropertyChanged(nameof(EmptyText));
+    }
+
+    private static bool MatchesStatus(LibraryFilter filter, LibraryTileViewModel t) => filter switch
     {
         LibraryFilter.Managed => t.Status is TileStatus.Managed or TileStatus.Error,
         LibraryFilter.NeedsPresets => t.Status == TileStatus.NeedsPresets,
         LibraryFilter.OptedOut => t.Status == TileStatus.OptedOut,
         _ => true,
     };
+
+    /// <summary>The "Settings sync" row: <see cref="SyncBuckets.Classify"/> of the tile's cloud-sync report.</summary>
+    public static bool MatchesSync(SyncFilter filter, SyncBucket bucket) => filter switch
+    {
+        SyncFilter.StaysOnDevice => bucket == SyncBucket.StaysOnDevice,
+        SyncFilter.Syncs => bucket == SyncBucket.Syncs,
+        SyncFilter.Maybe => bucket == SyncBucket.Maybe,
+        _ => true,
+    };
+
+    private bool Matches(LibraryTileViewModel t) => MatchesStatus(_filter, t) && MatchesSync(_syncFilter, t.SyncBucket);
 
     private static int Order(LibraryTileViewModel t) => t.IsInstalled ? 0 : 1; // not-installed configs go last
 
@@ -173,18 +228,12 @@ public sealed class LibraryViewModel : ObservableObject
             if (at < 0) Tiles.Insert(i, want[i]);
             else if (at != i) Tiles.Move(at, i);
         }
-        foreach (var f in Filters) f.Count = _byKey.Values.Count(t => FilterMatches(f.Filter, t));
+        // Status pills count independent of the sync row (they feed the "This device" numbers); sync pills count within the status filter.
+        foreach (var f in Filters) f.Count = _byKey.Values.Count(t => MatchesStatus(f.Filter, t));
+        foreach (var f in SyncFilters) f.Count = _byKey.Values.Count(t => MatchesStatus(_filter, t) && MatchesSync(f.Filter, t.SyncBucket));
         RaiseSummary();
         SelectedTile = keep is not null && Tiles.Contains(keep) ? keep : Tiles.FirstOrDefault();
         OnPropertyChanged(nameof(ShowEmpty));
-    }
-
-    private bool FilterMatches(LibraryFilter f, LibraryTileViewModel t)
-    {
-        var saved = _filter;
-        _filter = f;
-        try { return Matches(t); }
-        finally { _filter = saved; }
     }
 
     // ---------------------------------------------------------------- scanning

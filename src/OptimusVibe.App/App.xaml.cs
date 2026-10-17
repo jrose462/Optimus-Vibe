@@ -51,6 +51,10 @@ public partial class App : Application
             args.SetObserved();
         };
 
+        // Per-machine colour theme (Settings > Appearance), before the first window exists.
+        try { ThemeManager.Apply(SettingsStore.Load().Theme); }
+        catch (Exception ex) { Log.Warn($"Theme not applied: {ex.Message}"); }
+
         base.OnStartup(e);
         var vm = new MainViewModel();
         var window = new MainWindow(vm);

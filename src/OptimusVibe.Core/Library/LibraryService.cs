@@ -46,7 +46,7 @@ public static class LibraryService
             if (game is not null) matched.Add(game.Id);
             var opted = optOut.Contains(d.Key);
             var status = opted ? LibraryStatus.OptedOut
-                : game is not null && ProfileResolver.PresetNames(game, device.Name).Count > 0 ? LibraryStatus.Managed
+                : game is not null && ProfileResolver.PresetNames(game, device.Name, device.Def).Count > 0 ? LibraryStatus.Managed
                 : LibraryStatus.NeedsPresets;
             entries.Add(new LibraryEntry
             {
@@ -174,6 +174,9 @@ public static class LibraryService
         var file = LoadRequests(store);
         var games = LoadGames(store);
         var optOut = OptOutSet(LoadLibrary(store));
+        Dictionary<string, DeviceDef> knownDevices;
+        try { knownDevices = store.LoadDevices().Devices; }
+        catch (Exception) { knownDevices = new(); }
 
         int before = file.Requests.Count;
         file.Requests.RemoveAll(r =>
@@ -182,7 +185,7 @@ public static class LibraryService
             if (optOut.Contains(key)) return true;
             var probe = new DetectedGame { Store = r.Store, StoreId = r.StoreId, Name = r.Name };
             var game = MatchGame(probe, games);
-            return game is not null && ProfileResolver.PresetNames(game, r.Device ?? device).Count > 0;
+            return game is not null && ProfileResolver.PresetNames(game, r.Device ?? device, knownDevices.GetValueOrDefault(r.Device ?? device)).Count > 0;
         });
         bool changed = file.Requests.Count != before;
 

@@ -16,7 +16,23 @@ public sealed class HardwareInfo
     public List<string> IgnoredAdapters { get; init; } = new();
 }
 
-public sealed record DeviceSelection(string Name, DeviceDef? Def, string Reason, string Driver);
+public sealed record DeviceSelection(string Name, DeviceDef? Def, string Reason, string Driver)
+{
+    /// <summary>The name to show people: the device's display name, else its id.</summary>
+    public string DisplayName => DeviceNames.Display(Name, Def);
+}
+
+/// <summary>Display names for devices; the id is the identity, the name is only for people.</summary>
+public static class DeviceNames
+{
+    /// <summary>"Ally X", "desktop": for friendly sentences ("for this Ally X"). The display name when set, else the id made readable.</summary>
+    public static string Friendly(string id, DeviceDef? def) =>
+        !string.IsNullOrWhiteSpace(def?.Name) ? def!.Name!.Trim()
+        : id.Equals("ally-x", StringComparison.OrdinalIgnoreCase) ? "Ally X" : id.Replace('-', ' ');
+
+    public static string Display(string id, DeviceDef? def) =>
+        !string.IsNullOrWhiteSpace(def?.Name) ? def!.Name!.Trim() : id;
+}
 
 public static class DeviceDetector
 {
@@ -104,7 +120,7 @@ public static class DeviceDetector
         Regex.IsMatch(value, "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
             RegexOptions.IgnoreCase);
 
-    private static string DriverFor(DeviceDef? def, HardwareInfo hw)
+    public static string DriverFor(DeviceDef? def, HardwareInfo hw)
     {
         if (!string.IsNullOrEmpty(def?.Driver)) return def.Driver.ToLowerInvariant();
         // A discrete NVIDIA card wins over an AMD iGPU (e.g. Ryzen desktop with RTX).

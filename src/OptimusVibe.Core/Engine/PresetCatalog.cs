@@ -27,7 +27,7 @@ public static class PresetCatalog
     {
         var defaultName = GameContext.DefaultFor(game, device);
         var list = new List<PresetOption>();
-        foreach (var name in ProfileResolver.PresetNames(game, device.Name))
+        foreach (var name in ProfileResolver.PresetNames(game, device.Name, device.Def))
         {
             var r = PresetRef.Recommended(name);
             try

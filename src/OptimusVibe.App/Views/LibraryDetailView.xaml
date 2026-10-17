@@ -63,12 +63,12 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid Width="220" Height="330" VerticalAlignment="Top">
-                    <Border CornerRadius="24" Background="{StaticResource CoverTileBrush}">
+                    <Border CornerRadius="24" Background="{DynamicResource CoverTileBrush}">
                         <StackPanel VerticalAlignment="Center" Margin="12">
                             <Image Source="{Binding Icon}" Width="56" Height="56" Stretch="Uniform" HorizontalAlignment="Center"
                                    Visibility="{Binding HasIcon, Converter={StaticResource VisibleWhen}}" />
                             <TextBlock Text="&#xE7FC;" FontFamily="{StaticResource IconFont}" FontSize="44" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextFaintBrush}"
+                                       Foreground="{DynamicResource TextFaintBrush}"
                                        Visibility="{Binding HasIcon, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
                             <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Margin="0,14,0,0" />
                         </StackPanel>
@@ -94,8 +94,8 @@
                     <Border Style="{StaticResource Card.Feature}" Margin="0,28,0,0"
                             Visibility="{Binding IsQueued, Converter={StaticResource VisibleWhen}}">
                         <StackPanel>
-                            <TextBlock Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="White" />
-                            <TextBlock Style="{StaticResource Text.Body}" Foreground="White" Margin="0,8,0,0"
+                            <TextBlock Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
+                            <TextBlock Style="{StaticResource Text.Body}" Foreground="{DynamicResource FeatureTextBrush}" Margin="0,8,0,0"
                                        Text="This game is in the queue. Ask Claude to “process Optimus-Vibe requests” and it will research the settings and write presets for your devices. Until then it starts normally." />
                         </StackPanel>
                     </Border>

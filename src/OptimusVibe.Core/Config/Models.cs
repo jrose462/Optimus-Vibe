@@ -8,6 +8,9 @@ public sealed class DevicesFile
 
 public sealed class DeviceDef
 {
+    /// <summary>Display name shown in the app ("ROG Xbox Ally X"). The id (the devices.yaml key) stays the identity.</summary>
+    public string? Name { get; set; }
+
     public string? Description { get; set; }
 
     /// <summary>All entries must match (wildcards * and ?). Keys: model, manufacturer, cpu, gpu.</summary>
@@ -21,6 +24,12 @@ public sealed class DeviceDef
 
     /// <summary>Recommended preset used for a game until one is picked in the app (e.g. quality, performance).</summary>
     public string? DefaultPreset { get; set; }
+
+    /// <summary>
+    /// Another device id whose recommended presets this device uses for games that have none of its own. One level
+    /// only (the target's own presetsFrom is not followed).
+    /// </summary>
+    public string? PresetsFrom { get; set; }
 }
 
 public sealed class DisplayModeDef
@@ -152,6 +161,9 @@ public sealed class AppSettings
 
     /// <summary>App start view: auto (grid on the handheld / small screens), grid, or list.</summary>
     public string LibraryMode { get; set; } = "auto";
+
+    /// <summary>Colour theme (per machine): default | majestic | circuit.</summary>
+    public string Theme { get; set; } = "default";
 
     /// <summary>Suggested name when creating the config repo.</summary>
     public const string SuggestedConfigRepoName = "optimus-vibe-config";

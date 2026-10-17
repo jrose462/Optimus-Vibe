@@ -41,9 +41,24 @@ public static class ProfileResolver
     /// <summary>Conventional preset names, in display order.</summary>
     public static readonly string[] KnownPresetNames = ["quality", "performance", "battery"];
 
-    /// <summary>Preset names for a device, conventional ones first.</summary>
-    public static IReadOnlyList<string> PresetNames(GameDef game, string device) =>
-        game.Presets.TryGetValue(device, out var presets)
+    /// <summary>
+    /// The device key whose presets apply to <paramref name="device"/> for this game: its own when the game has any,
+    /// else the device's <see cref="DeviceDef.PresetsFrom"/> (one level, never followed further) when that has some.
+    /// </summary>
+    public static string PresetsDevice(GameDef game, string device, DeviceDef? def)
+    {
+        if (HasPresets(game, device)) return device;
+        var from = def?.PresetsFrom?.Trim();
+        if (!string.IsNullOrEmpty(from) && !string.Equals(from, device, StringComparison.Ordinal) && HasPresets(game, from)) return from;
+        return device;
+    }
+
+    private static bool HasPresets(GameDef game, string device) =>
+        game.Presets.TryGetValue(device, out var p) && p.Count > 0;
+
+    /// <summary>Preset names for a device (falling back to its presetsFrom device), conventional ones first.</summary>
+    public static IReadOnlyList<string> PresetNames(GameDef game, string device, DeviceDef? def = null) =>
+        game.Presets.TryGetValue(PresetsDevice(game, device, def), out var presets)
             ? presets.Keys
                 .OrderBy(k => Array.IndexOf(KnownPresetNames, k) is var i and >= 0 ? i : KnownPresetNames.Length)
                 .ThenBy(k => k, StringComparer.Ordinal)
@@ -51,11 +66,12 @@ public static class ProfileResolver
             : [];
 
     /// <summary>A preset body with its extends chain (into game.Profiles) merged.</summary>
-    public static Dictionary<string, object?> FlattenPreset(GameDef game, string device, string preset)
+    public static Dictionary<string, object?> FlattenPreset(GameDef game, string device, string preset, DeviceDef? def = null)
     {
-        if (!game.Presets.TryGetValue(device, out var presets) || !presets.TryGetValue(preset, out var body))
+        var source = PresetsDevice(game, device, def);
+        if (!game.Presets.TryGetValue(source, out var presets) || !presets.TryGetValue(preset, out var body))
             throw new ConfigException($"{game.Id}: no preset '{preset}' for device '{device}'");
-        return FlattenBody(game, body, $"presets.{device}.{preset}");
+        return FlattenBody(game, body, $"presets.{source}.{preset}");
     }
 
     /// <summary>Merge a body over the profiles it extends (recursively). The body itself wins.</summary>
@@ -82,7 +98,7 @@ public static class ProfileResolver
     }
 
     public static ResolvedProfile ResolvePreset(GameDef game, string device, DeviceDef? deviceDef, string preset) =>
-        Resolve(game, device, deviceDef, FlattenPreset(game, device, preset), PresetRef.Recommended(preset));
+        Resolve(game, device, deviceDef, FlattenPreset(game, device, preset, deviceDef), PresetRef.Recommended(preset));
 
     public static ResolvedProfile ResolveSave(GameDef game, string device, DeviceDef? deviceDef, ManualSave save) =>
         Resolve(game, device, deviceDef, FlattenBody(game, save.Body, $"saves/{save.Slug}"), PresetRef.Manual(save.Slug),

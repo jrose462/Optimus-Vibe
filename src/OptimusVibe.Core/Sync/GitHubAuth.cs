@@ -20,8 +20,27 @@ public sealed class GitHubAuthException(string message, string? error = null) : 
 /// <summary>GitHub OAuth device flow (https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).</summary>
 public static class GitHubAuth
 {
-    /// <summary>Scopes requested: "repo" (private config repos need it).</summary>
-    public const string Scopes = "repo";
+    /// <summary>
+    /// Scopes requested (space separated): "repo" (private config repos), "workflow" (the game lab installs
+    /// .github/workflows into the config repo) and "project" (the game lab's user Project board; optional).
+    /// </summary>
+    public const string Scopes = "repo workflow project";
+
+    /// <summary>Scopes the game lab cannot work without.</summary>
+    public static readonly string[] RequiredScopes = ["repo", "workflow"];
+
+    /// <summary>Scopes that only unlock extras (the board); a token without them still works.</summary>
+    public static readonly string[] OptionalScopes = ["project"];
+
+    /// <summary>
+    /// Required scopes missing from <paramref name="granted"/> (X-OAuth-Scopes, see <see cref="GitHubApi.GetTokenScopesAsync"/>).
+    /// Empty when <paramref name="granted"/> is null: a fine-grained token's permissions can't be read back.
+    /// </summary>
+    public static IReadOnlyList<string> MissingScopes(IReadOnlyList<string>? granted, bool includeOptional = false) =>
+        granted is null
+            ? []
+            : (includeOptional ? RequiredScopes.Concat(OptionalScopes) : RequiredScopes)
+                .Where(s => !granted.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
 
     /// <summary>Windows Credential Manager target holding the token.</summary>
     public const string CredentialTarget = "OptimusVibe:github";

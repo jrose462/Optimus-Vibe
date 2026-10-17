@@ -32,9 +32,9 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Button Content="{Binding}" Margin="0,0,8,8" MinWidth="140"
+                                <Button Content="{Binding Name}" Margin="0,0,8,8" MinWidth="140"
                                         Command="{Binding DataContext.ForceDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                        CommandParameter="{Binding}" />
+                                        CommandParameter="{Binding Id}" />
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

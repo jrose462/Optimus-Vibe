@@ -6,6 +6,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- the active palette comes first (ThemeManager swaps it), then the styles that reference it with DynamicResource -->
+                <ResourceDictionary Source="Themes/Palette.Default.xaml" />
                 <ResourceDictionary Source="Themes/Dark.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <conv:VisibleWhenConverter x:Key="VisibleWhen" />
