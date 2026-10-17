@@ -2,7 +2,7 @@
 
 Optimus-Vibe is built and maintained with heavy automation by **Claude** (Anthropic) and GitHub Actions. This page says
 plainly what is automated and where a human is still in the loop. Setup details (secrets, tokens, workflows, branch
-protection) are in [ci.md](ci.md).
+protection) are in [ci.md](ci.md); the maintainer's weekly routine is in [maintainer-guide.md](maintainer-guide.md).
 
 ```mermaid
 flowchart TD
