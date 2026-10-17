@@ -8,4 +8,15 @@
     <Version Condition="'$(Version)' == ''">0.3.0</Version>
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>
   </PropertyGroup>
+
+  <!--
+    GitHub OAuth App client id used for device-code sign-in (picking / creating the private config repo). It is PUBLIC,
+    not a secret. Register an OAuth App with Device Flow enabled (see README) and paste its Client ID here, or pass
+    -p:OptimusVibeGitHubClientId=... (the release workflow passes the repo variable OPTIMUSVIBE_GITHUB_CLIENT_ID).
+    Set to the Optimus-Vibe OAuth App. If emptied, the app asks for one in Settings (or accepts a personal access token). Users can still override it in
+    settings.json (gitHubClientId) or with the OPTIMUSVIBE_GITHUB_CLIENT_ID environment variable.
+  -->
+  <PropertyGroup>
+    <OptimusVibeGitHubClientId Condition="'$(OptimusVibeGitHubClientId)' == ''">Ov23ctlOmt2HGMAQSv1W</OptimusVibeGitHubClientId>
+  </PropertyGroup>
 </Project>

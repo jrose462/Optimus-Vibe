@@ -1,0 +1,446 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jrose462/Optimus-Vibe/config/schema/game.schema.json",
+  "title": "Optimus-Vibe game definition",
+  "description": "config/games/<id>.yaml. Mirrors GameDef in src/OptimusVibe.Core/Config/Models.cs (camelCase). Unknown top-level keys are rejected by the loader, so they are rejected here too.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "files"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Game id; must equal the file name without .yaml (used on the command line: `optimus-vibe run <id>`).",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name."
+    },
+    "store": {
+      "type": "string",
+      "description": "Where the game comes from (the validator accepts steam, battlenet, ea, other; use other + storeIds for Epic/GOG/Xbox until it accepts those). Affects launch notes and `shortcut`.",
+      "enum": [
+        "steam",
+        "battlenet",
+        "ea",
+        "other"
+      ],
+      "default": "steam"
+    },
+    "steamAppId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Steam app id (also usable in {SteamLibrary:<appid>} path tokens)."
+    },
+    "storeIds": {
+      "type": "object",
+      "description": "Ids in other launchers, used to match auto-detected installs to this config (Steam uses steamAppId). battlenet: product code (e.g. Fen); ea: offer id; epic: AppName; gog: game id; xbox: package family name.",
+      "additionalProperties": false,
+      "properties": {
+        "battlenet": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Battle.net product code, e.g. Pro (Overwatch), Fen (Diablo IV)."
+        },
+        "ea": {
+          "type": "string",
+          "minLength": 1,
+          "description": "EA app offer id (e.g. Origin.OFR.50.0005452)."
+        },
+        "epic": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Epic Games Store AppName (from the launcher manifest)."
+        },
+        "gog": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GOG game id (numeric, as a string)."
+        },
+        "xbox": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Xbox app / Microsoft Store package family name (e.g. Publisher.Game_8wekyb3d8bbwe)."
+        }
+      }
+    },
+    "cloudSyncsSettings": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether the game's graphics settings travel between machines (Steam Cloud / store cloud). false = each machine keeps its own settings, so the app suggests opting the game out of management. null or omitted = unknown. Filled in by the game-settings-recommender skill."
+    },
+    "launch": {
+      "$ref": "#/$defs/launch"
+    },
+    "processes": {
+      "type": "array",
+      "description": "Process names (e.g. Game.exe) the `run` wrapper waits on; launcher stubs often exit early.",
+      "items": {
+        "type": "string",
+        "pattern": "\\.exe$"
+      },
+      "uniqueItems": true
+    },
+    "files": {
+      "type": "array",
+      "description": "Settings stores this game uses. Presets and profiles refer to them by id.",
+      "items": {
+        "$ref": "#/$defs/file"
+      },
+      "minItems": 1
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Shared building blocks (usually just `base`) that presets `extends`. Never applied directly and not named after devices.",
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      }
+    },
+    "presets": {
+      "type": "object",
+      "description": "Claude-recommended presets: device id (from devices.yaml) -> preset name -> body. Conventional names: desktop: quality, performance; ally-x: performance, battery.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/preset"
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "description": "Free-text intent per device, written by the user; Claude reads it when mapping settings.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "When and how the recommended presets were generated (written by the game-settings-recommender skill).",
+      "properties": {
+        "generated": {
+          "type": "string",
+          "description": "Date generated/refreshed, YYYY-MM-DD.",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}"
+        },
+        "gameVersion": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Game version/patch the keys were checked against, if known."
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Where key names and value choices came from (URLs, `inspect` runs)."
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-text notes (quirks, Steam Cloud, unverified keys...)."
+    }
+  },
+  "$defs": {
+    "launch": {
+      "type": "object",
+      "description": "How to start the game when it is not wrapped by Steam's %command% (Battle.net/EA/shortcut). Give a uri or an exe.",
+      "additionalProperties": false,
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "e.g. steam://rungameid/1091500"
+        },
+        "exe": {
+          "type": "string",
+          "description": "Executable path (path tokens allowed), e.g. Battle.net.exe"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments for exe, e.g. [\"--exec=launch Pro\"]"
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "handler",
+        "path"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Key used in presets/profiles. Must not be a reserved key.",
+          "not": {
+            "enum": [
+              "extends",
+              "display",
+              "nvidia",
+              "amd",
+              "label",
+              "description",
+              "targetFps"
+            ]
+          }
+        },
+        "handler": {
+          "type": "string",
+          "enum": [
+            "ini",
+            "json",
+            "xml",
+            "registry",
+            "keyvalue",
+            "file"
+          ],
+          "description": "ini: nested by [section]. json: dotted paths with [n] and [field=value] filters. xml: XPath. registry: value names under a key. keyvalue: one setting per line (format/template). file: whole-file snapshot only, no keys."
+        },
+        "path": {
+          "type": "string",
+          "description": "File path with tokens {Documents} {LocalAppData} {AppData} {LocalLow} {SavedGames} {UserProfile} {ProgramData} {ProgramFiles} {ProgramFilesX86} {SteamRoot} {SteamLibrary:<appid>} {SteamUserData:<appid>}, %ENV% vars and * wildcards (newest match wins). For handler registry: HKCU\\... or HKLM\\..."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "cvar",
+            "quoted",
+            "equals",
+            "equals-spaced",
+            "colon"
+          ],
+          "description": "keyvalue only. cvar: SET key \"value\"; quoted: key \"value\"; equals: key=value (default); equals-spaced: key = value; colon: key: value"
+        },
+        "template": {
+          "type": "string",
+          "pattern": "\\{key\\}.*\\{value\\}|\\{value\\}.*\\{key\\}",
+          "description": "keyvalue only: custom line template containing {key} and {value}; wins over format."
+        },
+        "readOnlyAfterApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mark the file read-only after applying (games that reset settings on boot)."
+        },
+        "createIfMissing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create the file if absent (otherwise it is skipped with a warning)."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "handler": {
+                "not": {
+                  "const": "keyvalue"
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "format"
+                  ]
+                },
+                {
+                  "required": [
+                    "template"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "scalar": {
+      "description": "A setting value. null removes the key inherited from an extended profile.",
+      "type": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null"
+      ]
+    },
+    "settingsBlock": {
+      "type": "object",
+      "description": "Settings for one file id. ini: { \"Section\": { Key: value } } (top-level scalars are keys before the first section). json: nested maps are joined with '.', or use full paths as keys. xml: XPath keys. registry: value names. keyvalue: keys.",
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/scalar"
+          },
+          {
+            "$ref": "#/$defs/settingsBlock"
+          }
+        ]
+      }
+    },
+    "display": {
+      "description": "inherit (or device): use the device's display from devices.yaml. none (or keep): leave the display alone (also the default when display is omitted). A map overrides parts of the device mode.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "inherit",
+            "device",
+            "none",
+            "keep"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 320
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 200
+            },
+            "refresh": {
+              "type": "integer",
+              "minimum": 24
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "driverBlock": {
+      "type": "object",
+      "description": "Driver setting name -> value. A nested map is flattened to \"k=v,k=v\".",
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/scalar"
+          },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/scalar"
+            }
+          }
+        ]
+      }
+    },
+    "profile": {
+      "type": "object",
+      "description": "Shared base. Reserved keys: extends, display, nvidia, amd. Every other key must be a file id from `files`.",
+      "properties": {
+        "extends": {
+          "type": "string",
+          "description": "Name of another entry under `profiles:` to inherit from (deep merge; this one wins)."
+        },
+        "display": {
+          "$ref": "#/$defs/display"
+        },
+        "nvidia": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/driverBlock"
+            }
+          ],
+          "description": "NVIDIA driver (DRS) per-exe profile settings. Ignored unless the device driver is nvidia. Persistent; not undone on exit."
+        },
+        "amd": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/driverBlock"
+            }
+          ],
+          "description": "AMD ADLX global 3D settings, applied on launch and restored on exit. Ignored unless the device driver is amd. Not implemented yet (see docs/amd-adlx.md)."
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/settingsBlock"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "preset": {
+      "type": "object",
+      "description": "A recommended preset. Reserved keys: label, description, targetFps, extends, display, nvidia, amd. Every other key must be a file id from `files`.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Name shown in the app (default: the preset name, capitalized)."
+        },
+        "description": {
+          "type": "string",
+          "description": "1-2 sentences: what the preset targets and what it trades away."
+        },
+        "targetFps": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Framerate the preset aims for (informational, shown in the app)."
+        },
+        "extends": {
+          "type": "string",
+          "description": "Name of an entry under `profiles:` (presets cannot extend presets)."
+        },
+        "display": {
+          "$ref": "#/$defs/display"
+        },
+        "nvidia": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/driverBlock"
+            }
+          ],
+          "description": "NVIDIA driver (DRS) per-exe profile settings. Ignored unless the device driver is nvidia. Persistent; not undone on exit."
+        },
+        "amd": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/driverBlock"
+            }
+          ],
+          "description": "AMD ADLX global 3D settings, applied on launch and restored on exit. Ignored unless the device driver is amd. Not implemented yet (see docs/amd-adlx.md)."
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/settingsBlock"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    }
+  }
+}

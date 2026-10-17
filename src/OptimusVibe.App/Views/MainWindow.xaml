@@ -201,24 +201,18 @@
                             <StackPanel DockPanel.Dock="Top">
                                 <TextBlock Text="Report a problem" Style="{StaticResource Text.PageTitle}" FontSize="28" />
                                 <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0"
-                                           Text="Tell us what went wrong. You can preview exactly what gets sent before it is filed as an issue." />
+                                           Text="Tell us what went wrong. You can preview exactly what gets sent before it is filed as a public issue. No GitHub sign-in needed." />
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" Text="{Binding ContextText}" />
                             </StackPanel>
 
-                            <!-- not signed in -->
-                            <Border DockPanel.Dock="Top" Style="{StaticResource Card.Inset}" Margin="0,16,0,0"
-                                    Visibility="{Binding IsSignedOut, Converter={StaticResource VisibleWhen}}">
-                                <StackPanel>
-                                    <TextBlock Style="{StaticResource Text.Body}"
-                                               Text="Sending needs a GitHub sign-in. You can still write the report and preview it." />
-                                    <Button Content="Go to GitHub sign-in" Command="{Binding GoToSignInCommand}" HorizontalAlignment="Left" Margin="0,10,0,0" />
-                                </StackPanel>
-                            </Border>
+                            <!-- how it is sent (no GitHub sign-in either way) -->
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Text.Dim}" Margin="0,14,0,0" TextWrapping="Wrap"
+                                       Text="{Binding SendInfoText}" />
 
                             <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
                                 <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CloseCommand}" Margin="0,0,8,0" />
                                 <Button Content="Preview" Command="{Binding PreviewCommand}" Margin="0,0,8,0" AutomationProperties.Name="Preview report" />
-                                <Button Style="{StaticResource Button.Primary}" Content="Send" Command="{Binding SendCommand}" MinWidth="120"
+                                <Button Style="{StaticResource Button.Primary}" Content="{Binding SendLabel}" Command="{Binding SendCommand}" MinWidth="120"
                                         AutomationProperties.Name="Send report" ToolTip="Available once you have previewed the current text" />
                             </WrapPanel>
 

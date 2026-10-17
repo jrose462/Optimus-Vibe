@@ -1,0 +1,12 @@
+# Optimus-Vibe library choices, shared by every machine (git-synced). OWNED BY THE USER.
+#
+# The app scans Steam, Battle.net, EA app, Xbox app, Epic and GOG for installed games. Every detected game is
+# "managed" (its preset is applied on launch; for Steam games the launch option is written automatically) unless
+# its key is listed here. Opted-out games are launched plainly and their Steam launch option is removed.
+#
+# Keys are "store:id": steam:<appid>, battlenet:<product code>, ea:<offer id>, epic:<AppName>, gog:<id>,
+# xbox:<package family name>. Change them from the app (Library > X) or with
+#   optimus-vibe opt-out steam:1285190
+#   optimus-vibe opt-in steam:1285190
+# Claude: never edit optOut unless the user asks you to.
+optOut: []

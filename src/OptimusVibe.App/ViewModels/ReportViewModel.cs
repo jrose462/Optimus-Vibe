@@ -1,46 +1,80 @@
 using System.Diagnostics;
+using System.Windows;
 using System.Windows.Input;
 using OptimusVibe.Devices;
 using OptimusVibe.Feedback;
 using OptimusVibe.Logging;
-using OptimusVibe.Sync;
 using OptimusVibe.Updates;
 
 namespace OptimusVibe.App.ViewModels;
 
 /// <summary>
 /// "Report a problem" panel. The user writes a description, Preview shows the exact issue text (sanitized context + recent
-/// log), and only a previewed, unchanged report can be sent - as an issue on the APP repo through the signed-in account.
+/// log), and only a previewed, unchanged report can be sent. No GitHub sign-in: release builds file the issue on the APP repo
+/// with the built-in bug-report token (limited to a few reports a day); other builds copy the report to the clipboard and open
+/// a prefilled "new issue" page in the browser.
 /// </summary>
 public sealed class ReportViewModel : ObservableObject
 {
     private readonly MainViewModel _main;
-    private readonly GitHubAccountViewModel _account;
     private bool _isOpen;
     private string _description = "";
     private string? _gameId;
     private string? _preset;
     private BugReportDraft? _draft;
     private string? _draftDescription;
-    private bool _isSignedIn;
     private HardwareInfo? _hardware;
 
-    public ReportViewModel(MainViewModel main, GitHubAccountViewModel account)
+    public ReportViewModel(MainViewModel main)
     {
         _main = main;
-        _account = account;
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !main.IsBusy && Description.Trim().Length > 0);
         SendCommand = new AsyncRelayCommand(SendAsync, () => !main.IsBusy && CanSend);
         CloseCommand = new RelayCommand(Close);
-        GoToSignInCommand = new RelayCommand(() =>
-        {
-            Close();
-            main.OpenSettings("account");
-        });
     }
 
     public bool IsOpen { get => _isOpen; private set => Set(ref _isOpen, value); }
     public string TargetRepo => AppRepo.FullName;
+
+    private string? _userToken;
+    private string? _login;
+
+    /// <summary>The report can be filed without leaving the app: as the signed-in user, else via the built-in token.</summary>
+    public bool CanSendDirectly => BugReport.ResolveIdentity(_userToken) != BugReport.ReportIdentity.Browser;
+    public string SendLabel => CanSendDirectly ? "Send" : "Copy and open GitHub";
+    public string SendInfoText
+    {
+        get
+        {
+            var who = BugReport.DescribeIdentity(BugReport.ResolveIdentity(_userToken), _login);
+            return CanSendDirectly
+                ? $"{who}. It becomes a public issue on {AppRepo.FullName}. Nothing else leaves your PC."
+                : $"{who}. The report is also copied to your clipboard.";
+        }
+    }
+
+    /// <summary>Which identity will be used: the signed-in token if there is one (read off the UI thread when the panel opens).</summary>
+    private async Task RefreshIdentityAsync()
+    {
+        try
+        {
+            _userToken = await Task.Run(() =>
+            {
+                try { return OptimusVibe.Sync.GitHubAuth.LoadToken(); }
+                catch (Exception) { return null; }
+            });
+            _login = _userToken is null ? null : (await Services.SettingsStore.LoadAsync()).GitHubLogin;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Reading the GitHub sign-in for the report failed: {ex.Message}");
+            _userToken = null;
+        }
+        OnPropertyChanged(nameof(CanSendDirectly));
+        OnPropertyChanged(nameof(SendLabel));
+        OnPropertyChanged(nameof(SendInfoText));
+        CommandManager.InvalidateRequerySuggested();
+    }
 
     public string Description
     {
@@ -53,9 +87,6 @@ public sealed class ReportViewModel : ObservableObject
             CommandManager.InvalidateRequerySuggested();
         }
     }
-
-    public bool IsSignedIn { get => _isSignedIn; private set { if (Set(ref _isSignedIn, value)) OnPropertyChanged(nameof(IsSignedOut)); } }
-    public bool IsSignedOut => !IsSignedIn;
 
     public string? GameId { get => _gameId; private set { if (Set(ref _gameId, value)) OnPropertyChanged(nameof(ContextText)); } }
     public string? Preset { get => _preset; private set { if (Set(ref _preset, value)) OnPropertyChanged(nameof(ContextText)); } }
@@ -71,12 +102,11 @@ public sealed class ReportViewModel : ObservableObject
     /// <summary>The text changed after the preview: the preview no longer matches what would be sent.</summary>
     public bool PreviewIsStale => _draft is not null && _draftDescription != Description;
 
-    public bool CanSend => IsSignedIn && _draft is not null && _draftDescription == Description && Description.Trim().Length > 0;
+    public bool CanSend => _draft is not null && _draftDescription == Description && Description.Trim().Length > 0;
 
     public ICommand PreviewCommand { get; }
     public ICommand SendCommand { get; }
     public ICommand CloseCommand { get; }
-    public ICommand GoToSignInCommand { get; }
 
     public void Open(string? gameId, string? preset)
     {
@@ -84,20 +114,12 @@ public sealed class ReportViewModel : ObservableObject
         Preset = preset;
         ClearDraft();
         IsOpen = true;
-        _ = RefreshSignInAsync();
+        _ = RefreshIdentityAsync();
     }
 
     public void Close()
     {
         IsOpen = false;
-        CommandManager.InvalidateRequerySuggested();
-    }
-
-    private async Task RefreshSignInAsync()
-    {
-        await _account.RefreshAsync();
-        IsSignedIn = _account.IsSignedIn;
-        OnPropertyChanged(nameof(CanSend));
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -145,16 +167,13 @@ public sealed class ReportViewModel : ObservableObject
     {
         var draft = _draft;
         if (draft is null || !CanSend) return;
-        string? url = null;
-        var ok = await _main.RunAsync("Sending the report", async () =>
+        if (!CanSendDirectly)
         {
-            var token = await Task.Run(() =>
-            {
-                try { return GitHubAuth.LoadToken(); }
-                catch (NotImplementedException) { return null; }
-            }) ?? throw new InvalidOperationException("Sign in to GitHub first (Settings, GitHub account).");
-            url = await BugReport.SubmitAsync(draft, token);
-        });
+            HandOffToBrowser(draft);
+            return;
+        }
+        string? url = null;
+        var ok = await _main.RunAsync("Sending the report", async () => url = await BugReport.SubmitAsync(draft, _userToken));
         if (!ok || url is null) return;
         Log.Info($"Bug report filed: {url}");
         Description = "";
@@ -163,13 +182,39 @@ public sealed class ReportViewModel : ObservableObject
         _main.NotifyWithAction($"Report sent: {url}", "Open", () => OpenUrl(url));
     }
 
+    /// <summary>No built-in token: full report to the clipboard, prefilled (possibly shortened) issue form in the browser.</summary>
+    private void HandOffToBrowser(BugReportDraft draft)
+    {
+        var copied = false;
+        try
+        {
+            Clipboard.SetText(draft.Title + "\n\n" + draft.Body);
+            copied = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Clipboard: {ex.Message}");
+        }
+        var link = BugReport.BuildNewIssueUrl(draft, out var truncated);
+        OpenUrl(link);
+        Log.Info("Bug report handed to the browser (prefilled issue form)");
+        Description = "";
+        ClearDraft();
+        Close();
+        _main.Notify(truncated && copied
+            ? "The report is on your clipboard and GitHub is open. It was shortened to fit the link: paste the full text into the issue."
+            : copied
+                ? "GitHub is open with your report filled in (a copy is on your clipboard). Press Submit new issue."
+                : "GitHub is open with your report filled in. Press Submit new issue.");
+    }
+
     private void OpenUrl(string url)
     {
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose(); }
         catch (Exception ex)
         {
-            Log.Error($"Opening {url} failed", ex);
-            _main.Notify($"Couldn't open the browser - go to {url}", error: true);
+            Log.Error("Opening the browser failed", ex);
+            _main.Notify($"Couldn't open the browser - go to {AppRepo.IssuesUrl}/new", error: true);
         }
     }
 }

@@ -1,6 +1,13 @@
-# Bug-report loop: the app's "Report a problem" files an issue labelled `bug-report`; Claude reads it, posts an
-# action plan, and (when the fix is clear and small) opens a PR from claude/issue-<n> that ci.yml then builds and
-# tests on Windows. Repo owners/members/collaborators can also mention @claude in a comment to follow up.
+# Bug-report loop: the app's "Report a problem" files an issue on this public repo (as the signed-in GitHub user, or
+# anonymously via the app's built-in issues-only token) whose body starts with the hidden marker
+# `<!-- optimus-vibe:report v1 -->`. Claude reads it, posts an action plan, and (when the fix is clear and small) opens a PR
+# from claude/issue-<n> that ci.yml then builds and tests on Windows. Repo owners/members/collaborators can also mention
+# @claude in a comment to follow up.
+#
+# Hardening (the repo is public, so anyone can open issues and the marker is not secret): issue-triggered runs need the marker
+# in the body; the workflow itself adds the `bug-report` label (non-collaborators can't label); the first step enforces a
+# daily cap (5 triage runs per UTC day) and skips already-triaged issues BEFORE any Claude step. Comment-triggered runs need
+# OWNER/MEMBER/COLLABORATOR. Issue text is untrusted data (see .github/claude/repo-rules.md).
 #
 # Inert until a secret exists: the "Check for Claude credentials" step looks at ANTHROPIC_API_KEY and
 # CLAUDE_CODE_OAUTH_TOKEN; with neither set every later step is skipped and the run ends green with a notice.
@@ -9,7 +16,7 @@ name: Claude bug triage
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened, edited]
   issue_comment:
     types: [created]
 
@@ -32,8 +39,7 @@ jobs:
     if: >-
       (github.event_name == 'issues' &&
         github.event.issue.state == 'open' &&
-        ((github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'bug-report')) ||
-         (github.event.action == 'labeled' && github.event.label.name == 'bug-report')))
+        contains(github.event.issue.body, '<!-- optimus-vibe:report v1 -->'))
       ||
       (github.event_name == 'issue_comment' &&
         contains(github.event.comment.body, '@claude') &&
@@ -47,13 +53,48 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DAILY_CAP: '5'
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE: ${{ github.event.issue.number }}
         run: |
           if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            # Already triaged? (the plan comment carries a marker) -> nothing to do, and it must not count against the cap.
+            if [ "$EVENT_NAME" = "issues" ]; then
+              n=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" --paginate \
+                    --jq '[.[] | select(.body | contains("<!-- claude-bug-triage -->"))] | length' | awk '{s+=$1} END {print s+0}')
+              if [ "$n" -gt 0 ]; then
+                echo "enabled=false" >> "$GITHUB_OUTPUT"
+                echo "::notice::Issue #$ISSUE already has a Claude action plan; mention @claude in a comment to re-run."
+                exit 0
+              fi
+            fi
+            # Daily cap: runs of this workflow started today (UTC) that were not skipped, including this one.
+            today=$(date -u +%F)
+            runs=$(gh run list --workflow claude-bug-triage.yml --created ">=$today" --limit 100 \
+                      --json conclusion --jq '[.[] | select(.conclusion != "skipped")] | length' 2>/dev/null || echo 0)
+            if [ "$runs" -gt "$DAILY_CAP" ]; then
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Daily triage cap reached::$runs runs today (cap $DAILY_CAP); skipping. Comment @claude tomorrow to retry."
+            else
+              echo "enabled=true" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Claude bug triage is inactive::Add an ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN repository secret to enable it (see docs/ci.md)."
           fi
+
+      - name: Ensure the bug-report label
+        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'issues'
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          # Reporters without write access can't set labels, so the workflow does it (needs issues: write).
+          gh label create bug-report --color d73a4a --description "Filed by the app's Report a problem" 2>/dev/null || true
+          gh issue edit "$ISSUE" --add-label bug-report || true
 
       - name: Skip if Claude already triaged this issue
         id: dedupe

@@ -1,3 +1,4 @@
+using OptimusVibe.Config;
 using System.Net;
 using System.Text;
 using OptimusVibe.Logging;
@@ -30,7 +31,7 @@ public static class ConfigRepoProbe
         }
         catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.Conflict)
         {
-            return new(true, false, true, $"{repo} is empty. Seed it with this device's config to start using it.");
+            return new(true, false, true, $"{repo} is empty. Seed it with the starter config to start using it.");
         }
         catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.NotFound)
         {
@@ -42,7 +43,7 @@ public static class ConfigRepoProbe
         var hasMarker = tree.Entries.Any(e => e.Type == "blob" && e.Path == MarkerFile);
         if (hasMarker) return new(true, true, false, $"{repo} ({branch}) is an Optimus-Vibe config repo.");
         return new(true, false, false,
-            $"{repo} ({branch}) isn't an Optimus-Vibe config repo yet (no {MarkerFile}). Seed it with this device's config to use it.");
+            $"{repo} ({branch}) isn't an Optimus-Vibe config repo yet (no {MarkerFile}). Seed it with the starter config to use it.");
     }
 }
 
@@ -50,78 +51,47 @@ public static class ConfigRepoProbe
 public sealed record SeedResult(string CommitSha, IReadOnlyList<string> Paths);
 
 /// <summary>
-/// Turns an empty / freshly created repo into a config repo: one commit (git data API: blobs → tree → commit → ref)
-/// with config/devices.yaml, config/games/*.yaml, config/schema/**, a fresh config/library.yaml and
-/// config/requests.yaml, and a short README.md. saves/ and *.local-conflict copies are never seeded.
+/// Turns an empty / freshly created repo into a config repo: one commit (git data API: blobs, tree, commit, ref)
+/// with the generic starter config embedded in this build (<see cref="SeedConfig"/>: example devices.yaml,
+/// games/_template.yaml, schema/, empty library.yaml and requests.yaml) and a short README.md. It never needs, and never
+/// copies, anyone's existing config.
 /// </summary>
 public static class ConfigRepoSeeder
 {
     public const string CommitMessage = "Seed Optimus-Vibe config";
 
-    internal const string LibraryYaml =
-        "# Optimus-Vibe library choices, shared by every machine (synced). Detected games listed in optOut are not managed.\n" +
-        "# Keys are \"store:id\" (steam:<appid>, battlenet:<code>, ea:<offer>, epic:<AppName>, gog:<id>, xbox:<PFN>).\n" +
-        "optOut: []\n";
-
-    internal const string RequestsYaml =
-        "# Optimus-Vibe request queue: installed games that have no config/games/<id>.yaml yet (written by the app).\n" +
-        "requests: []\n";
-
     internal static string Readme(string repo) =>
         $"# {repo.Split('/').Last()}\n\n" +
-        "Config repo for [Optimus-Vibe](https://github.com/jrose462/Optimus-Vibe): per-device graphics presets, manual saves and " +
+        "Private config repo for [Optimus-Vibe](https://github.com/jrose462/Optimus-Vibe): per-device graphics presets, manual saves and " +
         "library choices, synced between your PCs and handhelds.\n\n" +
-        "- `config/devices.yaml` — device profiles (desktop, handheld...)\n" +
-        "- `config/games/` — one file per game with recommended presets\n" +
-        "- `config/saves/` — manual saves made in the app\n" +
-        "- `config/library.yaml`, `config/requests.yaml` — library opt-outs and games waiting for presets\n\n" +
+        "- `config/devices.yaml`: your device profiles (run `optimus-vibe detect`, then edit the match rules)\n" +
+        "- `config/games/`: one file per game with recommended presets\n" +
+        "- `config/saves/`: manual saves made in the app\n" +
+        "- `config/library.yaml`, `config/requests.yaml`: library opt-outs and games waiting for presets\n\n" +
         "Managed by the app; edit by hand only if you know the format (see `config/schema/`).\n";
 
-    /// <summary>Repo path (config/...) → content, from a local config folder.</summary>
-    public static IReadOnlyDictionary<string, byte[]> CollectSeedFiles(string seedConfigDir)
+    /// <summary>Repo path (config/...) to content, from the embedded starter config.</summary>
+    public static IReadOnlyDictionary<string, byte[]> CollectSeedFiles()
     {
-        var root = Path.GetFullPath(seedConfigDir);
-        var devices = Path.Combine(root, "devices.yaml");
-        if (!File.Exists(devices)) throw new GitHubException($"Can't seed from {root}: it has no devices.yaml.");
-
-        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
-        {
-            ["config/devices.yaml"] = File.ReadAllBytes(devices),
-            ["config/library.yaml"] = Encoding.UTF8.GetBytes(LibraryYaml),
-            ["config/requests.yaml"] = Encoding.UTF8.GetBytes(RequestsYaml),
-        };
-        var games = Path.Combine(root, "games");
-        if (Directory.Exists(games))
-            foreach (var f in Directory.EnumerateFiles(games, "*.yaml", SearchOption.TopDirectoryOnly))
-                files["config/games/" + Path.GetFileName(f)] = File.ReadAllBytes(f);
-        var schema = Path.Combine(root, "schema");
-        if (Directory.Exists(schema))
-            foreach (var f in Directory.EnumerateFiles(schema, "*", SearchOption.AllDirectories))
-            {
-                if (Skip(f)) continue;
-                files["config/schema/" + Path.GetRelativePath(schema, f).Replace('\\', '/')] = File.ReadAllBytes(f);
-            }
+        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (var (rel, content) in SeedConfig.Files()) files["config/" + rel] = content;
         return files;
     }
-
-    private static bool Skip(string file) =>
-        file.EndsWith(GitHubMirror.ConflictSuffix, StringComparison.OrdinalIgnoreCase) ||
-        file.EndsWith(".gp-tmp", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Commits the seed to <paramref name="branch"/> of <paramref name="repo"/>. Refuses a repo that already has
     /// config/devices.yaml. An empty repo (no commits) first gets README.md through the contents API, since the git data
     /// API can't write to an empty repo; everything else lands in one commit.
     /// </summary>
-    public static Task<SeedResult> SeedAsync(GitHubApi api, string repo, string branch, string seedConfigDir, CancellationToken ct = default) =>
-        SeedAsync(api, repo, branch, seedConfigDir, Task.Delay, ct);
+    public static Task<SeedResult> SeedAsync(GitHubApi api, string repo, string branch, CancellationToken ct = default) =>
+        SeedAsync(api, repo, branch, Task.Delay, ct);
 
-    internal static async Task<SeedResult> SeedAsync(GitHubApi api, string repo, string branch, string seedConfigDir,
+    internal static async Task<SeedResult> SeedAsync(GitHubApi api, string repo, string branch,
         Func<TimeSpan, CancellationToken, Task> delay, CancellationToken ct)
     {
         if (!GitHubApi.IsValidRepoName(repo)) throw new GitHubApiException(null, $"'{repo}' is not a repo name — use owner/name.");
         branch = string.IsNullOrWhiteSpace(branch) ? "main" : branch.Trim();
-        var seed = CollectSeedFiles(seedConfigDir);
+        var seed = CollectSeedFiles();
         var readme = Encoding.UTF8.GetBytes(Readme(repo));
 
         var head = await HeadOrInitAsync(api, repo, branch, readme, delay, ct).ConfigureAwait(false);

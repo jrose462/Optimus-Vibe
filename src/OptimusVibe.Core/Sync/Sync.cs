@@ -36,8 +36,11 @@ public static class SyncProviders
         var settings = AppPaths.LoadSettings(paths.DataDir);
         if (!IsGitHub(settings)) return new GitCliProvider(paths.RepoRoot);
 
+        var repo = settings.GitHubRepo;
+        if (string.IsNullOrWhiteSpace(repo))
+            throw new ConfigException("No GitHub config repo chosen yet: open OptimusVibe.exe (or run `optimus-vibe github use <owner/name>`).");
         var token = GitHubAuth.LoadToken();
-        return new GitHubMirror(AppPaths.MirrorDir(paths.DataDir, settings.GitHubRepo), settings.GitHubRepo,
+        return new GitHubMirror(AppPaths.MirrorDir(paths.DataDir, repo), repo,
             settings.GitHubBranch, token is null ? null : new GitHubApi(token), settings.GitHubLogin)
         {
             ActiveConfigRoot = paths.ConfigRoot,

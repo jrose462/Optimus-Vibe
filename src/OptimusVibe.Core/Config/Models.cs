@@ -131,8 +131,11 @@ public sealed class AppSettings
     /// </summary>
     public string SyncProvider { get; set; } = "git";
 
-    /// <summary>owner/name of the config repo for the github provider.</summary>
-    public string GitHubRepo { get; set; } = DefaultGitHubRepo;
+    /// <summary>
+    /// owner/name of the user's own (private) config repo for the github provider. Null until the user picks or creates one:
+    /// there is deliberately no default, because the app repo holds code only.
+    /// </summary>
+    public string? GitHubRepo { get; set; }
     public string GitHubBranch { get; set; } = "main";
 
     /// <summary>Login of the signed-in GitHub account (display only; the token lives in Windows Credential Manager).</summary>
@@ -150,7 +153,8 @@ public sealed class AppSettings
     /// <summary>App start view: auto (grid on the handheld / small screens), grid, or list.</summary>
     public string LibraryMode { get; set; } = "auto";
 
-    public const string DefaultGitHubRepo = "jrose462/Optimus-Vibe";
+    /// <summary>Suggested name when creating the config repo.</summary>
+    public const string SuggestedConfigRepoName = "optimus-vibe-config";
 }
 
 /// <summary>config/library.yaml — shared library choices (git-synced).</summary>

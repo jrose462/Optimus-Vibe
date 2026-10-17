@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
+using OptimusVibe.Config;
 
 namespace OptimusVibe.Sync;
 
@@ -27,6 +28,16 @@ public static class GitHubAuth
 
     /// <summary>Target used before the rename to Optimus-Vibe; read as a fallback and cleared on sign-out.</summary>
     public const string LegacyCredentialTarget = "GameProfiles:github";
+
+    /// <summary>
+    /// The OAuth client id to use: settings.json gitHubClientId, then the OPTIMUSVIBE_GITHUB_CLIENT_ID environment variable,
+    /// then the id baked into the build (<see cref="BuildInfo.GitHubClientId"/>). Empty when none is set.
+    /// </summary>
+    public static string ResolveClientId(AppSettings? settings) =>
+        FirstNonBlank(settings?.GitHubClientId, AppPaths.Env("GITHUB_CLIENT_ID"), BuildInfo.GitHubClientId);
+
+    internal static string FirstNonBlank(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? "";
 
     private const string DeviceCodeUrl = "https://github.com/login/device/code";
     private const string TokenUrl = "https://github.com/login/oauth/access_token";

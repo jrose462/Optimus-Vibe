@@ -1,11 +1,11 @@
 # Optimus-Vibe
 
-Per-device game graphics settings for Windows. The same games run on a desktop (RTX GPU, <desktop resolution> @ 165 Hz)
-and a ROG Xbox Ally X handheld (Ryzen AI Z2 Extreme, 1920x1080 @ 120 Hz). Each needs different settings, and Steam
-Cloud keeps syncing one machine's config onto the other. Optimus-Vibe detects which machine it is on and, every
-time a game launches, writes that machine's chosen preset (a Claude-recommended one or your own manual save)
-into the game's config files. It can also switch the display
-mode and set NVIDIA driver profiles. Settings live as YAML in this git repo (`config/`).
+Per-device game graphics settings for Windows. If you play the same games on more than one machine (say a desktop and a
+handheld), each needs different settings, and Steam Cloud keeps syncing one machine's config onto the other.
+Optimus-Vibe detects which machine it is on and, every time a game launches, writes that machine's chosen preset (a
+Claude-recommended one or your own manual save) into the game's config files. It can also switch the display
+mode and set NVIDIA driver profiles. Your settings live as YAML in **your own config repo or folder**, never in this
+repo (see [Two places](#two-places-the-app-and-your-settings)).
 
 It finds your games by itself: installed games from Steam, Battle.net, EA app, Xbox app, Epic and GOG show up in
 the app's library, are managed automatically (Steam launch options included), and games it has no settings for
@@ -31,90 +31,99 @@ dotnet publish src/OptimusVibe.Cli     -c Release -o C:\Tools\Optimus-Vibe   # o
 
 Use the same path on every machine (`C:\Tools\Optimus-Vibe\`). Steam launch options then look the same everywhere.
 
-## Two GitHub repos
+## Two places: the app and your settings
 
-Optimus-Vibe talks to two different GitHub repos, with different jobs:
-
-| Repo | Role |
+| Place | Role |
 |---|---|
-| `jrose462/Optimus-Vibe`, the **app repo** (fixed) | The code and its **GitHub Releases**: the app's updater and `update-app` download `OptimusVibe.exe` and `optimus-vibe.exe` from here. **Report a problem** files its bug reports as issues here. Release and bug-triage workflows: [docs/ci.md](docs/ci.md). |
-| Your **config repo** (chosen in Settings, or `optimus-vibe github use` / `create`) | Game configs, presets, manual saves, opt-outs and the request queue. Default `jrose462/Optimus-Vibe`, which is also the app repo, but it can be any repo you own. **Create new** makes a new one from the app (or `optimus-vibe github create <name>`), seeded with the current config, and switches this machine to it. |
+| `jrose462/Optimus-Vibe`, the **app repo** (public) | The code, docs, the Claude skill and a generic starter config. Its **GitHub Releases** are where the app's updater and `update-app` download `OptimusVibe.exe` and `optimus-vibe.exe` (anonymously, no sign-in). **Report a problem** files bug reports as issues here (a GitHub sign-in is optional; it only decides who the author is). CI, releases and bug triage: [docs/ci.md](docs/ci.md). |
+| Your **config repo or folder** (private, yours) | Your devices, game configs, presets, manual saves, opt-outs and the request queue. A private GitHub repo that the app creates or picks for you, **or** a local folder (your own git checkout, or any folder). Nothing of it is stored in the app repo. |
 
-Updates and bug reports need a GitHub sign-in (the app repo is private); see [GitHub sign-in](#github-sign-in).
+Signing in to GitHub does two things: it lets you keep your config in a private repo of yours (the alternative is a local folder), and it makes you the author of the bug reports you file. Updates never need a sign-in, and neither does reporting (without one, reports are filed anonymously through the app's built-in access).
 
-## One-time setup per machine
+## First run: where should your game settings live?
+
+The first time you open `OptimusVibe.exe` it asks one question, "Where should your game settings live?":
+
+- **GitHub** (recommended; also the easiest on a handheld, no git needed): sign in with a short code (open
+  github.com/login/device, enter the code, approve), then either **Create my config repo** (a new private repo, default
+  name `optimus-vibe-config`, filled with the starter config and cloned) or **use a repo you already have** (the app
+  offers to set it up if it is empty).
+- **A local folder**: pick your own git checkout of a config repo, or any folder. A folder with no Optimus-Vibe settings
+  is offered the starter set (`<folder>\config`). Make it a git repo yourself if you want it synced between machines.
+
+Then run `optimus-vibe detect` (or look at Settings) and edit `config\devices.yaml` so your machines match: the starter file
+has two neutral examples, `desktop` (matched by an NVIDIA GPU wildcard) and `ally-x` (matched by CPU `*Z2 Extreme*`).
+On your other machines, choose the same GitHub repo (or clone the same repo and point the app at it).
+
+## Setting up each machine
 
 There are two ways to get the config onto a machine (the **sync provider**):
 
 | Provider | Use on | How it syncs |
 |---|---|---|
-| `git` (default) | the desktop | `ConfigRoot` is your own git checkout; the app runs the git CLI to commit, pull and push |
-| `github` | the Ally X, or any machine without git | the app keeps its own copy under `%LOCALAPPDATA%\OptimusVibe\repos\<owner>\<name>\` and syncs it through the GitHub API after you sign in. No git, no clone |
+| `git` | a machine with git and a checkout | `ConfigRoot` is your own git checkout; the app runs the git CLI to commit, pull and push |
+| `github` | a handheld, or any machine without git | the app keeps its own copy under `%LOCALAPPDATA%\OptimusVibe\repos\<owner>\<name>\` and syncs it through the GitHub API after you sign in. No git, no clone |
 
-### Ally X (no git needed)
+### With GitHub (no git needed)
 
-1. Copy the published `C:\Tools\Optimus-Vibe\` folder to the Ally (same path as on the desktop).
-2. Open `OptimusVibe.exe` → **Settings** (Menu button) → **Sign in with GitHub** (see below), pick the repo
-   (default `jrose462/Optimus-Vibe`), and choose the `github` provider. The app downloads the config and from then
-   on pulls and pushes it itself. CLI equivalent: `optimus-vibe github login` (or `github token <PAT>`), then
-   `optimus-vibe github use jrose462/Optimus-Vibe`; `optimus-vibe github status` shows what it is using.
+1. Copy the published `C:\Tools\Optimus-Vibe\` folder to the machine (same path everywhere).
+2. Open `OptimusVibe.exe`, choose **GitHub**, sign in and pick your config repo. CLI equivalent:
+   `optimus-vibe github login` (or `github token <PAT>`), then `optimus-vibe github use <you>/<repo>` or
+   `optimus-vibe github create optimus-vibe-config`; `optimus-vibe github status` shows what it is using.
 3. Check detection (`optimus-vibe detect`, or the device shown in Settings).
 
-### Desktop (git checkout)
+### With a local folder or git checkout
 
-1. Clone this repo (e.g. `<repo>`).
-2. Point the tool at the config folder: open `OptimusVibe.exe` and pick the repo folder on its first-run
-   screen, or run `optimus-vibe setup --config-root <repo>\config`. Either writes
-   `%LOCALAPPDATA%\OptimusVibe\settings.json`, which stays local and is not in git.
-   If detection picks the wrong device, add `--force-profile ally-x` (or `desktop`); the app offers this too.
-3. Check detection: `optimus-vibe detect` shows the hardware strings and the matched device.
-4. `optimus-vibe list` and `optimus-vibe validate`.
+1. Clone your config repo (or make a folder).
+2. Open `OptimusVibe.exe` and choose **A local folder**, or run
+   `optimus-vibe setup --config-root <your config repo>\config`. Either writes `%LOCALAPPDATA%\OptimusVibe\settings.json`,
+   which stays local and is not in git. If detection picks the wrong device, add `--force-profile <device>`; the app offers
+   this too.
+3. `optimus-vibe detect` shows the hardware strings and the matched device; then `optimus-vibe list` and `optimus-vibe validate`.
 
-The config root is found in this order: `--config <dir>`, `OPTIMUSVIBE_CONFIG`, the `github` provider's managed
-copy (when that provider is selected and the copy exists), `settings.json` `configRoot`, then a `config` folder
-next to the exe or in a parent of the current directory. To go back from `github` to a checkout:
-`optimus-vibe sync-provider git`.
+The config root is found in this order: `--config <dir>`, `OPTIMUSVIBE_CONFIG`, the `github` provider's managed copy
+(when that provider is selected and the copy exists), `settings.json` `configRoot`, then a `config` folder next to the exe
+or in a parent of the current directory (handy when you run the CLI inside your config repo). To go back from `github` to a
+checkout: `optimus-vibe sync-provider git`.
+
+If you upgrade from a version that used this app repo as the config repo, the app clears that old choice once and asks
+the first-run question again.
 
 ### GitHub sign-in
 
-The `github` provider (and the repo picker) needs a GitHub token, stored in Windows Credential Manager
+The `github` provider and the repo picker need a GitHub token, stored in Windows Credential Manager
 (`OptimusVibe:github`). Two ways to get one:
 
-- **Device-code sign-in** (Settings → Sign in with GitHub, or `optimus-vibe github login`): the app shows a code;
-  open github.com/login/device on any device, enter it, approve. This needs the **Client ID of a GitHub OAuth App
-  with Device Flow enabled**, registered once:
-  1. github.com/settings/developers → **OAuth Apps** → **New OAuth App**.
-  2. Any name; any Homepage URL and Authorization callback URL (e.g. `https://github.com/jrose462/Optimus-Vibe`;
-     device flow never uses the callback).
-  3. Register, then tick **Enable Device Flow** and save.
-  4. Copy the **Client ID** (public, not a secret; no client secret needed) into Settings → GitHub client id
-     (`gitHubClientId` in `settings.json`).
-
-  The app asks for the `repo` scope, so private config repos work.
+- **Device-code sign-in** (first-run screen, Settings → Sign in with GitHub, or `optimus-vibe github login`): the app
+  shows a code; open github.com/login/device on any device, enter it, approve. Official builds carry the Client ID of the
+  Optimus-Vibe OAuth App, so there is nothing to set up. If a build has none (or you want your own app), register a GitHub
+  OAuth App with **Device Flow enabled** at github.com/settings/developers and give the Client ID (public, not a secret) via
+  Settings → GitHub client id (`gitHubClientId` in `settings.json`), the `OPTIMUSVIBE_GITHUB_CLIENT_ID` environment variable,
+  or the `OptimusVibeGitHubClientId` build property (precedence: settings, env, built-in). The app asks for the `repo`
+  scope, so private config repos work.
 - **Personal access token**: create a fine-grained PAT (github.com/settings/personal-access-tokens) with access
-  to just the config repo and **Contents: Read and write**, then paste it in Settings or run
+  to just your config repo and **Contents: Read and write**, then paste it in Settings or run
   `optimus-vibe github token <PAT>`.
 
-Then pick the repo: Settings lists the repos you can push to (`optimus-vibe github repos`); the default is
-`jrose462/Optimus-Vibe` (branch `main`). `optimus-vibe github logout` removes the token.
+Settings lists the repos you can push to (`optimus-vibe github repos`). `optimus-vibe github logout` removes the token.
 
 ## Presets and manual saves
 
 Each game has two kinds of settings per device, shown as two tabs in the app:
 
-- **Recommended** presets, written by Claude (`presets:` in `config/games/<game>.yaml`). The desktop gets
+- **Recommended** presets, written by Claude (`presets:` in `config/games/<game>.yaml`). A desktop-class device gets
   `quality` (best visuals at a smooth framerate: DLSS Quality/Balanced, RT where affordable) and `performance`
-  (toward the 165 Hz cap: DLSS Performance, RT off). The Ally X gets `performance` (60+ fps sustained, FSR/XeSS
-  from 1080p, 120 Hz VRR) and `battery` (30/40 fps cap and the cheapest playable settings; pair it with Armoury
-  Crate Silent, since Optimus-Vibe cannot set TDP). Each preset has a label, a short description, and a target fps.
+  (toward the display's refresh cap: DLSS Performance, RT off). A handheld gets `performance` (60+ fps sustained,
+  FSR/XeSS from 1080p, VRR) and `battery` (30/40 fps cap and the cheapest playable settings; pair it with the
+  handheld's silent power mode, since Optimus-Vibe cannot set TDP). Each preset has a label, a short description, and a target fps.
 - **Manual saves**, made by you: tune the game in its own menu, then save the result under a name. A save records
   every setting the game's presets know about (files with no mapped keys are copied whole). Saves live in
   `config/saves/<game>/<device>/<slug>/` and are committed and pushed automatically, so they follow you to the
   other machine's checkout.
 
 Which settings a launch uses: the preset you picked (in the app or with `use`) is remembered per game per
-device; until you pick one, the device's `defaultPreset` from `devices.yaml` applies (desktop `quality`, Ally X
-`performance`).
+device; until you pick one, the device's `defaultPreset` from `devices.yaml` applies (e.g. `quality` on a desktop, 
+`performance` on a handheld).
 
 ## The app
 
@@ -127,15 +136,17 @@ For each game, pick a preset in the **Recommended** tab or one of your **Manual 
 for this device. From the Manual saves tab you can save the game's current settings, update, rename, or delete a
 save. Saves are synced through the selected sync provider (git or GitHub).
 
-**Settings** holds GitHub sign-in, the repo and sync provider, which launchers to scan (`scanStores`), whether
-to write Steam launch options, and the device override.
+**Settings** holds the GitHub account and config repo, the sync provider, which launchers to scan (`scanStores`),
+whether to write Steam launch options, and the device override.
 
-**Check for updates** looks for a newer release of the app repo and, if there is one, downloads and verifies it
-(the same as `optimus-vibe update-app`; `--check` only looks). **Report a problem** asks for a description and
-shows a preview of the report (version, device, recent log, with tokens and your user folder redacted) before
-anything is sent; it files an issue on the app repo (`optimus-vibe report-bug`, with `--dry-run` to print instead).
-Claude triages each report: it posts an action plan on the issue and, for clear small fixes, opens a PR. See
-[docs/ci.md](docs/ci.md).
+**Check for updates** looks for a newer release of the (public) app repo and, if there is one, downloads and verifies it
+(the same as `optimus-vibe update-app`; `--check` only looks). No sign-in is needed; if GitHub is rationing anonymous
+requests from your network the app says so and you can try again later. **Report a problem** asks for a description and
+shows a preview of the report (version, device, recent log, with tokens and your user folder redacted) before anything is
+sent. The panel tells you who it is filed as: "Filed as @you" when you are signed in to GitHub (you get the notifications),
+otherwise "Filed anonymously via Optimus-Vibe" through the app's built-in, issues-only access (official builds; at most 5
+reports a day per machine). A build with neither copies the report to your clipboard and opens a prefilled GitHub issue page in your browser (`optimus-vibe report-bug`, with `--dry-run` to print instead). Issues are public. Claude triages reports sent by the app
+(they carry a hidden marker line): it posts an action plan on the issue and, for clear small fixes, opens a PR. See [docs/ci.md](docs/ci.md).
 
 ## Library: auto-detect, opt-out, request queue
 
@@ -265,11 +276,12 @@ Manual saves are committed and pushed automatically (turn this off with `"autoSy
 
 ## Device detection
 
-`config/devices.yaml` lists devices with `match` rules on `model`, `manufacturer`, `cpu`, `gpu`, or `machine`
-(computer name), using `*`/`?` wildcards. The first device whose rules all match wins. Virtual display adapters
-from Apollo/Sunshine/GlideX/Parsec are ignored. The Ally X is matched on its CPU (`*Z2 Extreme*`) because the
-desktop's desktop Ryzen CPU also reports an "AMD Radeon(TM) Graphics" iGPU. Override with `--profile <device>` or
-`setup --force-profile <device>`.
+`config/devices.yaml` (in your config repo) lists devices with `match` rules on `model`, `manufacturer`, `cpu`, `gpu`, or
+`machine` (computer name), using `*`/`?` wildcards, plus a free-text `description` of the hardware (Claude reads it when
+recommending settings). The first device whose rules all match wins. Virtual display adapters from
+Apollo/Sunshine/GlideX/Parsec are ignored. Match a handheld on its CPU (e.g. `*Z2 Extreme*`) rather than an AMD GPU name,
+because a desktop with an AMD CPU also reports a Radeon iGPU. Run `optimus-vibe detect` to see the strings to match. Override
+with `--profile <device>` or `setup --force-profile <device>`.
 
 ## Driver settings
 
@@ -308,7 +320,7 @@ A vendor block on the wrong hardware is skipped.
 
 This project was called GameProfiles (`gameprofiles.exe` / `GameProfilesApp.exe`). On first start the app or CLI copies
 `%LOCALAPPDATA%\GameProfiles` to `%LOCALAPPDATA%\OptimusVibe` (settings, selections, backups, GitHub mirrors, logs),
-moves the default config repo `jrose462/GameProfiles` to `jrose462/Optimus-Vibe`, copies the GitHub token to the new
+clears a config repo setting that still points at the app repo (the app repo no longer holds config; you are asked again where your settings live), copies the GitHub token to the new
 Credential Manager entry `OptimusVibe:github`, and leaves the old folder and credential in place (delete them when
 you like). The old `GAMEPROFILES_*` environment variables are still read when the `OPTIMUSVIBE_*` one is unset, and
 Steam launch options that still point at `GameProfilesApp.exe` / `gameprofiles.exe` are rewritten to `OptimusVibe.exe`
@@ -316,11 +328,12 @@ by `steam-options` / the app. Download the new `OptimusVibe.exe` and `optimus-vi
 
 ## Adding games
 
-Installed games are queued automatically (see "Library" above); ask Claude to "process Optimus-Vibe requests"
-to work through the queue. For a game that is not installed yet, or to redo one, ask Claude:
-"add <game> to Optimus-Vibe" or "refresh recommendations for <game>". It follows the
-`game-settings-recommender` skill (`.claude/skills/game-settings-recommender/`), which researches the game's
-settings, confirms key names with `optimus-vibe inspect`, writes the four presets, validates and commits. See
-[CLAUDE.md](CLAUDE.md) for the rules (written for Claude but readable by people) and
-`config/games/_template.yaml` for every field. In VS Code with the YAML extension, game files are validated
+Installed games are queued automatically (see "Library" above). Open Claude Code **in your config repo** and ask it to
+"process Optimus-Vibe requests" to work through the queue. For a game that is not installed yet, or to redo one, ask:
+"add <game> to Optimus-Vibe" or "refresh recommendations for <game>". It follows the `game-settings-recommender` skill
+(`.claude/skills/game-settings-recommender/` in this repo; copy it to `~/.claude/skills/`), which researches the game's
+settings, reads your devices from `config/devices.yaml`, confirms key names with `optimus-vibe inspect --config <config repo>\config`,
+writes the presets, validates and commits **in your config repo**. See [CLAUDE.md](CLAUDE.md) for the rules (written for
+Claude but readable by people) and `config/games/_template.yaml` (in your config repo; the starter copy is
+`seed/config/games/_template.yaml` here) for every field. In VS Code with the YAML extension, game files are validated
 against `config/schema/game.schema.json` as you type.

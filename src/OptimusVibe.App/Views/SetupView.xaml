@@ -2,18 +2,16 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
+             xmlns:vm="clr-namespace:OptimusVibe.App.ViewModels"
              xmlns:input="clr-namespace:OptimusVibe.App.Input">
     <!-- DataContext: MainViewModel. Shown when no config folder resolves, or this machine matches no device.
-         Primary path (handheld, no git): sign in with GitHub and use the config repo; alternative: a local checkout. -->
+         Step "choose": where should the game settings live (GitHub config repo, or a local folder).
+         Step "github": sign in, then create the private config repo or pick an existing one. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
         <Border Style="{StaticResource Card}" MaxWidth="820" Margin="32" Padding="40,36"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel>
-                <TextBlock Text="Let's set this device up" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
-                <TextBlock Style="{StaticResource Text.Lead}" Margin="0,8,0,0"
-                           Text="Optimus-Vibe keeps your games, presets and saves in a config repo and syncs them between your devices." />
-
-                <Border Style="{StaticResource Card.Inset}" Margin="0,20,0,0"
+                <Border Style="{StaticResource Card.Inset}" Margin="0,0,0,20"
                         Visibility="{Binding SetupMessage, Converter={StaticResource VisibleWhen}}">
                     <StackPanel Orientation="Horizontal">
                         <Border Style="{StaticResource Dot.Attention}" Margin="0,0,12,0" VerticalAlignment="Top" />
@@ -22,10 +20,10 @@
                 </Border>
 
                 <!-- ============================================ device (config is fine, device unknown) -->
-                <StackPanel Margin="0,26,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}}">
-                    <TextBlock Style="{StaticResource Text.H2}" Text="Which device is this?" />
+                <StackPanel Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}}">
+                    <TextBlock Text="Which device is this?" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
                     <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,14"
-                               Text="This machine didn't match any device in your config. Pick the one to always use here." />
+                               Text="This machine didn't match any device in your settings. Pick the one to always use here." />
                     <ItemsControl ItemsSource="{Binding DeviceChoices}" Focusable="False">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -42,45 +40,119 @@
                     </ItemsControl>
                 </StackPanel>
 
-                <!-- ============================================ GitHub (primary) -->
-                <StackPanel Margin="0,28,0,0" Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
-                    <TextBlock Style="{StaticResource Text.H2}" Text="Sign in with GitHub" />
-                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,16"
-                               Text="The app downloads your config repo and keeps it in sync through your account. No git or folders to set up." />
-                    <views:GitHubSignInPanel x:Name="SignIn" DataContext="{Binding Account}" />
+                <StackPanel Visibility="{Binding HasDeviceChoices, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
 
-                    <StackPanel DataContext="{Binding Account}" Margin="0,20,0,0" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
-                        <Grid>
+                    <!-- ============================================ step 1: where should the settings live? -->
+                    <StackPanel Visibility="{Binding SetupIsChoose, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock Text="Where should your game settings live?" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource Text.Lead}" Margin="0,8,0,0"
+                                   Text="Your presets and saves stay with you, in a place you pick. The app itself holds none of it." />
+
+                        <Grid Margin="0,24,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Config repository" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
-                                <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
-                                         AutomationProperties.Name="Repository (owner/name)" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                <TextBlock Text="Branch" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
-                                <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
-                                         AutomationProperties.Name="Branch" />
-                            </StackPanel>
-                            <Button Grid.Column="2" Style="{StaticResource Button.Large}" Command="{Binding UseRepoCommand}" Margin="10,0,0,0"
-                                    VerticalAlignment="Bottom" input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Use this repo" Content="Use this repo" />
+                            <Border Style="{StaticResource Card.Inset}" Padding="22,20">
+                                <StackPanel>
+                                    <TextBlock Text="GitHub" Style="{StaticResource Text.H2}" />
+                                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,16" TextWrapping="Wrap"
+                                               Text="A private repo in your account, synced between your devices. Sign in with a short code; no git needed." />
+                                    <Button Style="{StaticResource Button.Large}" Command="{Binding SetupGitHubCommand}" HorizontalAlignment="Left"
+                                            input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Use GitHub" Content="Use GitHub" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource Card.Inset}" Padding="22,20">
+                                <StackPanel>
+                                    <TextBlock Text="A local folder" Style="{StaticResource Text.H2}" />
+                                    <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,16" TextWrapping="Wrap"
+                                               Text="Your own git checkout, or any folder (an empty one gets a starter set)." />
+                                    <Button Style="{StaticResource Button.Large}" Command="{Binding PickConfigFolderCommand}" HorizontalAlignment="Left"
+                                            AutomationProperties.Name="Choose a folder" Content="Choose folder…" />
+                                </StackPanel>
+                            </Border>
                         </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                            <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding ConfigRoot}" VerticalAlignment="Center" />
+                            <Button Content="Retry" Style="{StaticResource Button.Quiet}" Command="{Binding RefreshCommand}" Margin="10,0,0,0" />
+                        </StackPanel>
                     </StackPanel>
 
-                    <!-- ============================================ local checkout (alternative) -->
-                    <StackPanel Margin="0,32,0,0">
-                        <TextBlock Style="{StaticResource Text.H3}" Text="Or use a local git folder" />
-                        <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,0"
-                                   Text="Pick the config folder of a repo you cloned yourself (the one with devices.yaml)." />
-                        <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding ConfigRoot}" Margin="0,8,0,0" />
-                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                            <Button Command="{Binding PickConfigFolderCommand}" Content="Choose config folder…" />
-                            <Button Content="Retry" Style="{StaticResource Button.Quiet}" Command="{Binding RefreshCommand}" Margin="6,0,0,0" />
+                    <!-- ============================================ step 2: GitHub -->
+                    <StackPanel Visibility="{Binding SetupIsGitHub, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock Text="Sign in with GitHub" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource Text.Lead}" Margin="0,8,0,0"
+                                   Text="Used only to keep your settings in a private repo of yours. Nothing else." />
+                        <views:GitHubSignInPanel x:Name="SignIn" DataContext="{Binding Account}" Margin="0,20,0,0" />
+
+                        <StackPanel DataContext="{Binding Account}" Margin="0,26,0,0" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock Text="Create my config repo" Style="{StaticResource Text.H2}" />
+                            <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,12" TextWrapping="Wrap"
+                                       Text="A new repo in your account, filled with a starter set. You then edit your devices." />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Text="{Binding NewRepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
+                                         AutomationProperties.Name="New repository name" />
+                                <Button Grid.Column="1" Style="{StaticResource Button.Large}" Command="{Binding CreateRepoCommand}" Margin="10,0,0,0"
+                                        input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Create my config repo" Content="Create my config repo" />
+                            </Grid>
+                            <CheckBox IsChecked="{Binding NewRepoPrivate}" Content="Private (recommended)" Margin="0,10,0,0" />
+
+                            <TextBlock Text="Or use a repo you already have" Style="{StaticResource Text.H3}" Margin="0,30,0,0" />
+                            <TextBlock Text="Loading your repositories…" Style="{StaticResource Text.Dim}" Margin="4,8,0,0"
+                                       Visibility="{Binding IsLoadingRepos, Converter={StaticResource VisibleWhen}}" />
+                            <ListBox ItemsSource="{Binding FilteredRepos}" SelectedItem="{Binding SelectedRepo}"
+                                     Style="{StaticResource GameList}" ItemContainerStyle="{StaticResource GameListItem}"
+                                     MaxHeight="200" Margin="-4,8,-4,0" AutomationProperties.Name="Repositories">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:RepoItemViewModel}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding FullName, Mode=OneWay}" />
+                                            <TextBlock Text="Private" Style="{StaticResource Text.Caption}" Margin="10,2,0,0"
+                                                       Visibility="{Binding IsPrivate, Converter={StaticResource VisibleWhen}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Repository" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                    <TextBox Text="{Binding RepoName, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
+                                             AutomationProperties.Name="Repository (owner/name)" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                    <TextBlock Text="Branch" Style="{StaticResource Text.Dim}" Margin="4,0,0,6" />
+                                    <TextBox Text="{Binding Branch, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="16"
+                                             AutomationProperties.Name="Branch" />
+                                </StackPanel>
+                                <Button Grid.Column="2" Command="{Binding UseRepoCommand}" Margin="10,0,0,0"
+                                        VerticalAlignment="Bottom" AutomationProperties.Name="Use this repo" Content="Use this repo" />
+                            </Grid>
+
+                            <!-- picked repo isn't a config repo yet: confirm before writing the starter set to it -->
+                            <Border Style="{StaticResource Card.Inset}" Margin="0,16,0,0"
+                                    Visibility="{Binding HasSeedPrompt, Converter={StaticResource VisibleWhen}}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SeedPrompt}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Style="{StaticResource Button.Primary}" Command="{Binding ConfirmSeedCommand}" Margin="0,0,8,0"
+                                                AutomationProperties.Name="Set up this repo" Content="Set up and use this repo" />
+                                        <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CancelSeedCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
+
+                        <Button Content="Back" Style="{StaticResource Button.Quiet}" Command="{Binding SetupBackCommand}" HorizontalAlignment="Left" Margin="0,24,0,0" />
                     </StackPanel>
                 </StackPanel>
             </StackPanel>

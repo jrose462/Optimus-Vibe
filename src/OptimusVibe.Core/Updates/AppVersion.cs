@@ -5,7 +5,8 @@ namespace OptimusVibe.Updates;
 
 /// <summary>
 /// The fixed APP repo: releases of the exes are published here and bug reports are filed here. Not to be confused with
-/// the per-user CONFIG repo (<see cref="Config.AppSettings.GitHubRepo"/>), which only holds config/.
+/// the per-user CONFIG repo (<see cref="Config.AppSettings.GitHubRepo"/>), which holds the user's own settings and is private.
+/// The app repo is public: updates and the no-sign-in bug-report fallback use it anonymously.
 /// </summary>
 public static class AppRepo
 {
@@ -20,6 +21,7 @@ public static class AppRepo
     public const string CliAsset = "optimus-vibe.exe";
 
     public const string ReleasesUrl = "https://github.com/" + FullName + "/releases";
+    public const string IssuesUrl = "https://github.com/" + FullName + "/issues";
 }
 
 /// <summary>Version of the running build (Directory.Build.props; CI passes -p:Version=X.Y.Z).</summary>

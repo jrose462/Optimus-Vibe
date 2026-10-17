@@ -112,7 +112,7 @@
                         </Grid>
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
                             <Run Text="Your game settings live in" />
-                            <Run Text="{Binding CurrentRepo, Mode=OneWay}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" />
+                            <Run Text="{Binding CurrentRepoText, Mode=OneWay}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" />
                         </TextBlock>
 
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,10,0,0" Text="Sign in to GitHub above to pick a repository."
@@ -194,7 +194,7 @@
                                              input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="New repository name" Background="#1C1D21" />
                                     <CheckBox IsChecked="{Binding NewRepoPrivate}" Content="Private repository (recommended)" Margin="0,12,0,0" />
                                     <TextBlock Style="{StaticResource Text.Caption}" Margin="4,8,0,0"
-                                               Text="Creates the repo under your account, seeds it with your devices and games, and switches sync to it." />
+                                               Text="Creates the repo under your account, fills it with a starter config and switches sync to it." />
                                     <WrapPanel Margin="0,14,0,0">
                                         <Button Style="{StaticResource Button.Primary}" Command="{Binding CreateRepoCommand}" Margin="0,0,8,0"
                                                 AutomationProperties.Name="Create and use repo" Content="Create and use" />
@@ -227,8 +227,6 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                        <Button Content="Go to GitHub sign-in" Command="{Binding GoToSignInCommand}" HorizontalAlignment="Left" Margin="0,10,0,0"
-                                Visibility="{Binding SignInRequired, Converter={StaticResource VisibleWhen}}" />
                     </StackPanel>
                 </Border>
 

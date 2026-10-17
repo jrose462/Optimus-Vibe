@@ -74,6 +74,8 @@ jobs:
       - name: Build and test
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          # Baked into the exes (obfuscated, see docs/ci.md): the owner's fine-grained, issues-only PAT for no-sign-in bug reports.
+          BUG_REPORT_TOKEN: ${{ secrets.BUG_REPORT_TOKEN }}
         run: |
           dotnet build OptimusVibe.sln -c Release --no-restore "-p:Version=$env:VERSION"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -92,10 +94,15 @@ jobs:
       - name: Publish single-file exes
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          BUG_REPORT_TOKEN: ${{ secrets.BUG_REPORT_TOKEN }}
+          # Optional override of the default OAuth client id in Directory.Build.props (repo variable, public value).
+          CLIENT_ID: ${{ vars.OPTIMUSVIBE_GITHUB_CLIENT_ID }}
         run: |
           $common = @('-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
                       '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true',
                       "-p:Version=$env:VERSION")
+          if ($env:CLIENT_ID) { $common += "-p:OptimusVibeGitHubClientId=$env:CLIENT_ID" }
+          if (-not $env:BUG_REPORT_TOKEN) { Write-Output "::warning::BUG_REPORT_TOKEN is not set: this release can't send bug reports directly (it falls back to a browser form)." }
           dotnet publish src/OptimusVibe.App/OptimusVibe.App.csproj @common -o out/app
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet publish src/OptimusVibe.Cli/OptimusVibe.Cli.csproj @common -o out/cli

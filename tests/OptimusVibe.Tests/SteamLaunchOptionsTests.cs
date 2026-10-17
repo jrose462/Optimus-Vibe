@@ -8,7 +8,7 @@ public sealed class SteamLaunchOptionsComposeTests
     private const string Exe = @"C:\Tools\Optimus-Vibe\OptimusVibe.exe";
     private const string W = "\"" + Exe + "\" run cyberpunk2077 -- %command%";
     private const string OldApp = "\"C:\\Old Place\\GameProfilesApp.exe\" run cyberpunk2077 -- %command%";
-    private const string Cli = "\"<repo>\\publish\\gameprofiles.exe\" run cyberpunk2077 --preset battery --no-prompt -- %command%";
+    private const string Cli = "\"C:\\Tools\\GameProfiles\\gameprofiles.exe\" run cyberpunk2077 --preset battery --no-prompt -- %command%";
 
     [Theory]
     [InlineData(null, W)]

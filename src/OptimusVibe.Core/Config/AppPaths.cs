@@ -60,14 +60,14 @@ public sealed class AppPaths
     }
 
     /// <summary>
-    /// Config root order: --config option, OPTIMUSVIBE_CONFIG, settings.json, then a "config" folder
-    /// next to the exe or in any parent of it (dev checkout).
+    /// Config root order: --config option, OPTIMUSVIBE_CONFIG, the github provider's managed copy, settings.json, then a
+    /// "config" folder next to the exe or in a parent of the current directory (running inside a config repo checkout).
     /// </summary>
     public static AppPaths Resolve(string? configOption)
     {
         var dataDir = DefaultDataDir;
         var settings = LoadSettings(dataDir);
-        var mirror = settings.SyncProvider.Equals("github", StringComparison.OrdinalIgnoreCase)
+        var mirror = settings.SyncProvider.Equals("github", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(settings.GitHubRepo)
             ? Path.Combine(MirrorDir(dataDir, settings.GitHubRepo), "config")
             : null;
         var root = configOption
@@ -77,7 +77,7 @@ public sealed class AppPaths
                    ?? FindConfigNear(AppContext.BaseDirectory)
                    ?? FindConfigNear(Environment.CurrentDirectory)
                    ?? throw new ConfigException(
-                       "No config folder found. Run `optimus-vibe setup --config-root <repo>\\config` once on this machine.");
+                       "No config folder found. Open OptimusVibe.exe and choose where your game settings live, or run `optimus-vibe setup --config-root <your config repo>\\config`.");
         return new AppPaths { ConfigRoot = Path.GetFullPath(root), DataDir = dataDir };
     }
 

@@ -1,0 +1,237 @@
+﻿# yaml-language-server: $schema=../schema/game.schema.json
+#
+# TEMPLATE: copy to games/<id>.yaml, then delete what you don't need. The normal way to add or refresh a game is
+# the `game-settings-recommender` skill (.claude/skills/game-settings-recommender/SKILL.md).
+# Files whose name starts with "_" are ignored by `optimus-vibe list` / `run` / `validate`.
+#
+# What gets applied on a device (see GameContext.cs / ProfileResolver.cs):
+#   - Either a recommended preset, presets.<device>.<name>, merged over the `profiles:` entry it `extends`
+#     (and so on up the chain; deep merge, child wins, a null value removes an inherited key),
+#   - or a manual save, config/saves/<id>/<device>/<slug>/save.yaml (made in the app or with `optimus-vibe save`;
+#     owned by the user, never edited by Claude). A save can include <fileId>.snap whole-file copies.
+#   Which one: explicit --preset / app choice -> the remembered selection for this game on this device ->
+#   devices.yaml `defaultPreset` -> the device's first preset. A device with no presets gets no file changes.
+# Manual saves record every key that ANY preset or profile here mentions, so map every setting worth saving.
+
+# --- identity -----------------------------------------------------------------------------------------------------
+id: my-game                     # must equal the file name (my-game.yaml); lowercase, digits, - and _
+name: My Game                   # display name
+store: steam                    # steam | battlenet | ea | other (Epic/GOG/Xbox: other + storeIds)
+steamAppId: 1234560             # optional; enables {SteamLibrary:1234560} / {SteamUserData:1234560}
+# Ids in other launchers, so the app's library scan matches an install to this file (Steam uses steamAppId).
+# Fill every one you know; for a non-Steam game at least its own store's id. Keys: battlenet | ea | epic | gog | xbox.
+storeIds: {}                    # Steam-only game: leave empty (or omit). Otherwise, e.g.:
+# storeIds:
+#   battlenet: Fen                # Battle.net product code (Pro = Overwatch, Fen = Diablo IV)
+#   ea: Origin.OFR.50.0001234     # EA app offer id
+#   epic: Ginger                  # Epic AppName (launcher manifest)
+#   gog: "1207664663"             # GOG game id (quote it: a string)
+#   xbox: Publisher.MyGame_8wekyb3d8bbwe   # Xbox app package family name
+# Do the game's graphics settings travel between machines (Steam Cloud remotecache.vdf / EA / Epic / Xbox cloud)?
+#   true  = yes, so Optimus-Vibe must re-apply each device's preset on launch (the reason this tool exists)
+#   false = each machine keeps its own file; the app suggests opting the game out (config/library.yaml)
+#   null  = unknown (only when it truly could not be checked)
+cloudSyncsSettings: true
+
+# --- launching ----------------------------------------------------------------------------------------------------
+# Steam games normally need no `launch:`. The app writes this Steam launch option automatically for managed games
+# (while Steam is closed; turn off with "writeSteamLaunchOptions": false in settings.json):
+#   "C:\Tools\Optimus-Vibe\OptimusVibe.exe" run my-game -- %command%
+# `launch` is used when there is no %command% (Battle.net, EA app, `optimus-vibe shortcut`). Use uri OR exe+args.
+launch:
+  uri: "steam://rungameid/1234560"
+  # exe: "{ProgramFilesX86}/Battle.net/Battle.net.exe"
+  # args: ["--exec=launch Pro"]          # Battle.net product code: Pro = Overwatch, Fen = Diablo IV
+  # uri: "origin2://game/launch?offerIds=XXXX"   # EA app (find the offer id via `inspect`/community lists)
+
+# Processes `run` waits on before restoring the display and checking for drift. Launcher stubs often exit early,
+# so list the real game exe(s).
+processes:
+  - MyGame-Win64-Shipping.exe
+
+# --- settings stores ----------------------------------------------------------------------------------------------
+# Path tokens: {Documents} {LocalAppData} {AppData} {LocalLow} {SavedGames} {UserProfile} {ProgramData}
+#   {ProgramFiles} {ProgramFilesX86} {SteamRoot} {SteamLibrary:<appid>} {SteamUserData:<appid>}
+#   plus %ENV% variables. A * or ? in a path segment picks the newest match (e.g. per-account folders).
+# Common flags: readOnlyAfterApply (game resets settings on boot), createIfMissing (default: skip with a warning).
+files:
+  # INI (Unreal GameUserSettings.ini, most .ini/.cfg files). Blocks are nested by [section];
+  # top-level scalars are keys before the first section. Section names are used verbatim (case-insensitive).
+  - id: gus
+    handler: ini
+    path: "{LocalAppData}/MyGame/Saved/Config/Windows/GameUserSettings.ini"
+    readOnlyAfterApply: false
+    createIfMissing: false
+
+  # JSON. Keys are paths: a.b.c, items[2].value, and array filters [field=value] that select the first element
+  # whose `field` equals `value`, e.g. data[group_name=/video/display].options[name=Resolution].value
+  # Quote names that contain dots: ['a.b'].c. Nested YAML maps are joined with '.', so full paths as keys
+  # (what manual saves write) and nested maps are equivalent. Existing value types are kept on write.
+  - id: user
+    handler: json
+    path: "{SavedGames}/MyGame/settings.json"
+
+  # XML. Keys are XPath expressions selecting an element (text = value) or an attribute. The element/attribute
+  # must already exist; XML structure is never created.
+  - id: xmlcfg
+    handler: xml
+    path: "{Documents}/My Games/MyGame/GraphicsSettings.xml"
+
+  # Registry. path is a key under HKCU or HKLM; keys are value names ("(default)" for the default value).
+  # Existing value kinds are kept; new integers become DWORD, everything else REG_SZ; binary = hex string.
+  # Unity PlayerPrefs live here (HKCU\Software\<Company>\<Product>, value names end in _h<hash>).
+  - id: reg
+    handler: registry
+    path: "HKCU\\Software\\MyStudio\\MyGame"
+
+  # One setting per line. format presets:
+  #   cvar           SET key "value"     (World of Warcraft Config.wtf)
+  #   quoted         key "value"         (Diablo IV LocalPrefs.txt)
+  #   equals         key=value           (default)
+  #   equals-spaced  key = value
+  #   colon          key: value
+  # or a custom `template` containing {key} and {value} (wins over format), e.g. 'seta {key} "{value}"'.
+  # Unknown keys are appended at the end of the file.
+  - id: prefs
+    handler: keyvalue
+    path: "{Documents}/MyGame/LocalPrefs.txt"
+    format: quoted
+    # template: 'seta {key} "{value}"'
+
+  # Opaque file: no keys. Manual saves store it whole (<fileId>.snap); presets cannot set anything in it.
+  - id: blob
+    handler: file
+    path: "{AppData}/MyGame/settings.bin"
+
+# --- profiles (shared bases) ----------------------------------------------------------------------------------------
+# Building blocks that presets `extends`. Never applied on their own, and NOT named after devices. Usually just
+# `base`: options that are the same on every device and preset (film grain, motion blur, vsync off...), plus safe
+# defaults that presets override. A profile may itself extend another profile.
+profiles:
+  base:
+    gus:
+      /Script/Engine.GameUserSettings:      # [section]
+        bUseVSync: "False"
+        FrameRateLimit: 0.000000
+    user:
+      "graphics.motionBlur": false          # full path as key ...
+      graphics:                             # ... or nested (same thing)
+        filmGrain: false
+      "items[0].value": 1                   # array index
+      "data[group_name=/video].options[name=VSync].value": false   # array filter
+    xmlcfg:
+      "//Setting[@name='Resolution']/@value": "1920x1080"   # attribute
+      "/Settings/Graphics/Quality": "High"                  # element text
+    reg:
+      ScreenmanagerFullscreenmodeDefault: 1                 # DWORD
+      "(default)": "x"                                      # default value
+    prefs:
+      Vsync: "0"
+
+# --- presets (Claude-recommended) ---------------------------------------------------------------------------------
+# presets.<device id from devices.yaml>.<preset name>. Conventional names (the app shows them in this order):
+#   desktop: quality (best visuals at a smooth framerate), performance (high fps toward the 165 Hz cap)
+#   ally-x:  performance (60+ fps sustained), battery (30/40 fps cap, cheapest playable settings)
+# Reserved keys in a preset:
+#   label        name shown in the app (default: the preset name, capitalized)
+#   description  1-2 sentences: what it targets and what it trades away
+#   targetFps    the framerate the preset aims for (shown in the app; informational)
+#   extends      a `profiles:` entry to inherit from (presets cannot extend other presets)
+#   display      inherit | none | { width, height, refresh }   (omitted = leave the display alone; `inherit` uses the
+#                device's mode from devices.yaml; a map overrides parts of it). The original mode is restored on exit.
+#   nvidia       NVIDIA driver profile settings for the game's exe (applied only when the device driver is nvidia;
+#                persistent DRS profile, not undone on exit)
+#   amd          AMD ADLX global settings (only when the driver is amd; applied on launch, restored on exit).
+#                NOT IMPLEMENTED YET â€” see docs/amd-adlx.md. Safe to write; it is ignored for now.
+# Every other key must be a file id from `files:`. Upscalers differ by vendor: DLSS on the desktop, FSR/XeSS on
+# the Ally. Within one device, every preset should set the same keys (directly or via base) so switching presets
+# never leaves a value from the previous one behind.
+presets:
+  desktop:
+    quality:
+      label: Quality
+      description: High preset with DLSS Quality at your display resolution, aiming for ~120 fps. Ray tracing off; volumetrics on High.
+      targetFps: 120
+      extends: base
+      display: inherit                      # the device display mode from devices.yaml
+      nvidia:
+        FrameRateLimiter: 162               # driver frame cap a few fps under refresh (G-SYNC)
+      gus:
+        /Script/Engine.GameUserSettings:
+          ResolutionSizeX: 5120
+          ResolutionSizeY: 2160
+          sg.ShadowQuality: 2
+      user:
+        "graphics.upscaler": "DLSS"
+    performance:
+      label: Performance
+      description: Medium shadows and effects with DLSS Performance, aiming for the 162 fps cap. Softer image than Quality.
+      targetFps: 162
+      extends: base
+      display: inherit
+      nvidia:
+        FrameRateLimiter: 162
+      gus:
+        /Script/Engine.GameUserSettings:
+          ResolutionSizeX: 5120
+          ResolutionSizeY: 2160
+          sg.ShadowQuality: 1
+      user:
+        "graphics.upscaler": "DLSS"
+
+  ally-x:
+    performance:
+      label: Performance
+      description: Low/Medium mix with FSR Performance at 1080p, capped at 60 fps on the 120 Hz VRR panel.
+      targetFps: 60
+      extends: base
+      display:
+        refresh: 120                        # width/height default to the device's 1920x1080
+      # amd:                                # not implemented yet (docs/amd-adlx.md)
+      #   AFMF: false
+      gus:
+        /Script/Engine.GameUserSettings:
+          ResolutionSizeX: 1920
+          ResolutionSizeY: 1080
+          FrameRateLimit: 60.000000
+          sg.ShadowQuality: 1
+      user:
+        "graphics.upscaler": "FSR"
+        graphics:
+          filmGrain: null                   # null removes a key inherited from base (left untouched)
+    battery:
+      label: Battery
+      description: >-
+        Low settings with FSR Performance, capped at 40 fps (divides 120 Hz) for longer battery life. Pair with
+        Armoury Crate Silent (~13 W); Optimus-Vibe cannot set TDP.
+      targetFps: 40
+      extends: base
+      display:
+        refresh: 120
+      gus:
+        /Script/Engine.GameUserSettings:
+          ResolutionSizeX: 1920
+          ResolutionSizeY: 1080
+          FrameRateLimit: 40.000000
+          sg.ShadowQuality: 0
+      user:
+        "graphics.upscaler": "FSR"
+        graphics:
+          filmGrain: null
+
+# --- intent (user-written, free text) ---------------------------------------------------------------------------
+# What each device should aim for. Claude reads this when choosing values; edit it in your own words.
+intent:
+  desktop: "EDIT ME: e.g. max visuals at native res, DLSS Quality, aim for 100+ fps with frame gen"
+  ally-x: "EDIT ME: e.g. steady 60 fps, battery over visuals"
+
+# --- recommendation (written by the game-settings-recommender skill) --------------------------------------------
+recommendation:
+  generated: "2026-01-31"                # date the presets were generated or refreshed (YYYY-MM-DD)
+  gameVersion: "1.2.3"                   # game version/patch the keys were checked against, if known
+  sources:                               # where the keys and value choices came from
+    - "PCGamingWiki: https://www.pcgamingwiki.com/wiki/My_Game"
+    - "`optimus-vibe inspect my-game` on desktop, 2026-01-31"
+
+notes: |
+  Anything worth knowing: settings stored server-side, launcher quirks, keys marked `# TODO verify`, Steam Cloud.

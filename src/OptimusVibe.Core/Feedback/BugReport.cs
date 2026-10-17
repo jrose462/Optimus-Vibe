@@ -62,7 +62,7 @@ public sealed class BugReportContext
             Cpu = hardware?.Cpu,
             Gpus = hardware?.Gpus ?? [],
             SyncProvider = settings.SyncProvider,
-            ConfigRepo = github ? $"{settings.GitHubRepo} ({settings.GitHubBranch})" : settings.ConfigRoot,
+            ConfigRepo = github ? $"{settings.GitHubRepo ?? "(none)"} ({settings.GitHubBranch})" : settings.ConfigRoot,
             GameId = gameId,
             Preset = preset,
             LogLines = BugReport.ReadRecentLog(Path.Combine(dataDir, "logs"), logLines),
@@ -73,10 +73,13 @@ public sealed class BugReportContext
 /// <summary>A ready-to-file issue.</summary>
 public sealed record BugReportDraft(string Title, string Body, IReadOnlyList<string> Labels);
 
-/// <summary>Builds sanitized bug reports and files them as issues on the APP repo (<see cref="AppRepo"/>).</summary>
+/// <summary>Builds sanitized bug reports and files them as issues on the APP repo (<see cref="AppRepo"/>) with a built-in token, or prefilled in the browser.</summary>
 public static partial class BugReport
 {
     public const string Label = "bug-report";
+
+    /// <summary>Hidden marker on the first line of every app-generated report; the triage workflow only runs on issues that carry it.</summary>
+    public const string Marker = "<!-- optimus-vibe:report v1 -->";
     public const int DefaultLogLines = 200;
     public const int MaxTitleText = 80;
     private const int MaxBodyChars = 60_000; // GitHub's issue body limit is 65,536
@@ -93,6 +96,7 @@ public static partial class BugReport
         if (firstLine.Length > MaxTitleText) firstLine = firstLine[..(MaxTitleText - 1)].TrimEnd() + "…";
 
         var sb = new StringBuilder();
+        sb.Append(Marker).Append("\n\n");
         sb.Append("## What happened\n\n").Append(description).Append("\n\n");
         sb.Append("## Environment\n\n");
         sb.Append("| | |\n|---|---|\n");
@@ -133,17 +137,97 @@ public static partial class BugReport
     }
 
     /// <summary>
-    /// Files the draft on the APP repo (jrose462/Optimus-Vibe — not the user's config repo) and returns the issue URL.
-    /// Retries without labels when GitHub rejects them. Throws <see cref="GitHubException"/> with a clear message.
+    /// True when this build carries the built-in bug-report token (release builds). Without it (dev builds) the UI falls back to
+    /// <see cref="BuildNewIssueUrl"/>: copy the report and open a prefilled GitHub issue form in the browser.
     /// </summary>
-    public static Task<string> SubmitAsync(BugReportDraft draft, string token, CancellationToken ct = default)
+    public static bool HasBuiltInToken => BugReportToken.IsAvailable;
+
+    /// <summary>Who a report will be filed as.</summary>
+    public enum ReportIdentity
     {
-        if (string.IsNullOrWhiteSpace(token))
-            throw new GitHubException("Sign in to GitHub to send a bug report.");
-        return SubmitAsync(draft, new GitHubApi(token), ct);
+        /// <summary>The signed-in GitHub user (their token): they are the author and get notifications.</summary>
+        User,
+        /// <summary>The built-in, issues-only token of official builds: filed anonymously via Optimus-Vibe.</summary>
+        BuiltIn,
+        /// <summary>Neither: copy the report and open a prefilled issue page in the browser.</summary>
+        Browser,
     }
 
-    internal static async Task<string> SubmitAsync(BugReportDraft draft, GitHubApi api, CancellationToken ct)
+    /// <summary>Which identity <see cref="SubmitAsync(BugReportDraft, string?, CancellationToken, string?)"/> will use.</summary>
+    public static ReportIdentity ResolveIdentity(string? userToken) =>
+        !string.IsNullOrWhiteSpace(userToken) ? ReportIdentity.User
+        : HasBuiltInToken ? ReportIdentity.BuiltIn
+        : ReportIdentity.Browser;
+
+    /// <summary>"Filed as @login" / "Filed anonymously via Optimus-Vibe" / browser text, for the report panel and CLI.</summary>
+    public static string DescribeIdentity(ReportIdentity identity, string? login) => identity switch
+    {
+        ReportIdentity.User => string.IsNullOrWhiteSpace(login) ? "Filed as your signed-in GitHub account" : $"Filed as @{login}",
+        ReportIdentity.BuiltIn => "Filed anonymously via Optimus-Vibe",
+        _ => "Opens a prefilled issue page in your browser (submit it with your own GitHub account)",
+    };
+
+    /// <summary>
+    /// Files the draft on the APP repo (jrose462/Optimus-Vibe, not the user's config repo). With a signed-in
+    /// <paramref name="userToken"/> (the OAuth "repo" scope can open issues on a public repo) the user is the author; otherwise the
+    /// built-in token files it anonymously. Returns the issue URL. Limited to <see cref="BugReportLimiter.MaxPerDay"/> reports
+    /// per day per machine. Labels are tried and dropped when GitHub refuses them (non-collaborators can't label); the body's
+    /// hidden marker is what the triage workflow keys on. Never logs a token. Throws <see cref="GitHubException"/>.
+    /// </summary>
+    public static async Task<string> SubmitAsync(BugReportDraft draft, string? userToken = null, CancellationToken ct = default, string? dataDir = null)
+    {
+        var builtIn = BugReportToken.Get();
+        var token = !string.IsNullOrWhiteSpace(userToken) ? userToken.Trim() : builtIn
+                    ?? throw new GitHubException("This build can't send reports directly. Use the browser option instead.");
+        BugReportLimiter.EnsureAllowed(dataDir);
+        string url;
+        try
+        {
+            url = await SubmitAsync(draft, new GitHubApi(token), ct, signedIn: token != builtIn).ConfigureAwait(false);
+        }
+        catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.Unauthorized && builtIn is not null && token != builtIn)
+        {
+            Log.Info("bug report: the saved GitHub sign-in was rejected; filing with the built-in access instead");
+            url = await SubmitAsync(draft, new GitHubApi(builtIn), ct).ConfigureAwait(false);
+        }
+        BugReportLimiter.Record(dataDir);
+        return url;
+    }
+
+    /// <summary>Most characters of the percent-encoded query we put in a prefilled "new issue" link (browsers and GitHub cap URLs near 8 KB).</summary>
+    public const int MaxPrefillQueryChars = 6500;
+
+    /// <summary>
+    /// A https://github.com/jrose462/Optimus-Vibe/issues/new link with the title, body and label prefilled. The body is cut
+    /// (at a line break, with a note) until the encoded link fits; the caller also puts the full report on the clipboard.
+    /// No sign-in is needed to open it (submitting the form needs a GitHub account).
+    /// </summary>
+    public static string BuildNewIssueUrl(BugReportDraft draft, out bool truncated)
+    {
+        const string note = "\n\n_(Report shortened to fit a link. The full report is on your clipboard: paste it here.)_";
+        string Url(string body) =>
+            $"https://github.com/{AppRepo.FullName}/issues/new?title={Uri.EscapeDataString(draft.Title)}" +
+            $"&labels={Uri.EscapeDataString(string.Join(",", draft.Labels))}&body={Uri.EscapeDataString(body)}";
+        bool Fits(string u) => u.Length - ("https://github.com/" + AppRepo.FullName + "/issues/new?").Length <= MaxPrefillQueryChars;
+
+        truncated = false;
+        var full = Url(draft.Body);
+        if (Fits(full)) return full;
+        truncated = true;
+        var lines = draft.Body.Replace("\r\n", "\n").Split('\n');
+        var keep = lines.Length;
+        while (keep > 1)
+        {
+            keep = (int)(keep * 0.8);
+            var candidate = string.Join("\n", lines.Take(keep)) + note;
+            var u = Url(candidate);
+            if (Fits(u)) return u;
+        }
+        return Url(draft.Body[..Math.Min(draft.Body.Length, 1500)] + note);
+    }
+
+
+    internal static async Task<string> SubmitAsync(BugReportDraft draft, GitHubApi api, CancellationToken ct, bool signedIn = false)
     {
         try
         {
@@ -162,7 +246,11 @@ public static partial class BugReport
         }
         catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.NotFound)
         {
-            throw new GitHubException($"This GitHub account can't open issues on {AppRepo.FullName} (the repo is private) — ask the owner for access.", ex);
+            throw new GitHubException($"Couldn't open an issue on {AppRepo.FullName}. Open one yourself at {AppRepo.IssuesUrl}.", ex);
+        }
+        catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.Unauthorized && !signedIn)
+        {
+            throw new GitHubException($"The built-in bug-report access was rejected (it may have been rotated). Update the app, or open an issue yourself at {AppRepo.IssuesUrl}.", ex);
         }
         catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.Gone)
         {

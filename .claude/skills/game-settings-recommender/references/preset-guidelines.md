@@ -1,6 +1,9 @@
 # Preset guidelines
 
-Four presets per game. Names are fixed (the app orders and remembers them by name).
+Four presets per game. Names are fixed (the app orders and remembers them by name). `desktop` and `ally-x` are the
+conventional device ids from the starter `devices.yaml`; use the ids and hardware in the user's own
+`config/devices.yaml` (a desktop-class device gets the desktop rows, a handheld the ally-x rows). Fps caps quoted
+below as 162 assume a 165 Hz display: use the device refresh rate minus 3.
 
 | Device | Preset | Goal | targetFps | Typical cap |
 |---|---|---|---|---|
@@ -14,7 +17,7 @@ assumption on ally-x), `targetFps`.
 
 ## desktop / quality
 
-- Resolution <desktop resolution>, **borderless** (safest with G-Sync on modern Windows); exclusive fullscreen only if the
+- Display mode from the device in `devices.yaml`, **borderless** (safest with VRR on modern Windows); exclusive fullscreen only if the
   game needs it (e.g. HDR or frame gen broken in borderless).
 - Upscaler: DLSS **Quality** (or Balanced in very heavy games / with RT). DLAA only for light games that still
   hit ~120 fps. Turn on Ray Reconstruction when RT is on and the game offers it.
@@ -127,7 +130,7 @@ Scalability value scale in UE: 0 = Low, 1 = Medium, 2 = High, 3 = Epic, 4 = Cine
 2. **PCGamingWiki** (`https://www.pcgamingwiki.com/wiki/<Game>`): config/save locations, engine, upscalers,
    frame-cap/VRR/ultrawide support, known issues, ini tweaks.
 3. **Digital Foundry** optimized settings videos/articles, **BenchmarKing** / **Hardware Unboxed** /
-   **TechPowerUp** / **ComputerBase** performance reviews: which settings cost what, RTX GPU numbers at 4K.
+   **TechPowerUp** / **ComputerBase** performance reviews: which settings cost what, numbers for the user's GPU class at 4K.
 4. **Steam Deck / ROG Ally / Legion Go community guides**: ShareDeck (sharedeck.games), ProtonDB report notes,
    r/SteamDeck, r/ROGAlly, YouTube handheld settings guides (e.g. "Ally X <game> best settings"),
    Notebookcheck APU benchmarks. Steam Deck settings at 800p map roughly to Ally X at 1080p one upscaler step lower.

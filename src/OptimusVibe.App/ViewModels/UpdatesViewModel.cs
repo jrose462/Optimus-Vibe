@@ -19,7 +19,6 @@ public sealed class UpdatesViewModel : ObservableObject
     private UpdateInfo? _update;
     private string _statusText = "";
     private bool _statusIsError;
-    private bool _signInRequired;
     private bool _isChecking;
     private bool _isDownloading;
     private double _progress;
@@ -30,7 +29,6 @@ public sealed class UpdatesViewModel : ObservableObject
         CheckCommand = new AsyncRelayCommand(CheckAsync, () => !main.IsBusy && !IsChecking);
         InstallCommand = new AsyncRelayCommand(InstallAsync, () => !main.IsBusy && IsAvailable);
         ShowCommand = new RelayCommand(() => main.OpenSettings("updates"));
-        GoToSignInCommand = new RelayCommand(() => main.OpenSettings("account"));
     }
 
     public string VersionText => $"Optimus-Vibe {AppVersion.Current}";
@@ -58,7 +56,6 @@ public sealed class UpdatesViewModel : ObservableObject
     public string StatusText { get => _statusText; private set { if (Set(ref _statusText, value)) OnPropertyChanged(nameof(HasStatus)); } }
     public bool HasStatus => StatusText.Length > 0;
     public bool StatusIsError { get => _statusIsError; private set => Set(ref _statusIsError, value); }
-    public bool SignInRequired { get => _signInRequired; private set => Set(ref _signInRequired, value); }
 
     public bool IsChecking { get => _isChecking; private set { if (Set(ref _isChecking, value)) CommandManager.InvalidateRequerySuggested(); } }
 
@@ -76,26 +73,14 @@ public sealed class UpdatesViewModel : ObservableObject
     public ICommand CheckCommand { get; }
     public ICommand InstallCommand { get; }
     public ICommand ShowCommand { get; }
-    public ICommand GoToSignInCommand { get; }
 
     // ---------------------------------------------------------------- check
-
-    private static string? LoadToken()
-    {
-        try { return GitHubAuth.LoadToken(); }
-        catch (NotImplementedException) { return null; }
-        catch (Exception ex)
-        {
-            Log.Warn($"Reading the GitHub token failed: {ex.Message}");
-            return null;
-        }
-    }
 
     private static async Task<UpdateCheckResult> RunCheckAsync()
     {
         try
         {
-            return await Task.Run(async () => await UpdateService.CheckAsync(LoadToken()));
+            return await Task.Run(async () => await UpdateService.CheckAsync());
         }
         catch (Exception ex)
         {
@@ -107,15 +92,8 @@ public sealed class UpdatesViewModel : ObservableObject
     private void Apply(UpdateCheckResult r)
     {
         Update = r.UpdateAvailable ? r.Update : null;
-        SignInRequired = r.Status is UpdateStatus.SignInRequired;
-        StatusIsError = r.Status is UpdateStatus.Failed or UpdateStatus.NoAccess;
-        StatusText = r.Status switch
-        {
-            UpdateStatus.UpdateAvailable => "",
-            UpdateStatus.SignInRequired =>
-                $"{r.Message} The app repo ({AppRepo.FullName}) is private, so sign in to GitHub with an account that can access it, then check again.",
-            _ => r.Message,
-        };
+        StatusIsError = r.Status is UpdateStatus.Failed;
+        StatusText = r.Status == UpdateStatus.UpdateAvailable ? "" : r.Message;
     }
 
     private async Task CheckAsync()
@@ -176,8 +154,7 @@ public sealed class UpdatesViewModel : ObservableObject
             var progress = new Progress<double>(p => Progress = p); // created on the UI thread: reports marshal back to it
             ok = await _main.RunAsync($"Downloading Optimus-Vibe {info.Version}", async () =>
             {
-                var token = await Task.Run(LoadToken);
-                var staged = await UpdateService.StageAllAsync(info, exe, progress, token);
+                var staged = await UpdateService.StageAllAsync(info, exe, progress);
                 foreach (var note in staged.Notes) Log.Info($"update: {note}");
                 await Task.Run(() => UpdateService.ApplyStagedAndRestart(exe, []));
             });

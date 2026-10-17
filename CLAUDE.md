@@ -1,18 +1,44 @@
 # Optimus-Vibe: notes for Claude
 
-Optimus-Vibe is a C# .NET 8 Windows tool that applies per-device game settings from YAML in `config/`:
+Optimus-Vibe is a C# .NET 8 Windows tool that applies per-device game settings from YAML in the user's own **config repo** (`config/` folder):
 a CLI (`src/OptimusVibe.Cli`, `optimus-vibe.exe`, for scripting and for Claude), a shared core
 (`src/OptimusVibe.Core`), and a WPF app (`src/OptimusVibe.App`, `OptimusVibe.exe`) for picking presets and
 managing manual saves. The app is also the Steam launch-option wrapper: `OptimusVibe.exe run …` runs headless
-(no window/console) with the same behaviour as `optimus-vibe run`. The usual job in this repo is **adding a
-game or refreshing its recommended presets**. Code changes follow normal practice: run `dotnet test` and keep
-the handlers' round-trip tests green.
+(no window/console) with the same behaviour as `optimus-vibe run`. 
+## Two repos (read this first)
+
+| Repo | Visibility | Holds |
+|---|---|---|
+| **App repo** `jrose462/Optimus-Vibe` (this one) | public | code, docs, the `game-settings-recommender` skill, the generic starter config in `seed/config/` (embedded into Core and used to seed new config repos / empty folders), GitHub Releases, bug-report issues |
+| **Config repo** (one per user, e.g. `optimus-vibe-config`) | private | `config/devices.yaml`, `config/games/*.yaml`, `config/schema/`, `config/saves/`, `config/library.yaml`, `config/requests.yaml` |
+
+This repo must never contain user-specific data: no personal paths, hardware model names, account/Steam ids, emails,
+game configs or saves. Tests build their own fixtures. On first run the app asks "Where should your game settings
+live?": **GitHub** (sign in with a device code, then "Create my config repo" (default name `optimus-vibe-config`,
+private, seeded from `seed/config/`) or pick an existing repo) or a **local folder** (an existing git checkout, or
+any folder; an empty one is offered the starter set). GitHub sign-in = a private config repo to store settings in, plus being
+the author of your bug reports. No sign-in = a local folder, and reports filed via the built-in token. Updates need no sign-in
+(the app repo is public). There is no default config repo:
+`AppSettings.GitHubRepo` is null until the user chooses.
+
+The usual job when a *user* opens Claude in their **config repo** is **adding a game or refreshing its recommended
+presets** (the skill below). In *this* repo the job is code: run `dotnet test` and keep the handlers' round-trip tests
+green.
+
+**Bug reports.** "Report a problem" / `optimus-vibe report-bug` file the issue as the signed-in GitHub user when there is a sign-in token
+(`GitHubAuth.LoadToken()`; they become the author), else with the built-in fine-grained, issues-only token (the owner's PAT, injected at build time
+from the `BUG_REPORT_TOKEN` secret, XOR-obfuscated, extractable: see `docs/ci.md`), else by copying the report and opening a prefilled
+`issues/new` page. The UI/CLI always say which ("Filed as @login" / "Filed anonymously via Optimus-Vibe"). Labels are tried and dropped when refused;
+every report body starts with the hidden marker `<!-- optimus-vibe:report v1 -->`, which is what the triage workflow keys on (it adds the
+`bug-report` label itself). At most 5 reports a day per machine. Never log or
+display the token.
 
 ## Adding or refreshing a game: use the skill
 
 **The way to add a game or refresh its recommendations is the `game-settings-recommender` skill**
-(`.claude/skills/game-settings-recommender/SKILL.md`, mirrored to `~/.claude/skills/`; the repo copy is the
-source of truth). It covers identification, research, confirming keys with `optimus-vibe inspect`, writing
+(`.claude/skills/game-settings-recommender/SKILL.md` in this app repo, mirrored to `~/.claude/skills/`; the app repo copy is the
+source of truth). The skill works **in the user's config repo** (`--config <config repo>\config`, commits go there) and reads
+their hardware from that repo's `config/devices.yaml`. It covers identification, research, confirming keys with `optimus-vibe inspect`, writing
 the four presets, validation, dry runs and the commit. Its `references/` hold the device specs, preset rules,
 and engine notes. Do not hand-roll a game file without following it.
 
@@ -28,7 +54,7 @@ manages every detected game that has presets, unless the user opted it out. For 
 launch option `"<path>\OptimusVibe.exe" run <id> -- %command%` itself while Steam is closed
 (`writeSteamLaunchOptions` in settings.json turns that off).
 
-- **`config/requests.yaml` is your work queue.** The app appends every installed game that has no config
+- **`config/requests.yaml` (config repo) is your work queue.** The app appends every installed game that has no config
   (`store`, `storeId`, `name`, `installDir`, `exes`, `requested`, `device`). When the user says "process
   Optimus-Vibe requests" / "work through the game queue" (or at the start of a session where they ask what to do
   next and the queue is non-empty), process it with the skill's "process the request queue" workflow: one
@@ -39,21 +65,18 @@ launch option `"<path>\OptimusVibe.exe" run <id> -- %command%` itself while Stea
   instead.
 - Sync: `git` provider = a checkout synced with the git CLI (desktop); `github` provider = a managed copy under
   `%LOCALAPPDATA%\OptimusVibe\repos\` synced through the GitHub API after device-code/PAT sign-in (the Ally; no
-  git). Both push to `jrose462/Optimus-Vibe` by default, so pull before editing the queue.
-- Two GitHub repos: the **app repo** `jrose462/Optimus-Vibe` (exe releases, bug-report issues; not user config) is
-  separate from the **config repo** the user picked (default the same repo, but it can be any repo). Config work
-  and `library.yaml`/`requests.yaml` edits go to the config repo.
+  git). Both push to the user's config repo, so pull before editing the queue.
+- Config work and `library.yaml`/`requests.yaml` edits always go to the config repo, never the app repo.
 
 ## Devices
 
-| Device id | Hardware | Display | Driver | defaultPreset |
-|---|---|---|---|---|
-| `desktop` | RTX GPU 16 GB, desktop Ryzen CPU (it also exposes an "AMD Radeon(TM) Graphics" iGPU) | <desktop resolution> @ 165 Hz, G-Sync | nvidia | `quality` |
-| `ally-x` | ROG Xbox Ally X, Ryzen AI Z2 Extreme (RDNA 3.5, 16 CUs), 24 GB LPDDR5X shared, 80 Wh | 1920x1080 @ 120 Hz VRR | amd | `performance` |
-
-`config/devices.yaml` matches the Ally X on the CPU (`*Z2 Extreme*`), never on an AMD GPU name, because the
-desktop also reports a Radeon iGPU. Virtual adapters (Apollo/SudoMaker, Sunshine, GlideX, Parsec) are filtered
-out by the detector. First match wins, so keep `ally-x` above `desktop`.
+Devices are defined by the user in their config repo's `config/devices.yaml` (each with a free-text `description` of the
+hardware, a `match` rule, `display`, `driver` and `defaultPreset`). The starter file (`seed/config/devices.yaml`) ships two
+neutral examples: `desktop` (matched by an NVIDIA GPU wildcard, driver nvidia, defaultPreset `quality`) and `ally-x`
+(matched by CPU `*Z2 Extreme*`, driver amd, defaultPreset `performance`), with comments telling the user to run
+`optimus-vibe detect` and edit. Match a handheld on the CPU rather than an AMD GPU name, because a desktop with an AMD CPU
+also reports a Radeon iGPU; virtual adapters (Apollo/SudoMaker, Sunshine, GlideX, Parsec) are filtered out by the detector.
+First match wins, so keep the more specific device first. Never assume hardware: read `devices.yaml`.
 
 ## Presets and manual saves
 
@@ -71,7 +94,7 @@ out by the detector. First match wins, so keep `ally-x` above `desktop`.
 **Never edit, regenerate, or delete anything under `config/saves/`.** It holds the user's tuning. If a change to
 a game file would break a save (renamed file id, removed key), tell the user and let them decide.
 
-## Config layout (`config/`)
+## Config layout (`config/` in the config repo; the starter copy is `seed/config/` here)
 
 | Path | Owner | What |
 |---|---|---|

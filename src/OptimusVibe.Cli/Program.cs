@@ -18,7 +18,7 @@ public static class Program
 {
     private static readonly Option<string?> ConfigOption = new("--config")
     {
-        Description = "Config folder (the repo's config\\ dir). Defaults to settings.json / OPTIMUSVIBE_CONFIG / next to the exe.",
+        Description = "Config folder (your config repo's config\\ dir). Defaults to settings.json / OPTIMUSVIBE_CONFIG / a config\\ folder in the current directory.",
         Recursive = true,
     };
 
@@ -466,10 +466,10 @@ public static class Program
         {
             var dataDir = AppPaths.DefaultDataDir;
             var settings = AppPaths.LoadSettings(dataDir);
-            var id = pr.GetValue(clientId) ?? settings.GitHubClientId ?? AppPaths.Env("GITHUB_CLIENT_ID");
+            var id = pr.GetValue(clientId) is { Length: > 0 } given ? given.Trim() : GitHubAuth.ResolveClientId(settings);
             if (string.IsNullOrWhiteSpace(id))
-                throw new ConfigException("No GitHub OAuth App client id. Register one (github.com/settings/developers, enable Device Flow) and pass " +
-                                          "--client-id <id>, or store a personal access token with `github token <pat>`.");
+                throw new ConfigException("No GitHub OAuth App client id in this build. Register one (github.com/settings/developers, enable Device Flow) and pass " +
+                                          "--client-id <id> (or set OPTIMUSVIBE_GITHUB_CLIENT_ID), or store a personal access token with `github token <pat>`.");
 
             using var cts = new CancellationTokenSource();
             ConsoleCancelEventHandler onCancel = (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -485,7 +485,7 @@ public static class Program
                 settings.GitHubLogin = user;
                 settings.GitHubClientId = id;
                 AppPaths.SaveSettings(dataDir, settings);
-                Console.WriteLine($"Signed in as {user}. Pick the config repo with `github use <owner/name>` (default {settings.GitHubRepo}).");
+                Console.WriteLine($"Signed in as {user}. Pick your private config repo with `github use <owner/name>` or make one with `github create optimus-vibe-config`.");
                 return 0;
             }
             catch (OperationCanceledException)
@@ -528,7 +528,7 @@ public static class Program
             return 0;
         }));
 
-        var repoArg = new Argument<string>("repo") { Description = $"owner/name of the config repo (default {AppSettings.DefaultGitHubRepo})." };
+        var repoArg = new Argument<string>("repo") { Description = "owner/name of your (private) config repo." };
         var branch = new Option<string?>("--branch") { Description = "Branch to sync (default: the repo's default branch)." };
         var use = new Command("use", "Download the repo's config/ folder and switch this machine to GitHub sync.") { repoArg, branch };
         use.SetAction(Guard(pr =>
@@ -574,7 +574,7 @@ public static class Program
             var settings = AppPaths.LoadSettings(dataDir);
             var tokenValue = GitHubAuth.LoadToken();
             Console.WriteLine($"Sync provider: {settings.SyncProvider}");
-            Console.WriteLine($"GitHub repo:   {settings.GitHubRepo} ({settings.GitHubBranch})");
+            Console.WriteLine($"GitHub repo:   {settings.GitHubRepo ?? "(none chosen)"} ({settings.GitHubBranch})");
             Console.Write("Signed in:     ");
             if (tokenValue is null) Console.WriteLine("no");
             else
@@ -582,10 +582,13 @@ public static class Program
                 try { Console.WriteLine($"yes, as {new GitHubApi(tokenValue).GetLoginAsync().GetAwaiter().GetResult()}"); }
                 catch (GitHubException ex) { Console.WriteLine($"token stored{(settings.GitHubLogin is { } l ? $" ({l})" : "")}, but: {ex.Message}"); }
             }
-            var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, settings.GitHubRepo), settings.GitHubRepo, settings.GitHubBranch, null);
-            var at = mirror.BaseCommit is { } sha ? sha[..Math.Min(7, sha.Length)] : "?";
-            Console.WriteLine($"Local copy:    {(mirror.IsCloned ? $"{mirror.ConfigDir} @ {at}" : "(none)")}" +
-                              $"{(mirror.LastSyncUtc is { } t ? $", last synced {t.ToLocalTime():g}" : "")}");
+            if (settings.GitHubRepo is { Length: > 0 } cfgRepo)
+            {
+                var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, cfgRepo), cfgRepo, settings.GitHubBranch, null);
+                var at = mirror.BaseCommit is { } sha ? sha[..Math.Min(7, sha.Length)] : "?";
+                Console.WriteLine($"Local copy:    {(mirror.IsCloned ? $"{mirror.ConfigDir} @ {at}" : "(none)")}" +
+                                  $"{(mirror.LastSyncUtc is { } t ? $", last synced {t.ToLocalTime():g}" : "")}");
+            }
             try
             {
                 var provider = SyncProviders.For(Paths(pr));
@@ -628,9 +631,11 @@ public static class Program
                     Console.WriteLine($"Sync provider: git. Config folder: {settings.ConfigRoot ?? "(auto: next to the exe / --config)"}");
                     return 0;
                 case SyncProviders.GitHub:
-                    var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, settings.GitHubRepo), settings.GitHubRepo, settings.GitHubBranch, null);
+                    if (settings.GitHubRepo is not { Length: > 0 } ghRepo)
+                        throw new ConfigException("No GitHub config repo chosen yet — run `optimus-vibe github use <owner/name>` or `github create <name>`.");
+                    var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, ghRepo), ghRepo, settings.GitHubBranch, null);
                     if (!mirror.IsCloned)
-                        throw new ConfigException($"No GitHub copy of {settings.GitHubRepo} yet — run `optimus-vibe github use {settings.GitHubRepo}`.");
+                        throw new ConfigException($"No GitHub copy of {ghRepo} yet — run `optimus-vibe github use {ghRepo}`.");
                     settings.SyncProvider = SyncProviders.GitHub;
                     AppPaths.SaveSettings(dataDir, settings);
                     Console.WriteLine($"Sync provider: github ({settings.GitHubRepo}, {settings.GitHubBranch}). Config folder: {mirror.ConfigDir}");

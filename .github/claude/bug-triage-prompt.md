@@ -12,7 +12,7 @@ clear and small, a pull request.
    exception in the logs.
 2. **Read the code.** Start from `CLAUDE.md` and `README.md`, then follow the stack trace or log messages to the
    relevant files in `src/`. Check the matching tests in `tests/OptimusVibe.Tests/`. If a game config is
-   involved, read `config/games/<id>.yaml` and `config/schema/game.schema.json`.
+   involved, read `seed/config/schema/game.schema.json` and `seed/config/games/_template.yaml` (this repo has no user configs; the reporter's games live in their own private repo, so ask for the game file's relevant lines if you need them).
 3. **Reason through a reproduction.** Trace the code path that produces the reported behaviour. Be explicit
    about what the logs prove versus what you are inferring. If the report is too thin to diagnose, say what
    extra information is needed rather than guessing.
@@ -40,7 +40,7 @@ clear and small, a pull request.
    if the label does not exist).
 5. **Decide whether to fix.** Only implement a fix when all of these hold: the root cause is identified with high
    confidence, the change is small (roughly a few files and under ~150 changed lines), it does not touch user data
-   (`config/saves/`, `config/library.yaml`, `config/requests.yaml`) or `.github/`, and it does not need hardware
+   (there is none in this repo) or `.github/`, and it does not need hardware
    you cannot reason about (a real Steam install, GPU driver APIs, WMI). Otherwise stop after the plan.
 6. **Implement the fix** when step 5 allows:
    - `git switch -c claude/issue-<n>` from the current `main` checkout.

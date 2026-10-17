@@ -1,0 +1,16 @@
+# Optimus-Vibe request queue: installed games that have no config/games/<id>.yaml yet.
+#
+# Written by the app's library scan (and `optimus-vibe library --queue`); each entry is a game detected on
+# `device` that needs recommended presets. Claude works through it with the game-settings-recommender skill
+# ("process Optimus-Vibe requests"): one commit per game adds config/games/<id>.yaml and removes its entry here.
+# Entries for games that already have a config are pruned automatically. Opted-out games are never queued.
+#
+# Entry shape:
+#   - store: steam             # steam | battlenet | ea | xbox | epic | gog
+#     storeId: "1285190"       # Steam app id, Battle.net product code, EA offer id, Xbox PFN, Epic AppName, GOG id
+#     name: Example Game
+#     installDir: C:\Program Files (x86)\Steam\steamapps\common\Example Game
+#     exes: [ExampleGame.exe]
+#     requested: "2026-01-01"
+#     device: desktop
+requests: []

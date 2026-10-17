@@ -14,23 +14,35 @@ description: >-
 
 # Game settings recommender
 
-Optimus-Vibe (repo `<repo>`, C# .NET 8) writes per-device settings into a game's config files
+Optimus-Vibe (C# .NET 8) writes per-device settings into a game's config files
 on every launch. This skill produces the **Recommended** tab content in the app: `presets:` in
 `config/games/<id>.yaml`. The user's own tweaks live in the **Manual saves** tab (`config/saves/`), which you
-never touch. If invoked outside the repo, work in `<repo>` anyway. The app scans Steam,
-Battle.net, EA, Xbox, Epic and GOG for installed games, matches them to configs by `steamAppId`/`storeIds`, and
-queues games without a config in `config/requests.yaml` for you. `config/library.yaml` `optOut:` (user-owned)
-lists games not to manage; `cloudSyncsSettings: false` makes the app suggest opting a game out.
-Source of truth: this repo's `.claude\skills\game-settings-recommender\`; `~/.claude/skills/` holds a mirror
-(edit the repo copy, then re-copy it).
+never touch.
+
+**Two repos.** The *app repo* (`jrose462/Optimus-Vibe`, public) holds only code, docs and this skill. The user's
+games, presets, saves, devices, library and request queue live in their own *config repo* (private, one per
+user; a git checkout somewhere on disk, e.g. `<your-projects-folder>optimus-vibe-config`, or the app's managed copy under
+`%LOCALAPPDATA%\OptimusVibe\repos\<owner>\<name>`). **Do all the work in the config repo**: the config folder is
+`<config repo>\config`, the CLI gets `--config <config repo>\config`, and commits/pushes go to the config repo, never
+the app repo. Find it from the user's message, the current directory (a `config\devices.yaml` next to
+`config\games\`), `optimus-vibe setup`'s `settings.json` (`%LOCALAPPDATA%\OptimusVibe\settings.json`, `configRoot`),
+or ask. Read the user's devices from `<config repo>\config\devices.yaml` (see `references/hardware.md`); never assume
+their hardware.
+
+The app scans Steam, Battle.net, EA, Xbox, Epic and GOG for installed games, matches them to configs by
+`steamAppId`/`storeIds`, and queues games without a config in `config/requests.yaml` for you.
+`config/library.yaml` `optOut:` (user-owned) lists games not to manage; `cloudSyncsSettings: false` makes the app
+suggest opting a game out.
+Source of truth for this skill: the app repo's `.claude\skills\game-settings-recommender\`; `~/.claude/skills/` holds a
+mirror (edit the app repo copy, then re-copy it).
 
 Read before writing presets: `references/hardware.md` (what the two devices can do),
 `references/preset-guidelines.md` (rules per preset, cost of settings, research sources),
 `references/engine-notes.md` (where UE/Unity/Frostbite/etc. keep settings and the real key names),
 `references/awkward-stores.md` (binary/opaque files, composite values, research fallbacks, store ids, cloud sync).
 `scripts/strings.js` (strings view of binary files and exes). `<skill>` below = this skill's folder.
-Repo docs: `CLAUDE.md`, `config/games/_template.yaml` (every field and handler syntax),
-`config/games/cyberpunk2077.yaml` (worked example).
+Docs: the app repo's `CLAUDE.md` and `README.md`; in the config repo `config/games/_template.yaml` (every field and
+handler syntax) and any existing `config/games/<id>.yaml` as a worked example.
 
 ## Hard rules
 
@@ -74,10 +86,10 @@ Device defaults (`devices.yaml` `defaultPreset`): desktop → `quality`, ally-x 
 
 ## Workflow: add a game
 
-Run commands from the repo root. `gp` below means the CLI: use `optimus-vibe` if it is on PATH, else
+Run commands from the config repo root. `gp` below means the CLI: use `optimus-vibe` if it is on PATH, else
 `src\OptimusVibe.Cli\bin\Debug\net8.0-windows\win-x64\optimus-vibe.exe` (build it with
-`dotnet build src/OptimusVibe.Cli` if missing), or `dotnet run --project src/OptimusVibe.Cli --`. Always pass
-`--config <repo>\config` unless `gp setup` already points there.
+`dotnet build src/OptimusVibe.Cli` in the app repo if missing), (in the app repo checkout) `dotnet run --project src/OptimusVibe.Cli --`. Always pass
+`--config <config repo>\config` unless `gp setup` already points there.
 
 ### (a) Identify the game
 
@@ -150,7 +162,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
   presets only override. It is not a place for device-specific values.
 - `presets.desktop.quality` and `.performance`; `presets.ally-x.performance` and `.battery`. Each gets
   `label` (Title case, the preset name unless a better one fits), `description` (1-2 sentences: what it targets
-  and what it trades away; ally-x battery must say to pair it with Armoury Crate Silent ~13 W, since
+  and what it trades away; a handheld battery preset must say to pair it with the device silent/low-TDP mode (~13 W), since
   Optimus-Vibe cannot set TDP; plus any in-game steps for settings in a binary store), `targetFps` (integer),
   `extends: base`, `display`, and the file blocks.
 - **Honest targets**: if the game cannot hold 60 on the Ally X, set ally-x `performance` `targetFps` lower
@@ -176,7 +188,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
 ### (f) Validate and dry-run
 
 ```powershell
-gp validate --config <repo>\config
+gp validate --config <config repo>\config
 gp apply <id> --preset quality --dry-run                       # on the desktop
 gp apply <id> --preset performance --dry-run
 gp apply <id> --profile ally-x --preset performance --dry-run  # Ally presets, previewed from the desktop
@@ -193,7 +205,7 @@ gp presets <id>; gp presets <id> --profile ally-x               # labels, fps ta
   `# TODO verify` and say so.
 - `user: skipped — not found` means the settings file does not exist on this machine (game never launched here,
   or you are previewing a file that only exists on the other device); the key diff cannot be checked then.
-- Optionally schema-check with node + ajv against `config/schema/game.schema.json` (no python on this machine).
+- Optionally schema-check with node + ajv against `config/schema/game.schema.json` (python may not be installed).
 - Do **not** run a real `apply` unless the user asks; they test in-game.
 
 ### (g) Saves
@@ -201,7 +213,7 @@ gp presets <id>; gp presets <id> --profile ally-x               # labels, fps ta
 Do not create, edit, or delete anything under `config/saves/`. Do not run `gp save`, `gp delete-save`, or
 `gp use` on the user's behalf unless asked.
 
-### (h) Commit and push
+### (h) Commit and push (in the config repo)
 
 Stage only the game file (plus `config/requests.yaml` when the game came from the queue, and any doc you were
 asked to change): `git add config/games/<id>.yaml`, commit `feat(games): add <id> recommendations` (refresh:

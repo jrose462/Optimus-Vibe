@@ -14,7 +14,7 @@ namespace OptimusVibe.Updates;
 public sealed class UpdateException(string message, Exception? inner = null) : GitHubException(message, inner);
 
 /// <summary>One downloadable file of a release.</summary>
-/// <param name="ApiUrl">REST asset URL (api.github.com/.../releases/assets/{id}); downloaded with Accept: application/octet-stream so private assets work.</param>
+/// <param name="ApiUrl">REST asset URL (api.github.com/.../releases/assets/{id}); downloaded anonymously with Accept: application/octet-stream (the app repo is public).</param>
 /// <param name="Sha256">Expected SHA-256 (lowercase hex) when the release notes list it, else null.</param>
 /// <param name="Sha256ApiUrl">API URL of a "&lt;name&gt;.sha256" companion asset, if the release has one.</param>
 public sealed record ReleaseAsset(string Name, long Size, string ApiUrl, string BrowserUrl, string? Sha256, string? Sha256ApiUrl);
@@ -46,17 +46,13 @@ public enum UpdateStatus
     UpdateAvailable,
     /// <summary>The running build is the latest (or newer); Update is set.</summary>
     UpToDate,
-    /// <summary>Not signed in (or the sign-in was rejected) and the app repo is private.</summary>
-    SignInRequired,
-    /// <summary>Signed in, but the account can't see the app repo.</summary>
-    NoAccess,
     /// <summary>The repo has no published (non-draft, non-prerelease) release yet.</summary>
     NoReleases,
-    /// <summary>Network / rate limit / unexpected response; see Message.</summary>
+    /// <summary>Network / GitHub rate limit / unexpected response; see Message.</summary>
     Failed,
 }
 
-/// <summary>Outcome of <see cref="UpdateService.CheckAsync(string?, CancellationToken)"/>. Never an exception for expected cases.</summary>
+/// <summary>Outcome of <see cref="UpdateService.CheckAsync(CancellationToken)"/>. Never an exception for expected cases.</summary>
 public sealed record UpdateCheckResult(UpdateStatus Status, string Message, UpdateInfo? Update)
 {
     public bool UpdateAvailable => Status == UpdateStatus.UpdateAvailable;
@@ -79,7 +75,7 @@ public static partial class UpdateService
     private const string PartSuffix = ".new.part";
     private const string ApiBase = "https://api.github.com/";
 
-    // Redirects are followed by hand so the Authorization header never leaks to the asset CDN.
+    // No sign-in: the app repo is public, so every request is anonymous (60 API requests/hour/IP). Redirects are followed by hand.
     private static readonly SocketsHttpHandler SharedHandler = new()
     {
         AllowAutoRedirect = false,
@@ -89,36 +85,21 @@ public static partial class UpdateService
     // ------------------------------------------------------------ check
 
     /// <summary>Latest non-draft, non-prerelease release of the app repo vs <see cref="AppVersion.Current"/>.</summary>
-    /// <param name="token">The signed-in GitHub token (needed while the app repo is private), or null.</param>
-    public static Task<UpdateCheckResult> CheckAsync(string? token, CancellationToken ct = default) =>
-        CheckAsync(SharedHandler, token, AppVersion.Current, ct);
+    public static Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default) =>
+        CheckAsync(SharedHandler, AppVersion.Current, ct);
 
-    internal static async Task<UpdateCheckResult> CheckAsync(HttpMessageHandler handler, string? token, string currentVersion, CancellationToken ct)
+    internal static async Task<UpdateCheckResult> CheckAsync(HttpMessageHandler handler, string currentVersion, CancellationToken ct)
     {
-        token = string.IsNullOrWhiteSpace(token) ? null : token.Trim();
         using var http = CreateHttp(handler);
         try
         {
-            using var resp = await SendAsync(http, $"{ApiBase}repos/{AppRepo.FullName}/releases/latest", token, json: true, ct).ConfigureAwait(false);
+            using var resp = await SendAsync(http, $"{ApiBase}repos/{AppRepo.FullName}/releases/latest", json: true, ct).ConfigureAwait(false);
             if (resp.StatusCode == HttpStatusCode.NotFound)
-            {
-                if (token is null)
-                    return new(UpdateStatus.SignInRequired,
-                        "Sign in to GitHub to check for updates (the app repo is private).", null);
-                // With a token: either no release yet, or no access to the repo.
-                using var repo = await SendAsync(http, $"{ApiBase}repos/{AppRepo.FullName}", token, json: true, ct).ConfigureAwait(false);
-                return repo.IsSuccessStatusCode
-                    ? new(UpdateStatus.NoReleases, "No app release has been published yet.", null)
-                    : new(UpdateStatus.NoAccess,
-                        $"This GitHub account can't see {AppRepo.FullName} (private) — ask the owner for access to get updates.", null);
-            }
-            if (resp.StatusCode == HttpStatusCode.Unauthorized)
-                return new(UpdateStatus.SignInRequired,
-                    "GitHub rejected the saved sign-in (token revoked or expired). Sign in again to check for updates.", null);
+                return new(UpdateStatus.NoReleases, "No app release has been published yet.", null);
             if (!resp.IsSuccessStatusCode)
             {
                 var err = await GitHubApi.ErrorAsync(resp, AppRepo.FullName, ct).ConfigureAwait(false);
-                return new(UpdateStatus.Failed, "Update check failed: " + err.Message, null);
+                return new(UpdateStatus.Failed, ErrorText(err, "Update check failed"), null);
             }
 
             var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false))
@@ -194,14 +175,13 @@ public static partial class UpdateService
     /// Downloads the release asset named like <paramref name="targetExe"/> (or <paramref name="assetName"/>) to
     /// "&lt;targetExe&gt;.new", verifying the size and, when the release provides one, the SHA-256. Returns the .new path.
     /// </summary>
-    public static Task<string> DownloadAndStageAsync(UpdateInfo update, string targetExe, IProgress<double>? progress, string? token,
+    public static Task<string> DownloadAndStageAsync(UpdateInfo update, string targetExe, IProgress<double>? progress,
         CancellationToken ct = default, string? assetName = null) =>
-        DownloadAndStageAsync(SharedHandler, update, targetExe, progress, token, ct, assetName);
+        DownloadAndStageAsync(SharedHandler, update, targetExe, progress, ct, assetName);
 
     internal static async Task<string> DownloadAndStageAsync(HttpMessageHandler handler, UpdateInfo update, string targetExe,
-        IProgress<double>? progress, string? token, CancellationToken ct, string? assetName = null)
+        IProgress<double>? progress, CancellationToken ct, string? assetName = null)
     {
-        token = string.IsNullOrWhiteSpace(token) ? null : token.Trim();
         targetExe = Path.GetFullPath(targetExe);
         var name = assetName ?? Path.GetFileName(targetExe);
         var asset = update.Find(name)
@@ -212,7 +192,7 @@ public static partial class UpdateService
         var expectedSha = asset.Sha256;
         if (expectedSha is null && asset.Sha256ApiUrl is not null)
         {
-            using var shaResp = await DownloadAsync(http, asset.Sha256ApiUrl, token, ct).ConfigureAwait(false);
+            using var shaResp = await DownloadAsync(http, asset.Sha256ApiUrl, ct).ConfigureAwait(false);
             var text = await shaResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             expectedSha = Sha256Hex().Match(text) is { Success: true } m ? m.Value.ToLowerInvariant()
                 : throw new UpdateException($"{name}.sha256 in release {update.Tag} doesn't contain a SHA-256.");
@@ -223,7 +203,7 @@ public static partial class UpdateService
         Directory.CreateDirectory(Path.GetDirectoryName(targetExe)!);
         try
         {
-            using var resp = await DownloadAsync(http, asset.ApiUrl, token, ct).ConfigureAwait(false);
+            using var resp = await DownloadAsync(http, asset.ApiUrl, ct).ConfigureAwait(false);
             var total = asset.Size > 0 ? asset.Size : resp.Content.Headers.ContentLength ?? 0;
             long written = 0;
             using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -264,12 +244,12 @@ public static partial class UpdateService
     /// (OptimusVibe.exe ↔ optimus-vibe.exe) if it sits in the same folder and the release has it. The app sibling is
     /// skipped (with a note) while OptimusVibe is running.
     /// </summary>
-    public static Task<StageResult> StageAllAsync(UpdateInfo update, string runningExe, IProgress<double>? progress, string? token,
+    public static Task<StageResult> StageAllAsync(UpdateInfo update, string runningExe, IProgress<double>? progress,
         CancellationToken ct = default, bool includeSibling = true) =>
-        StageAllAsync(SharedHandler, update, runningExe, progress, token, ct, includeSibling, IsRunning);
+        StageAllAsync(SharedHandler, update, runningExe, progress, ct, includeSibling, IsRunning);
 
     internal static async Task<StageResult> StageAllAsync(HttpMessageHandler handler, UpdateInfo update, string runningExe,
-        IProgress<double>? progress, string? token, CancellationToken ct, bool includeSibling, Func<string, bool> isRunning)
+        IProgress<double>? progress, CancellationToken ct, bool includeSibling, Func<string, bool> isRunning)
     {
         runningExe = Path.GetFullPath(runningExe);
         var targets = new List<(string Exe, ReleaseAsset Asset)>();
@@ -295,7 +275,7 @@ public static partial class UpdateService
             var offset = done;
             var size = Math.Max(1, asset.Size);
             var sub = progress is null ? null : new SyncProgress(p => progress.Report((offset + p * size) / totalBytes));
-            await DownloadAndStageAsync(handler, update, exe, sub, token, ct, asset.Name).ConfigureAwait(false);
+            await DownloadAndStageAsync(handler, update, exe, sub, ct, asset.Name).ConfigureAwait(false);
             staged.Add(exe);
             done += size;
         }
@@ -442,16 +422,15 @@ public static partial class UpdateService
         return http;
     }
 
-    private static async Task<HttpResponseMessage> SendAsync(HttpClient http, string url, string? token, bool json, CancellationToken ct)
+    private static async Task<HttpResponseMessage> SendAsync(HttpClient http, string url, bool json, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(json ? "application/vnd.github+json" : "application/octet-stream"));
-        if (token is not null && IsGitHubApi(req.RequestUri!)) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await http.SendAsync(req, json ? HttpCompletionOption.ResponseContentRead : HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
     }
 
-    /// <summary>GET an asset as bytes, following GitHub's redirect to its CDN by hand (token only ever sent to api.github.com).</summary>
-    private static async Task<HttpResponseMessage> DownloadAsync(HttpClient http, string url, string? token, CancellationToken ct)
+    /// <summary>GET an asset as bytes, following GitHub's redirect to its CDN by hand.</summary>
+    private static async Task<HttpResponseMessage> DownloadAsync(HttpClient http, string url, CancellationToken ct)
     {
         var current = new Uri(url);
         for (var hop = 0; hop < 6; hop++)
@@ -459,7 +438,7 @@ public static partial class UpdateService
             HttpResponseMessage resp;
             try
             {
-                resp = await SendAsync(http, current.ToString(), token, json: false, ct).ConfigureAwait(false);
+                resp = await SendAsync(http, current.ToString(), json: false, ct).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)
             {
@@ -474,15 +453,18 @@ public static partial class UpdateService
             if (resp.IsSuccessStatusCode) return resp;
             using (resp)
             {
-                if (resp.StatusCode == HttpStatusCode.NotFound && token is null)
-                    throw new UpdateException("Sign in to GitHub to download the update (the app repo is private).");
-                throw await GitHubApi.ErrorAsync(resp, AppRepo.FullName, ct).ConfigureAwait(false);
+                var err = await GitHubApi.ErrorAsync(resp, AppRepo.FullName, ct).ConfigureAwait(false);
+                throw new UpdateException(ErrorText(err, "Download failed"), err);
             }
         }
         throw new UpdateException("Too many redirects downloading the update.");
     }
 
-    private static bool IsGitHubApi(Uri uri) => uri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Friendly text for a failed anonymous GitHub call (rate limit gets its own explanation).</summary>
+    private static string ErrorText(GitHubApiException err, string prefix) =>
+        err.Status is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests && err.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
+            ? $"GitHub is limiting requests from this network right now (anonymous checks are rationed). Try again in a little while. {err.Message}"
+            : $"{prefix}: {err.Message}";
 
     private static void TryDelete(string file)
     {

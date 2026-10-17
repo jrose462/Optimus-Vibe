@@ -54,18 +54,39 @@ public sealed class UpdateServiceTests : IDisposable
     public async Task Check_ComparesVersions(string tag, string current, UpdateStatus expected)
     {
         var h = new ScriptedHandler(Ok(Release(tag, ("optimus-vibe.exe", 5))));
-        var r = await UpdateService.CheckAsync(h, "tok", current, default);
+        var r = await UpdateService.CheckAsync(h, current, default);
         Assert.Equal(expected, r.Status);
         Assert.Equal(expected == UpdateStatus.UpdateAvailable, r.UpdateAvailable);
         Assert.EndsWith("repos/jrose462/Optimus-Vibe/releases/latest", h.Uris[0].AbsolutePath.TrimStart('/'));
     }
 
     [Fact]
-    public async Task Check_404WithoutToken_IsSignInStatusNotException()
+    public async Task Check_404_IsNoReleasesNotException()
     {
-        var r = await UpdateService.CheckAsync(new ScriptedHandler(Code(HttpStatusCode.NotFound)), null, "0.3.0", default);
-        Assert.Equal(UpdateStatus.SignInRequired, r.Status);
-        Assert.Contains("sign in", r.Message, StringComparison.OrdinalIgnoreCase);
+        var r = await UpdateService.CheckAsync(new ScriptedHandler(Code(HttpStatusCode.NotFound)), "0.3.0", default);
+        Assert.Equal(UpdateStatus.NoReleases, r.Status);
+        Assert.DoesNotContain("sign in", r.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(r.Update);
+    }
+
+    [Fact]
+    public async Task Check_RateLimited_IsFriendlyFailure_AndSendsNoAuthorization()
+    {
+        bool? hadAuth = null;
+        var h = new ScriptedHandler(req =>
+        {
+            hadAuth = req.Headers.Authorization is not null;
+            var resp = new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("{\"message\":\"API rate limit exceeded for 1.2.3.4.\"}"),
+            };
+            resp.Headers.Add("x-ratelimit-remaining", "0");
+            return resp;
+        });
+        var r = await UpdateService.CheckAsync(h, "0.3.0", default);
+        Assert.Equal(UpdateStatus.Failed, r.Status);
+        Assert.Contains("limiting requests", r.Message);
+        Assert.False(hadAuth);
         Assert.Null(r.Update);
     }
 
@@ -92,7 +113,7 @@ public sealed class UpdateServiceTests : IDisposable
         var info = Info("optimus-vibe.exe", content, "x");
         string? accept = null;
         var h = new ScriptedHandler(Ok($"{Sha(content)}  optimus-vibe.exe\n"), Bytes(content, r => accept = r.Headers.Accept.ToString()));
-        var staged = await UpdateService.DownloadAndStageAsync(h, info, exe, null, "tok", default);
+        var staged = await UpdateService.DownloadAndStageAsync(h, info, exe, null, default);
         Assert.Equal(exe + ".new", staged);
         Assert.Equal(content, File.ReadAllBytes(staged));
         Assert.Equal("application/octet-stream", accept);
@@ -106,7 +127,7 @@ public sealed class UpdateServiceTests : IDisposable
         var exe = _tmp.Write("optimus-vibe.exe", "old");
         var info = Info("optimus-vibe.exe", content, "x");
         var h = new ScriptedHandler(Ok(new string('a', 64) + "  optimus-vibe.exe\n"), Bytes(content));
-        var ex = await Assert.ThrowsAsync<UpdateException>(() => UpdateService.DownloadAndStageAsync(h, info, exe, null, "tok", default));
+        var ex = await Assert.ThrowsAsync<UpdateException>(() => UpdateService.DownloadAndStageAsync(h, info, exe, null, default));
         Assert.Contains("SHA-256", ex.Message);
         Assert.False(File.Exists(exe + ".new"));
         Assert.False(File.Exists(exe + ".part"));
@@ -120,7 +141,7 @@ public sealed class UpdateServiceTests : IDisposable
         var exe = _tmp.Write("optimus-vibe.exe", "old");
         var info = Info("optimus-vibe.exe", content, "x", sizeOverride: content.Length + 50);
         var h = new ScriptedHandler(Ok($"{Sha(content)}  optimus-vibe.exe\n"), Bytes(content));
-        var ex = await Assert.ThrowsAsync<UpdateException>(() => UpdateService.DownloadAndStageAsync(h, info, exe, null, "tok", default));
+        var ex = await Assert.ThrowsAsync<UpdateException>(() => UpdateService.DownloadAndStageAsync(h, info, exe, null, default));
         Assert.Contains("incomplete", ex.Message);
         Assert.False(File.Exists(exe + ".new"));
     }

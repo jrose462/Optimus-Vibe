@@ -1,0 +1,50 @@
+# Device profiles. Each machine runs `optimus-vibe detect` to see what it reports, and the first entry below
+# whose `match` rules ALL pass is used. Order matters: put the most specific device first.
+#
+# THIS IS AN EXAMPLE: run `optimus-vibe detect` on each of your machines, then edit the `match` rules, the
+# `display` mode and the `description` below to fit your hardware. Add one entry per machine (or per kind of machine).
+#
+# match keys (all optional, every listed key must match; * and ? wildcards, case-insensitive):
+#   model         Win32_ComputerSystem.Model (desktops reporting "System Product Name" fall back to the baseboard product)
+#   manufacturer  Win32_ComputerSystem.Manufacturer
+#   cpu           Win32_Processor.Name
+#   gpu           any physical Win32_VideoController.Name. Virtual adapters (Apollo/SudoMaker, Sunshine, GlideX,
+#                 Parsec, Microsoft Basic Display, IDD, spacedesk) are filtered out before matching.
+#   machine       the Windows computer name (alias: hostname)
+#
+# description: free text (shown in the app, and read by Claude when it recommends settings: put the GPU, CPU,
+#          RAM, display and anything else that matters for choosing presets).
+# display: the mode used when a game preset says `display: inherit` (a preset can also override parts of it).
+# defaultPreset: the recommended preset (games/<id>.yaml `presets.<device>.<name>`) a game uses on this device until
+#          one is picked in the app or with `optimus-vibe use <game> <preset>`. If a game lacks it, its first preset
+#          is used. Conventions: desktop = quality | performance; handheld = performance | battery.
+# driver:  nvidia | amd | none. Picks the driver-settings backend (the `nvidia:` / `amd:` blocks in game presets).
+#          Derived from the detected GPUs when omitted, but set it explicitly when a CPU also exposes an iGPU.
+#
+# Override detection with `--profile <device>` or once per machine with `optimus-vibe setup --force-profile <device>`.
+
+devices:
+  # Example handheld, matched on its CPU (a gpu rule like "AMD Radeon*" alone would also match a desktop that
+  # has an AMD CPU with integrated graphics). Listed first so it wins over `desktop`.
+  ally-x:
+    description: Handheld PC (AMD Ryzen Z2 Extreme APU, Radeon iGPU, 1080p 120 Hz panel). Edit to match yours.
+    match:
+      cpu: "*Z2 Extreme*"
+    display:
+      width: 1920
+      height: 1080
+      refresh: 120
+    driver: amd
+    defaultPreset: performance          # 60+ fps; `battery` (30/40 fps cap) is the other recommended preset
+
+  # Example desktop, matched on an NVIDIA GPU wildcard. Narrow it (e.g. "NVIDIA GeForce RTX 40*") if you need to.
+  desktop:
+    description: Desktop PC (NVIDIA RTX-class GPU). Edit to add your GPU, CPU, RAM and monitor.
+    match:
+      gpu: "NVIDIA GeForce*"
+    display:
+      width: 2560
+      height: 1440
+      refresh: 144
+    driver: nvidia
+    defaultPreset: quality              # best visuals at a smooth framerate; `performance` aims for the refresh cap

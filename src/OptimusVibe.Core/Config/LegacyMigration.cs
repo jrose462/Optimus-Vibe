@@ -24,8 +24,64 @@ public static class LegacyMigration
     private static readonly string[] Files = ["settings.json", "selections.json", "state.json", "update-check.json"];
     private static readonly string[] Dirs = ["backups", "repos", "logs"];
 
-    /// <summary>Startup entry point: default folders, default credential targets. Never throws.</summary>
+    /// <summary>Marker in the data folder: the app-repo/config-repo split migration has run.</summary>
+    public const string SplitMarkerFileName = ".migrated-repo-split";
+
+    /// <summary>
+    /// Startup entry point: the GameProfiles rename migration, then the app/config repo split migration
+    /// (<see cref="MigrateRepoSplit"/>) on the live data folder. Never throws.
+    /// </summary>
     public static MigrationResult Run()
+    {
+        var rename = RunRename();
+        var notes = rename.Notes.ToList();
+        var ran = rename.Ran;
+        try
+        {
+            if (MigrateRepoSplit(AppPaths.DefaultDataDir, out var splitNotes))
+            {
+                ran = true;
+                notes.AddRange(splitNotes);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"migration of the config repo choice failed: {ex.Message}");
+        }
+        return new MigrationResult(ran, notes);
+    }
+
+    /// <summary>
+    /// The app repo (jrose462/Optimus-Vibe, formerly jrose462/GameProfiles) no longer doubles as anybody's config repo. A
+    /// settings.json that still names one of them as the config repo is reset (repo cleared, sync back to the git provider) so
+    /// the first-run screen asks where the settings should live, instead of guessing. Runs once per data folder.
+    /// </summary>
+    public static bool MigrateRepoSplit(string dataDir, out IReadOnlyList<string> notes)
+    {
+        var list = new List<string>();
+        notes = list;
+        var marker = Path.Combine(dataDir, SplitMarkerFileName);
+        if (File.Exists(marker)) return false;
+        var changed = false;
+        var file = AppPaths.SettingsFile(dataDir);
+        if (File.Exists(file) && JsonNode.Parse(File.ReadAllText(file)) is JsonObject root &&
+            root["gitHubRepo"] is JsonValue v && v.TryGetValue<string>(out var repo) &&
+            (repo.Equals(NewRepo, StringComparison.OrdinalIgnoreCase) || repo.Equals(OldRepo, StringComparison.OrdinalIgnoreCase)))
+        {
+            root["gitHubRepo"] = null;
+            root["syncProvider"] = "git";
+            File.WriteAllText(file, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            list.Add($"settings.json gitHubRepo: {repo} -> (none); the app repo no longer holds config, so you will be asked where your settings live");
+            Log.Info("migration: " + list[^1]);
+            changed = true;
+        }
+        Directory.CreateDirectory(dataDir);
+        File.WriteAllText(marker, $"Config repo choice checked on {DateTime.UtcNow:O}.{Environment.NewLine}");
+        return changed;
+    }
+
+    /// <summary>The GameProfiles to Optimus-Vibe rename: default folders, default credential targets. Never throws.</summary>
+    private static MigrationResult RunRename()
     {
         try
         {

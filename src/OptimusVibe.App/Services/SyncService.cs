@@ -32,7 +32,7 @@ public static class SyncService
         }
     }
 
-    /// <summary>e.g. "jrose462/Optimus-Vibe (main) as jrose462" or "git checkout <repo>".</summary>
+    /// <summary>e.g. "jrose462/Optimus-Vibe (main) as jrose462" or "git checkout <config repo folder>".</summary>
     public static string Describe(AppPaths? paths, AppSettings settings)
     {
         if (paths is not null)
@@ -54,7 +54,7 @@ public static class SyncService
             }
         }
         return IsGitHub(settings)
-            ? $"{settings.GitHubRepo} ({settings.GitHubBranch}){(settings.GitHubLogin is { } l ? $" as {l}" : "")}"
+            ? $"{settings.GitHubRepo ?? "(no repo chosen)"} ({settings.GitHubBranch}){(settings.GitHubLogin is { } l ? $" as {l}" : "")}"
             : $"git checkout {paths?.RepoRoot ?? settings.ConfigRoot ?? "(not set)"}";
     }
 

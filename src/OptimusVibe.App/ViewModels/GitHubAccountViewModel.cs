@@ -38,12 +38,12 @@ public sealed class GitHubAccountViewModel : ObservableObject
     private bool _isLoadingRepos;
     private string _repoFilter = "";
     private RepoItemViewModel? _selectedRepo;
-    private string _repoName = AppSettings.DefaultGitHubRepo;
+    private string _repoName = "";
     private string _branch = "main";
-    private string _currentRepo = AppSettings.DefaultGitHubRepo;
+    private string _currentRepo = "";
     private string? _signInError;
     private bool _isCreateOpen;
-    private string _newRepoName = "optimus-vibe-config";
+    private string _newRepoName = AppSettings.SuggestedConfigRepoName;
     private bool _newRepoPrivate = true;
     private string? _seedPrompt;
     private string? _seedRepo;
@@ -156,7 +156,12 @@ public sealed class GitHubAccountViewModel : ObservableObject
     /// <summary>owner/name typed or picked (first-run uses the text box; settings the list).</summary>
     public string RepoName { get => _repoName; set { if (Set(ref _repoName, value)) CommandManager.InvalidateRequerySuggested(); } }
     public string Branch { get => _branch; set => Set(ref _branch, value); }
-    public string CurrentRepo { get => _currentRepo; private set => Set(ref _currentRepo, value); }
+    public string CurrentRepo
+    {
+        get => _currentRepo;
+        private set { if (Set(ref _currentRepo, value)) OnPropertyChanged(nameof(CurrentRepoText)); }
+    }
+    public string CurrentRepoText => string.IsNullOrWhiteSpace(CurrentRepo) ? "(not chosen yet)" : CurrentRepo;
     private string EffectiveRepo => RepoName.Trim();
 
     public ICommand SignInCommand { get; }
@@ -198,6 +203,13 @@ public sealed class GitHubAccountViewModel : ObservableObject
     public ICommand OpenDeveloperSettingsCommand { get; }
     public ICommand OpenTokenSettingsCommand { get; }
 
+    /// <summary>First-run GitHub step: refresh the account state and, when already signed in, load the repo list.</summary>
+    public async Task PrepareSetupAsync()
+    {
+        await RefreshAsync();
+        if (IsSignedIn && Repos.Count == 0) await LoadReposAsync();
+    }
+
     // ---------------------------------------------------------------- load
 
     /// <summary>Read settings + whether a token is stored. Cheap; safe to call whenever the page opens.</summary>
@@ -206,10 +218,11 @@ public sealed class GitHubAccountViewModel : ObservableObject
         try
         {
             var s = await SettingsStore.LoadAsync();
-            ClientId = s.GitHubClientId ?? AppPaths.Env("GITHUB_CLIENT_ID") ?? "";
+            ClientId = GitHubAuth.ResolveClientId(s); // settings.json, then env, then the id baked into the build
             HasClientId = !string.IsNullOrWhiteSpace(ClientId);
-            CurrentRepo = string.IsNullOrWhiteSpace(s.GitHubRepo) ? AppSettings.DefaultGitHubRepo : s.GitHubRepo;
+            CurrentRepo = s.GitHubRepo ?? "";
             if (string.IsNullOrWhiteSpace(RepoName) || Repos.Count == 0) RepoName = CurrentRepo;
+            if (string.IsNullOrWhiteSpace(NewRepoName)) NewRepoName = AppSettings.SuggestedConfigRepoName;
             Branch = string.IsNullOrWhiteSpace(s.GitHubBranch) ? "main" : s.GitHubBranch;
             bool hasToken = await Task.Run(() =>
             {
@@ -401,12 +414,12 @@ public sealed class GitHubAccountViewModel : ObservableObject
         if (!probed || status is null) return;
         if (status.IsConfigRepo)
         {
-            await SwitchToRepoAsync(repo, branch, seedDir: null);
+            await SwitchToRepoAsync(repo, branch, seed: false);
         }
         else if (status.CanSeed)
         {
             // Reachable, but not a config repo (empty, or other content): ask before writing anything to it.
-            SeedPrompt = $"{status.Message} Seed this repo with your current devices and games?";
+            SeedPrompt = $"{status.Message} Set it up with the starter config (example devices, a game template, empty library)?";
             _seedRepo = repo;
             _seedBranch = branch;
         }
@@ -422,25 +435,24 @@ public sealed class GitHubAccountViewModel : ObservableObject
         var branch = _seedBranch;
         SeedPrompt = null;
         if (repo is null) return;
-        await SwitchToRepoAsync(repo, branch, SeedSourceDir());
+        await SwitchToRepoAsync(repo, branch, seed: true);
     }
-
-    /// <summary>The config folder in use right now: what a new or empty repo gets seeded with.</summary>
-    private string SeedSourceDir() => _main.Session?.Paths.ConfigRoot
-        ?? throw new InvalidOperationException("There is no config folder loaded to seed from — pick a local git checkout first.");
 
     private async Task CreateRepoAsync()
     {
         var name = NewRepoName.Trim();
         if (name.Length == 0) return;
-        string seedDir;
-        try { seedDir = SeedSourceDir(); }
-        catch (InvalidOperationException ex)
+        // Already have a repo with that name? Use it (probing it, offering to seed it) instead of failing on "already exists".
+        var existing = Repos.FirstOrDefault(r => r.FullName.EndsWith("/" + name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
         {
-            _main.Notify(ex.Message, error: true);
+            RepoName = existing.FullName;
+            Branch = existing.Info.DefaultBranch;
+            await UseRepoAsync();
+            IsCreateOpen = false;
             return;
         }
-        var ok = await SwitchToRepoAsync(name, "main", seedDir, create: true);
+        var ok = await SwitchToRepoAsync(name, "main", seed: true, create: true);
         if (ok) IsCreateOpen = false;
     }
 
@@ -448,12 +460,12 @@ public sealed class GitHubAccountViewModel : ObservableObject
     /// Optionally create the repo (<paramref name="create"/>: <paramref name="repo"/> is a bare name) and/or seed it, then
     /// download the repo into the app's own copy, switch sync to the GitHub account and reload everything.
     /// </summary>
-    private async Task<bool> SwitchToRepoAsync(string repo, string branch, string? seedDir, bool create = false)
+    private async Task<bool> SwitchToRepoAsync(string repo, string branch, bool seed, bool create = false)
     {
         string? configRoot = null;
         var login = Login;
         var seeded = false;
-        var title = create ? $"Creating {repo}" : seedDir is not null ? $"Seeding {repo}" : $"Downloading {repo}";
+        var title = create ? $"Creating {repo}" : seed ? $"Seeding {repo}" : $"Downloading {repo}";
         var ok = await _main.RunAsync(title, () => Task.Run(async () =>
         {
             if (!create && !GitHubApi.IsValidRepoName(repo)) throw new InvalidOperationException($"“{repo}” isn't an owner/name repository.");
@@ -461,16 +473,16 @@ public sealed class GitHubAccountViewModel : ObservableObject
             var api = new GitHubApi(token);
             if (create)
             {
-                var info = await api.CreateRepoAsync(repo, NewRepoPrivate, "Optimus-Vibe config: device profiles, game presets and saves");
+                var info = await api.CreateRepoAsync(repo, NewRepoPrivate, "Optimus-Vibe config: device profiles, game presets and saves (private)");
                 repo = info.FullName;
                 branch = string.IsNullOrWhiteSpace(info.DefaultBranch) ? "main" : info.DefaultBranch;
                 Log.Info($"Created GitHub repo {repo} ({(NewRepoPrivate ? "private" : "public")})");
             }
-            if (seedDir is not null)
+            if (seed)
             {
                 try
                 {
-                    var seed = await ConfigRepoSeeder.SeedAsync(api, repo, branch, seedDir);
+                    var seed = await ConfigRepoSeeder.SeedAsync(api, repo, branch);
                     seeded = true;
                     Log.Info($"Seeded {repo} ({branch}): {seed.Paths.Count} file(s), commit {seed.CommitSha}");
                 }
@@ -503,7 +515,7 @@ public sealed class GitHubAccountViewModel : ObservableObject
             _main.Notify($"Using {repo}, but OPTIMUSVIBE_CONFIG ({env}) overrides it for this session.", error: true);
         else
             _main.Notify(seeded
-                ? $"Seeded {repo} with your devices and games, now using it ({branch})."
+                ? $"Set up {repo} with the starter config and now using it ({branch}). Edit devices.yaml to match your machines."
                 : $"Using {repo} ({branch}) through your GitHub account.");
         await _main.ReloadAllAsync();
         if (create || seeded) _ = LoadReposAsync();

@@ -61,6 +61,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private string? _toastActionText;
     private Action? _toastAction;
     private string? _setupMessage;
+    private string _setupStep = "choose";
     private string? _setupConfigRoot;
     private IReadOnlyList<LaunchOptionChange>? _steamChanges;
     private LibraryTileViewModel? _launching;
@@ -74,6 +75,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         RefreshCommand = new AsyncRelayCommand(() => LoadAsync(rescan: true), () => !IsBusy);
         SyncCommand = new AsyncRelayCommand(SyncAsync, () => !IsBusy && Session is not null);
         PickConfigFolderCommand = new AsyncRelayCommand(PickConfigFolderAsync, () => !IsBusy);
+        SetupGitHubCommand = new RelayCommand(StartGitHubStep);
+        SetupBackCommand = new RelayCommand(() => SetupStep = "choose");
         ForceDeviceCommand = new AsyncRelayCommand(p => ForceDeviceAsync(p as string), _ => !IsBusy);
         LaunchCommand = new AsyncRelayCommand(() => SelectedGame?.Detail?.LaunchAsync() ?? Task.CompletedTask,
             () => !IsBusy && SelectedGame?.Detail?.CanLaunch == true);
@@ -100,7 +103,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Account = new GitHubAccountViewModel(this);
         Library = new LibraryViewModel(this);
         Updates = new UpdatesViewModel(this);
-        Report = new ReportViewModel(this, Account);
+        Report = new ReportViewModel(this);
         Settings = new SettingsViewModel(this, Account);
     }
 
@@ -338,6 +341,29 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public ICommand RefreshCommand { get; }
     public ICommand SyncCommand { get; }
     public ICommand PickConfigFolderCommand { get; }
+    public ICommand SetupGitHubCommand { get; }
+    public ICommand SetupBackCommand { get; }
+
+    /// <summary>First-run step: "choose" (GitHub or a local folder) or "github" (sign in, then create / pick the config repo).</summary>
+    public string SetupStep
+    {
+        get => _setupStep;
+        private set
+        {
+            if (!Set(ref _setupStep, value)) return;
+            OnPropertyChanged(nameof(SetupIsChoose));
+            OnPropertyChanged(nameof(SetupIsGitHub));
+        }
+    }
+
+    private void StartGitHubStep()
+    {
+        SetupStep = "github";
+        _ = Account.PrepareSetupAsync();
+    }
+
+    public bool SetupIsChoose => SetupStep == "choose";
+    public bool SetupIsGitHub => SetupStep == "github";
     public ICommand ForceDeviceCommand { get; }
     public ICommand LaunchCommand { get; }
     public ICommand DismissToastCommand { get; }
@@ -568,6 +594,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
     private void EnterSetup(string? message, List<string> deviceChoices, string? configRoot)
     {
+        if (State != AppState.Setup) SetupStep = "choose";
         Session = null;
         _setupConfigRoot = configRoot;
         OnPropertyChanged(nameof(ConfigRoot));
@@ -595,7 +622,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "Pick the config folder of your Optimus-Vibe repo (the one with devices.yaml)",
+            Title = "Choose the folder for your game settings (your config repo checkout, or any folder)",
             InitialDirectory = _setupConfigRoot ?? Session?.Paths.RepoRoot ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };
         if (dialog.ShowDialog() != true) return;
@@ -606,8 +633,26 @@ public sealed class MainViewModel : ObservableObject, IAppShell
             folder = Path.Combine(folder, "config");
         if (!File.Exists(Path.Combine(folder, "devices.yaml")))
         {
-            Notify($"{folder} has no devices.yaml — pick the repo's config folder.", error: true);
-            return;
+            // No Optimus-Vibe settings here yet: offer to create the generic starter set in <folder>\config.
+            var target = Path.Combine(folder, "config");
+            var ask = MessageBox.Show(
+                $"{folder} has no Optimus-Vibe settings yet.\n\nCreate a starter set in {target}?\n(Example devices, a game template and empty library files. Nothing existing is overwritten.)",
+                "Optimus-Vibe", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (ask != MessageBoxResult.Yes) return;
+            try
+            {
+                var written = SeedConfig.WriteTo(target);
+                Log.Info($"Seeded {target} with the starter config ({written.Count} file(s))");
+                folder = target;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Seeding the folder failed", ex);
+                Notify($"Couldn't create the starter set: {ex.Message}", error: true);
+                return;
+            }
+            if (!Directory.Exists(Path.Combine(Directory.GetParent(target)!.FullName, ".git")))
+                Notify("Created. This folder is not a git repo, so settings won't sync between machines until you make it one (git init, or clone your config repo here).");
         }
 
         var root = Path.GetFullPath(folder);

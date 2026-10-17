@@ -68,8 +68,7 @@ internal static class AppCommands
         };
         cmd.SetAction(Guard(pr =>
         {
-            var token = Token();
-            var result = UpdateService.CheckAsync(token).GetAwaiter().GetResult();
+            var result = UpdateService.CheckAsync().GetAwaiter().GetResult();
             Console.WriteLine(result.Message);
             if (result.Status is not (UpdateStatus.UpdateAvailable or UpdateStatus.UpToDate)) return 1;
             var update = result.Update!;
@@ -93,7 +92,7 @@ internal static class AppCommands
                 lastShown = pct;
                 Console.Write($"\rDownloading... {pct,3}%");
             });
-            var staged = UpdateService.StageAllAsync(update, exe, progress, token).GetAwaiter().GetResult();
+            var staged = UpdateService.StageAllAsync(update, exe, progress).GetAwaiter().GetResult();
             Console.WriteLine();
             foreach (var note in staged.Notes) Console.WriteLine(note);
             var replaced = UpdateService.ApplyStaged(exe);
@@ -107,11 +106,12 @@ internal static class AppCommands
     {
         var description = new Argument<string>("description") { Description = "What went wrong (first line becomes the title)." };
         var dryRun = new Option<bool>("--dry-run") { Description = "Print the report instead of filing it." };
+        var noOpen = new Option<bool>("--no-open") { Description = "Only print the prefilled issue link (builds without a built-in token) instead of opening the browser." };
         var game = new Option<string?>("--game") { Description = "Game id the problem is about (added to the report)." };
         var cmd = new Command("report-bug",
-            $"File a bug report (with version, device and recent log, tokens and your user folder redacted) on {AppRepo.FullName}.")
+            $"File a bug report (with version, device and recent log, tokens and your user folder redacted) on {AppRepo.FullName}. With a GitHub sign-in the report is filed as you; otherwise official builds file it anonymously via a built-in token, and other builds open a prefilled issue in your browser.")
         {
-            description, dryRun, game,
+            description, dryRun, game, noOpen,
         };
         cmd.SetAction(Guard(pr =>
         {
@@ -142,31 +142,45 @@ internal static class AppCommands
                 return 0;
             }
 
-            var token = Token() ?? throw new ConfigException("Not signed in to GitHub — run `optimus-vibe github login` (or `github token <pat>`) first, or use --dry-run.");
-            var url = BugReport.SubmitAsync(draft, token).GetAwaiter().GetResult();
-            Console.WriteLine($"Bug report filed: {url}");
+            var userToken = Token();
+            var identity = BugReport.ResolveIdentity(userToken);
+            var login = userToken is null ? null : AppPaths.LoadSettings(AppPaths.DefaultDataDir).GitHubLogin;
+            Console.WriteLine(BugReport.DescribeIdentity(identity, login) + ".");
+            if (identity != BugReport.ReportIdentity.Browser)
+            {
+                var url = BugReport.SubmitAsync(draft, userToken).GetAwaiter().GetResult();
+                Console.WriteLine($"Bug report filed: {url}");
+                return 0;
+            }
+
+            // Dev build without a built-in token: no sign-in either, hand the report to the browser.
+            var link = BugReport.BuildNewIssueUrl(draft, out var truncated);
+            Console.WriteLine("This build can't send reports directly. Open this link, check the report and press \"Submit new issue\":");
+            Console.WriteLine(link);
+            if (truncated) Console.WriteLine("(The link carries a shortened report; re-run with --dry-run to get the full text and paste it into the issue.)");
+            if (!pr.GetValue(noOpen))
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(link) { UseShellExecute = true })?.Dispose(); }
+                catch (Exception ex) { Log.Warn($"Couldn't open the browser: {ex.Message}"); }
+            }
             return 0;
         }));
         return cmd;
     }
 
-    /// <summary>`github create &lt;name&gt; [--public]`: create a config repo, seed it from the current config, clone it and switch to it. Added under the `github` verb.</summary>
+    /// <summary>`github create &lt;name&gt; [--public]`: create a config repo, seed it with the starter config built into this exe, clone it and switch to it. Added under the `github` verb.</summary>
     public static Command GitHubCreateCommand(Option<string?> configOption)
     {
         var name = new Argument<string>("name") { Description = "Name of the new config repo (created under your account)." };
         var isPublic = new Option<bool>("--public") { Description = "Make the repo public (default: private)." };
-        var cmd = new Command("create", "Create a new GitHub config repo, seed it with the current config, and switch this machine to it.") { name, isPublic };
+        var cmd = new Command("create", "Create a new (private) GitHub config repo, seed it with the generic starter config, and switch this machine to it.") { name, isPublic };
         cmd.SetAction(Guard(pr =>
         {
             var token = Token() ?? throw new ConfigException("Not signed in to GitHub — run `optimus-vibe github login` or `github token <pat>` first.");
             var api = new GitHubApi(token);
-            var paths = AppPaths.Resolve(pr.GetValue(configOption));
-            if (!File.Exists(paths.DevicesFile))
-                throw new ConfigException($"No config to seed from: {paths.DevicesFile} not found (use --config).");
-
-            var info = api.CreateRepoAsync(pr.GetValue(name)!, !pr.GetValue(isPublic), "Optimus-Vibe config (per-device graphics presets)").GetAwaiter().GetResult();
+            var info = api.CreateRepoAsync(pr.GetValue(name)!, !pr.GetValue(isPublic), "Optimus-Vibe config: device profiles, game presets and saves").GetAwaiter().GetResult();
             Console.WriteLine($"Created {info.FullName} ({(info.Private ? "private" : "public")}).");
-            var seeded = ConfigRepoSeeder.SeedAsync(api, info.FullName, info.DefaultBranch, paths.ConfigRoot).GetAwaiter().GetResult();
+            var seeded = ConfigRepoSeeder.SeedAsync(api, info.FullName, info.DefaultBranch).GetAwaiter().GetResult();
             Console.WriteLine($"Seeded {seeded.Paths.Count} file(s) in one commit.");
 
             var dataDir = AppPaths.DefaultDataDir;
