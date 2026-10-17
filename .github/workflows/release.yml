@@ -157,9 +157,10 @@ jobs:
                              [ci]="CI and automation" [build]="Build" [chore]="Maintenance" [other]="Other changes" )
           order=(breaking feat fix perf refactor docs style test ci build chore other)
           declare -A body
+          cc_re='^([a-z]+)(\(([^)]+)\))?(!)?: (.*)$'
           while IFS=$'\t' read -r -d $'\x1e' sha subject rest; do
             sha=$(printf '%s' "$sha" | tr -d '\n'); [ -z "$sha" ] && continue
-            if [[ "$subject" =~ ^([a-z]+)(\(([^)]+)\))?(!)?:\ (.*)$ ]]; then
+            if [[ "$subject" =~ $cc_re ]]; then
               type="${BASH_REMATCH[1]}"; scope="${BASH_REMATCH[3]}"; bang="${BASH_REMATCH[4]}"; text="${BASH_REMATCH[5]}"
             else
               type=other; scope=""; bang=""; text="$subject"
