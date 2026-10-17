@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <!--
     One version for every project (Core, CLI, App, tests). CI overrides it per release: dotnet publish -p:Version=1.2.3
     (tag v1.2.3). The SDK appends "+<commit sha>" to InformationalVersion when it knows the source revision;
