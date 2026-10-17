@@ -193,13 +193,19 @@ The repo is public: anyone can open issues, comments and fork PRs, and the bug-r
 
 ## Branch protection and repo settings (already applied)
 
-- `main`: pull request required with 1 approving review and **CODEOWNERS review**; required status check **Build and test
-  (windows)**; no force-push, no deletion; administrators are not enforced (the owner can merge their own work). Consider
-  adding **Protect .github** as a required check.
+- `main`: pull request required; **code-owner review required** (no general approval count); required status checks
+  **Build and test (windows)** and **Protect .github**; no force-push, no deletion; administrators are not enforced (the
+  owner can merge their own work).
+- `.github/CODEOWNERS`: the maintainer owns everything **except** the low-risk areas (tests, docs, README, app
+  views/themes/converters, file-format handlers, `Config/Values|Vdf|Yaml.cs`). So a PR touching any owned path cannot
+  merge without the maintainer, while a PR confined to low-risk areas only needs green CI — which is what lets
+  `claude-automerge.yml` merge low-risk Claude fixes after its policy scan and independent review. Keep its
+  `LOW_RISK_PATHS` and CODEOWNERS in sync.
 - Default workflow permissions are read-only. **Allow GitHub Actions to create and approve pull requests** is ON so the
-  publish job can open fix PRs. An Actions approval does not count toward the required CODEOWNERS review.
+  publish job can open fix PRs. An Actions approval never counts as a code-owner review.
+- Squash merges use the PR title as the commit subject (CI checks PR titles are Conventional Commits), which the release
+  notes are built from.
 - Secret scanning with push protection, private vulnerability reporting and Dependabot alerts are enabled.
-- `.github/CODEOWNERS`: `* @jrose462` and `/.github/ @jrose462`.
 
 ## Setup checklist: what you need to do
 

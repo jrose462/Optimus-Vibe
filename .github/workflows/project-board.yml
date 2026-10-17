@@ -29,7 +29,7 @@ on:
         description: Issue number
         required: true
       status:
-        description: planned | fix-in-pr | archive
+        description: planned | fix-in-pr | fixed | archive
         required: true
       pr:
         description: PR number (for fix-in-pr)
@@ -148,6 +148,7 @@ jobs:
               item=$(add_item "$(issue_node "$IN_ISSUE")")
               case "$IN_STATUS" in
                 planned)   move_to "$item" "$OPT_PLANNED" ;;
+                fixed)     move_to "$item" "$OPT_FIXED" ;;
                 fix-in-pr) move_to "$item" "$OPT_FIX_IN_PR"
                            if [[ "$IN_PR" =~ ^[0-9]+$ ]]; then
                              move_to "$(add_item "$(gh api "repos/$GH_REPO/pulls/$IN_PR" --jq '.node_id')")" "$OPT_FIX_IN_PR"

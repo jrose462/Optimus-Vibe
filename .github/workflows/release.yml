@@ -35,6 +35,8 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags for the release notes
 
       - name: Resolve version
         id: ver
@@ -138,6 +140,47 @@ jobs:
           }
           Get-ChildItem dist | Format-Table Name, Length
 
+      - name: Write release notes from Conventional Commits
+        shell: bash
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Commits since the previous release tag, grouped by Conventional Commit type. Squash-merged PRs keep their
+          # (conventional) PR title as the commit subject, so PRs land in the right section too.
+          prev=$(git tag --list 'v*.*.*' --sort=-v:refname | grep -vx "$TAG" | head -1 || true)
+          range="${prev:+$prev..}HEAD"
+          git log "$range" --no-merges --format='%H%x09%s%x09%b%x1e' > /tmp/commits.txt
+          declare -A title=( [breaking]="Breaking changes" [feat]="Features" [fix]="Bug fixes" [perf]="Performance"
+                             [refactor]="Refactoring" [docs]="Documentation" [style]="Style" [test]="Tests"
+                             [ci]="CI and automation" [build]="Build" [chore]="Maintenance" [other]="Other changes" )
+          order=(breaking feat fix perf refactor docs style test ci build chore other)
+          declare -A body
+          while IFS=$'\t' read -r -d $'\x1e' sha subject rest; do
+            sha=$(printf '%s' "$sha" | tr -d '\n'); [ -z "$sha" ] && continue
+            if [[ "$subject" =~ ^([a-z]+)(\(([^)]+)\))?(!)?:\ (.*)$ ]]; then
+              type="${BASH_REMATCH[1]}"; scope="${BASH_REMATCH[3]}"; bang="${BASH_REMATCH[4]}"; text="${BASH_REMATCH[5]}"
+            else
+              type=other; scope=""; bang=""; text="$subject"
+            fi
+            [[ -n "${title[$type]:-}" ]] || type=other
+            line="- ${scope:+**$scope:** }$text ([\`${sha:0:7}\`](https://github.com/$REPO/commit/$sha))"
+            if [ -n "$bang" ] || grep -q '^BREAKING CHANGE:' <<<"$rest"; then body[breaking]+="$line"$'\n'; fi
+            body[$type]+="$line"$'\n'
+          done < /tmp/commits.txt
+          {
+            echo "## What's new in $TAG"
+            echo
+            for t in "${order[@]}"; do
+              [ -n "${body[$t]:-}" ] || continue
+              echo "### ${title[$t]}"; echo; printf '%s\n' "${body[$t]}"
+            done
+            echo "Install or update: download \`OptimusVibe.exe\` below (each file has a \`.sha256\`), or let the app update itself."
+            echo
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,5 +195,6 @@ jobs:
             --repo $env:GITHUB_REPOSITORY `
             --target $env:TARGET `
             --title $env:TAG `
+            --notes-file release-notes.md `
             --generate-notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

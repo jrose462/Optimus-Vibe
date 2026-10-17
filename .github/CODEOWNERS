@@ -1,2 +1,21 @@
-* @jrose462
-/.github/ @jrose462
+# Code owners decide which changes need the maintainer's review (branch protection: "Require review from Code Owners").
+# Everything is owned by the maintainer EXCEPT the low-risk areas below, which have no owner on purpose: automated Claude
+# fixes confined to them may merge after CI passes, the policy scan passes and an independent Claude review approves
+# (.github/workflows/claude-automerge.yml). Keep this list in sync with LOW_RISK_PATHS in that workflow.
+# Later lines win; a pattern with no owners removes ownership.
+
+*                                       @jrose462
+
+/tests/
+/docs/
+/README.md
+/src/OptimusVibe.App/Views/
+/src/OptimusVibe.App/Themes/
+/src/OptimusVibe.App/Converters/
+/src/OptimusVibe.Core/Handlers/
+/src/OptimusVibe.Core/Config/Values.cs
+/src/OptimusVibe.Core/Config/Vdf.cs
+/src/OptimusVibe.Core/Config/Yaml.cs
+
+# Always the maintainer's, even if a broader rule above changes:
+/.github/                               @jrose462

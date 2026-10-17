@@ -445,4 +445,6 @@ jobs:
           # PRs and pushes made with GITHUB_TOKEN don't trigger workflows, so start CI and the board update explicitly.
           gh workflow run ci.yml --ref "$branch" || true
           gh workflow run project-board.yml -f issue="$ISSUE" -f status=fix-in-pr -f pr="$pr" || true
+          # Low-risk fixes may auto-merge after CI + policy scan + an independent review (claude-automerge.yml).
+          gh workflow run claude-automerge.yml -f pr="$pr" || true
           echo "Opened PR #$pr for #$ISSUE"

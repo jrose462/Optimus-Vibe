@@ -1,0 +1,198 @@
+# Auto-merge for low-risk Claude fixes. Started by the bug-squash publish job right after it opens a `claude-fix` PR.
+#   check  (no Claude)  wait for CI on the PR head; verify the PR is a bot-made claude/issue-<n> -> main PR; policy scan:
+#                       every changed file in LOW_RISK_PATHS, <= MAX_LINES, no risky API/keyword in added lines.
+#   review (Claude, read-only token, file tools only) an independent review of the DIFF ONLY (never the issue text).
+#   merge  (no Claude)  approve -> squash-merge; otherwise label needs-maintainer-review and explain.
+# Defence in depth: CODEOWNERS owns every non-low-risk path, so GitHub itself refuses to merge those without the
+# maintainer even if this workflow misjudged. Keep LOW_RISK_PATHS in sync with .github/CODEOWNERS.
+name: Claude auto-merge
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number (a claude-fix PR)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  PR: ${{ github.event.inputs.pr }}
+  MAX_LINES: '120'
+  LOW_RISK_PATHS: '^(tests/|docs/|README\.md$|src/OptimusVibe\.App/(Views|Themes|Converters)/|src/OptimusVibe\.Core/Handlers/|src/OptimusVibe\.Core/Config/(Values|Vdf|Yaml)\.cs$)'
+  RISKY_ADDED: 'HttpClient|WebClient|HttpWebRequest|WebRequest|Socket|TcpClient|Process\.Start|ProcessStartInfo|Registry\.|RegistryKey|File\.Delete|Directory\.Delete|DeleteSubKey|Environment\.GetEnvironmentVariable|DllImport|LibraryImport|NativeLibrary|Assembly\.Load|Activator\.CreateInstance|FromBase64|ToBase64|[Tt]oken|[Ss]ecret|[Pp]assword|[Cc]redential|Sanitize|https?://'
+  REVIEW_MODEL: ${{ vars.SQUASH_REVIEW_MODEL || 'claude-sonnet-5-5' }}
+  DENY_TOOLS: >-
+    Bash,WebFetch,WebSearch,Task,NotebookEdit,Edit,MultiEdit,
+    Read(/proc/**),Read(/etc/**),Read(/sys/**),Read(/root/**),Read(/tmp/**),Read(/home/runner/work/_temp/**),
+    Read(/home/runner/.*/**),Read(~/.*/**),Read(**/.git/**)
+
+jobs:
+  check:
+    name: Wait for CI and scan the diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      eligible: ${{ steps.scan.outputs.eligible }}
+      reason: ${{ steps.scan.outputs.reason }}
+    steps:
+      - name: Wait for CI and scan
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          out() { echo "eligible=$1" >> "$GITHUB_OUTPUT"; printf 'reason<<EOF_R\n%s\nEOF_R\n' "$2" >> "$GITHUB_OUTPUT"; echo "$2"; exit 0; }
+          [[ "$PR" =~ ^[0-9]+$ ]] || out false "Invalid PR number."
+          pr=$(gh pr view "$PR" --json state,baseRefName,headRefName,headRefOid,author,labels,isCrossRepository) || out false "PR not found."
+          [ "$(jq -r .state <<<"$pr")" = "OPEN" ] || out false "PR is not open."
+          [ "$(jq -r .baseRefName <<<"$pr")" = "main" ] || out false "PR does not target main."
+          [ "$(jq -r .isCrossRepository <<<"$pr")" = "false" ] || out false "PR comes from a fork."
+          [[ "$(jq -r .headRefName <<<"$pr")" =~ ^claude/issue-[0-9]+$ ]] || out false "Not a claude/issue-<n> branch."
+          author=$(jq -r .author.login <<<"$pr")
+          [[ "$author" == "app/github-actions" || "$author" == "github-actions" || "$author" == "github-actions[bot]" ]] || out false "PR was not opened by the bug-squash workflow (author: $author)."
+          jq -e '[.labels[].name] | index("claude-fix")' <<<"$pr" >/dev/null || out false "PR lacks the claude-fix label."
+          sha=$(jq -r .headRefOid <<<"$pr")
+
+          # Wait (up to ~45 min) for the required CI check on the head commit.
+          for i in $(seq 1 90); do
+            res=$(gh api "repos/$GH_REPO/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name == "Build and test (windows)")] | sort_by(.started_at) | last | "\(.status) \(.conclusion)"' 2>/dev/null || echo "none")
+            case "$res" in
+              "completed success") break ;;
+              completed*) out false "CI did not pass ($res)." ;;
+            esac
+            sleep 30
+          done
+          [ "$res" = "completed success" ] || out false "CI did not finish in time."
+
+          # Policy scan on the diff.
+          files=$(gh pr view "$PR" --json files --jq '.files[] | "\(.path)\t\(.additions + .deletions)"')
+          total=0; bad=""
+          while IFS=$'\t' read -r path n; do
+            [ -z "${path:-}" ] && continue
+            total=$((total + n))
+            printf '%s' "$path" | grep -qE "$LOW_RISK_PATHS" || bad="$bad $path"
+          done <<< "$files"
+          [ -z "$bad" ] || out false "Touches files outside the low-risk areas:$bad"
+          [ "$total" -le "$MAX_LINES" ] || out false "Changes $total lines (auto-merge limit $MAX_LINES)."
+          hits=$(gh pr diff "$PR" | grep -E '^\+[^+]' | grep -oE "$RISKY_ADDED" | sort -u | tr '\n' ' ' || true)
+          [ -z "$hits" ] || out false "Added lines mention sensitive APIs or keywords: $hits"
+          out true "Low-risk: $total changed lines in low-risk areas; CI passed."
+
+  review:
+    name: Independent Claude review
+    needs: check
+    if: needs.check.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout main (no credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare the diff (the issue text is deliberately not included)
+        id: prep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p .claude-in .claude-out
+          printf '.claude-in/\n.claude-out/\n' >> .git/info/exclude
+          gh pr diff "$PR" > .claude-in/diff.patch
+          delim="P_$(openssl rand -hex 16)"
+          { echo "prompt<<$delim"; cat .github/claude/review-prompt.md; echo; echo "PR #$PR in $GITHUB_REPOSITORY."; echo "$delim"; } >> "$GITHUB_OUTPUT"
+
+      - name: Claude review
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ github.token }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prep.outputs.prompt }}
+          claude_args: >-
+            --model ${{ env.REVIEW_MODEL }} --max-turns 30
+            --allowedTools "Read,Glob,Grep,Write" --disallowedTools "${{ env.DENY_TOOLS }}"
+
+      - name: Upload the review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-${{ github.event.inputs.pr }}
+          path: .claude-out/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  merge:
+    name: Merge or hand to the maintainer
+    needs: [check, review]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ELIGIBLE: ${{ needs.check.outputs.eligible }}
+      REASON: ${{ needs.check.outputs.reason }}
+    steps:
+      - name: Download the review
+        if: needs.check.outputs.eligible == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: review-${{ github.event.inputs.pr }}
+          path: out
+
+      - name: Decide
+        run: |
+          set -uo pipefail
+          gh label create needs-maintainer-review --color d93f0b --description "Automated fix needs the maintainer" 2>/dev/null || true
+          clean() { head -c 6000 | sed -e 's/@/@\xe2\x80\x8b/g' -e 's/<!--/\&lt;!--/g'; }
+          handoff() {
+            gh pr edit "$PR" --add-label needs-maintainer-review || true
+            gh pr comment "$PR" --body "**Auto-merge skipped — waiting for the maintainer.**
+
+          $1" || true
+            exit 0
+          }
+          [ "$ELIGIBLE" = "true" ] || handoff "$REASON"
+          verdict=$(jq -r '.verdict // ""' out/review.json 2>/dev/null || echo "")
+          summary=$(jq -r '.summary // ""' out/review.json 2>/dev/null | clean)
+          reasons=$(jq -r '(.reasons // []) | map("- " + .) | join("\n")' out/review.json 2>/dev/null | clean)
+          if [ "$verdict" != "approve" ]; then
+            handoff "Independent Claude review: \`${verdict:-no result}\`. $summary
+
+          $reasons"
+          fi
+          gh pr comment "$PR" --body "**Auto-merged** — low-risk change, CI passed, independent Claude review approved.
+
+          $summary
+
+          $reasons" || true
+          if gh pr merge "$PR" --squash; then
+            branch=$(gh pr view "$PR" --json headRefName --jq .headRefName)
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$branch" || true
+            # Merges made with GITHUB_TOKEN don't trigger workflows: move the linked issue's card to Fixed explicitly.
+            for n in $(gh pr view "$PR" --json closingIssuesReferences --jq '.closingIssuesReferences[].number'); do
+              gh workflow run project-board.yml -f issue="$n" -f status=fixed || true
+            done
+          else
+            handoff "The merge was refused by branch protection (for example a code-owner review is required)."
+          fi

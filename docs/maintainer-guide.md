@@ -10,7 +10,8 @@ What happens to a bug reported from the app, week by week, and what the maintain
 | Any day | User | **Report a problem** in the app files a public issue (as their GitHub user, or anonymously via the app) | |
 | Within a minute | Workflow (no Claude) | Labels it `bug-report`, comments "queued for the weekly bug squash" | **Reported** |
 | Thursday 00:01–09:30 PT | Claude + workflow | Audit, then a fix PR for small valid bugs (details below) | **Planned** / **Fix in PR** / archived |
-| After Thursday | Maintainer | Review and merge the PRs (CI must pass) | **Fixed** |
+| Thursday, after CI | Workflow + independent Claude review | Low-risk fixes auto-merge | **Fixed** |
+| After Thursday | Maintainer | Review and merge the PRs marked `needs-maintainer-review` | **Fixed** |
 | Whenever ready | Maintainer | Tag a release; CI builds and publishes the exes; apps update themselves | **Released** |
 
 Claude only runs inside the Thursday window (ending at the 10:00 PT weekly Claude usage reset), at most
@@ -39,11 +40,26 @@ For each queued issue:
    `claude-fix` with `Fixes #n`, starts CI and moves the card to **Fix in PR**. A rejected patch gets
    `triage:needs-human` and a comment explaining why.
 
+5. **Auto-merge check** ([claude-automerge.yml](../.github/workflows/claude-automerge.yml)), started for every fix PR:
+   1. wait for CI to pass on the PR;
+   2. policy scan (no Claude): every changed file is in a **low-risk area** (tests, docs, README, app views/themes/
+      converters, file-format handlers, `Config/Values|Vdf|Yaml.cs`), at most 120 changed lines, and no added line
+      mentions network, processes, the registry, file deletion, native calls, tokens/credentials, report sanitising or
+      URLs;
+   3. an **independent Claude review** (default Sonnet, `SQUASH_REVIEW_MODEL`) of the diff only — it never sees the issue
+      text, so a report can't steer it — must approve.
+
+   All three pass → squash-merged automatically, card **Fixed**. Anything else → label `needs-maintainer-review` with
+   the reason, and it waits for you. GitHub enforces the same split: [`CODEOWNERS`](../.github/CODEOWNERS) owns every
+   non-low-risk path, so branch protection refuses to merge those without your review even if the workflow misjudged.
+
 ## Your part
 
-### 1. Review Claude's PRs (Friday or whenever)
+### 1. Review the PRs waiting for you (Friday or whenever)
 
-Open the [`claude-fix` PRs](https://github.com/jrose462/Optimus-Vibe/pulls?q=is%3Aopen+label%3Aclaude-fix). For each:
+Low-risk fixes merge themselves. Open the
+[`needs-maintainer-review` PRs](https://github.com/jrose462/Optimus-Vibe/pulls?q=is%3Aopen+label%3Aneeds-maintainer-review)
+(the bot's comment says why each one needs you). For each:
 
 - [ ] **CI is green** (`Build and test (windows)`, `Protect .github`). Red → comment `@claude` with what failed, or fix it
       yourself on the branch, or close it.
@@ -94,13 +110,22 @@ The release workflow builds and tests, publishes `OptimusVibe.exe` / `optimus-vi
 Fixed card to **Released** and comments "Shipped in v0.5.1" on each issue. Installed apps update themselves (daily check
 or Settings → Check for updates).
 
+**Release notes are automatic.** Every commit and PR title follows [Conventional Commits](https://www.conventionalcommits.org)
+(`feat(app): …`, `fix(handlers): …`, `feat!:` / `BREAKING CHANGE:` for breaking changes). The release workflow groups
+the commits since the previous tag into Breaking changes / Features / Bug fixes / … with links, and GitHub appends the
+merged PRs and the full changelog link. CI rejects PRs whose title isn't conventional, and squash merges use the PR
+title as the commit subject, so the notes stay accurate. Preview them any time:
+`git log $(git describe --tags --abbrev=0)..HEAD --format='%s'`.
+
 ## Overrides
 
 | Want to… | Do this |
 |---|---|
 | Run the squash now (testing or urgent bug) | Actions → **Claude bug squash** → Run workflow (issue number, or blank for the whole queue; stage `audit` or `audit-and-fix`) |
 | Re-run one issue | Comment `@claude` on it (owners/collaborators only), optionally with guidance |
-| Change the weekly cap or models | Repo variables `SQUASH_WEEKLY_MAX`, `SQUASH_AUDIT_MODEL`, `SQUASH_FIX_MODEL` |
+| Change the weekly cap or models | Repo variables `SQUASH_WEEKLY_MAX`, `SQUASH_AUDIT_MODEL`, `SQUASH_FIX_MODEL`, `SQUASH_REVIEW_MODEL` |
+| Re-run the auto-merge check on a PR | Actions → **Claude auto-merge** → Run workflow (PR number) |
+| Stop auto-merging entirely | Disable the **Claude auto-merge** workflow (fix PRs then all wait for you) |
 | Pause the squash | Disable the **Claude bug squash** workflow in Actions (intake labelling stops too) |
 
 ## Costs
