@@ -22,6 +22,19 @@ on:
     types: [opened, reopened, closed]
   release:
     types: [published]
+  # Called by the bug-squash publish job: its comments/PRs are made with GITHUB_TOKEN, which never triggers workflows.
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+      status:
+        description: planned | fix-in-pr | archive
+        required: true
+      pr:
+        description: PR number (for fix-in-pr)
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -45,6 +58,8 @@ jobs:
       github.event_name == 'pull_request_target'
       ||
       (github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft)
+      ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -75,6 +90,9 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          IN_ISSUE: ${{ github.event.inputs.issue }}
+          IN_STATUS: ${{ github.event.inputs.status }}
+          IN_PR: ${{ github.event.inputs.pr }}
         shell: bash
         run: |
           set -euo pipefail
@@ -125,6 +143,21 @@ jobs:
           }
 
           case "$EVENT_NAME" in
+            workflow_dispatch)
+              [[ "$IN_ISSUE" =~ ^[0-9]+$ ]] || { echo "::error::issue must be a number"; exit 1; }
+              item=$(add_item "$(issue_node "$IN_ISSUE")")
+              case "$IN_STATUS" in
+                planned)   move_to "$item" "$OPT_PLANNED" ;;
+                fix-in-pr) move_to "$item" "$OPT_FIX_IN_PR"
+                           if [[ "$IN_PR" =~ ^[0-9]+$ ]]; then
+                             move_to "$(add_item "$(gh api "repos/$GH_REPO/pulls/$IN_PR" --jq '.node_id')")" "$OPT_FIX_IN_PR"
+                           fi ;;
+                archive)   pgql -f query='mutation($p:ID!,$i:ID!){archiveProjectV2Item(input:{projectId:$p,itemId:$i}){item{id}}}' \
+                             -f p="$PROJECT_ID" -f i="$item" --jq '.data.archiveProjectV2Item.item.id' >/dev/null
+                           echo "Archived item for #$IN_ISSUE" ;;
+                *) echo "::error::unknown status $IN_STATUS"; exit 1 ;;
+              esac
+              ;;
             issues)
               item=$(add_item "$ISSUE_NODE")
               move_to "$item" "$OPT_REPORTED"
