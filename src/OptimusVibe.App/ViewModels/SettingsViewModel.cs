@@ -89,6 +89,8 @@ public sealed class SettingsViewModel : ObservableObject
 
         Themes = new(ThemeManager.Themes.Select(t => new ThemeOptionViewModel(t)));
         foreach (var t in Themes) t.IsOn = t.Value == ThemeManager.Current;
+        Densities = new(Density.Modes.Select(m => new OptionViewModel(m.Id, m.Name, m.Blurb)));
+        foreach (var d in Densities) d.IsOn = d.Value == Density.Mode;
         Devices = new DevicesViewModel(main);
         main.PropertyChanged += (_, e) =>
         {
@@ -100,6 +102,7 @@ public sealed class SettingsViewModel : ObservableObject
         SyncNowCommand = main.SyncCommand;
         UseLocalGitCommand = main.PickConfigFolderCommand;
         SetThemeCommand = new AsyncRelayCommand(p => SetThemeAsync(p as ThemeOptionViewModel), _ => true);
+        SetDensityCommand = new AsyncRelayCommand(p => SetDensityAsync(p as OptionViewModel), _ => true);
         SetModeCommand = new AsyncRelayCommand(p => SetModeAsync(p as OptionViewModel), _ => Idle());
         ForceDeviceCommand = main.ForceDeviceCommand;
         AutoDetectDeviceCommand = new AsyncRelayCommand(() => main.ForceDeviceAsync(null), () => Idle() && _forcedProfile is not null);
@@ -114,6 +117,7 @@ public sealed class SettingsViewModel : ObservableObject
     public ObservableCollection<OptionViewModel> Modes { get; }
     public ObservableCollection<DeviceChoice> DeviceChoices { get; } = new();
     public ObservableCollection<ThemeOptionViewModel> Themes { get; }
+    public ObservableCollection<OptionViewModel> Densities { get; }
     public DevicesViewModel Devices { get; }
 
     /// <summary>The saved provider is the GitHub account (vs. a local git checkout).</summary>
@@ -178,6 +182,7 @@ public sealed class SettingsViewModel : ObservableObject
     public ICommand UseLocalGitCommand { get; }
     public ICommand SetModeCommand { get; }
     public ICommand SetThemeCommand { get; }
+    public ICommand SetDensityCommand { get; }
     public ICommand ForceDeviceCommand { get; }
     public ICommand AutoDetectDeviceCommand { get; }
     public ICommand CloseCommand { get; }
@@ -213,6 +218,8 @@ public sealed class SettingsViewModel : ObservableObject
 
             var theme = ThemeManager.Normalize(s.Theme);
             foreach (var t in Themes) t.IsOn = t.Value == theme;
+            var density = Density.Normalize(s.Density);
+            foreach (var d in Densities) d.IsOn = d.Value == density;
 
             var devices = await Task.Run(() =>
             {
@@ -268,6 +275,15 @@ public sealed class SettingsViewModel : ObservableObject
         ThemeManager.Apply(theme.Value); // instant; styles use DynamicResource
         foreach (var t in Themes) t.IsOn = t == theme;
         await SaveAsync(s => s.Theme = theme.Value, null);
+    }
+
+    private async Task SetDensityAsync(OptionViewModel? density)
+    {
+        if (density is null) return;
+        Density.SetMode(density.Value); // instant: re-evaluate the open window, the styles use the density tokens
+        if (System.Windows.Application.Current?.MainWindow is { } window) Density.Apply(window);
+        foreach (var d in Densities) d.IsOn = d == density;
+        await SaveAsync(s => s.Density = density.Value, null);
     }
 
     private async Task SaveAsync(Action<AppSettings> change, string? toast)

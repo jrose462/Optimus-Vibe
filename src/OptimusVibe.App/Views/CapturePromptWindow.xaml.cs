@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using OptimusVibe.App.Input;
+using OptimusVibe.App.Services;
 using OptimusVibe.App.ViewModels;
 using OptimusVibe.Launch;
 using OptimusVibe.Logging;
@@ -69,6 +70,7 @@ public partial class CapturePromptWindow : Window
         _model = new CapturePromptModel(request);
         DataContext = _model;
         FocusCue.Attach(this);
+        Density.Attach(this);
         FocusCue.SetShow(this, true);
         UpdateCountdown();
 

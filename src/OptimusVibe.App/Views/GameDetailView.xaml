@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:input="clr-namespace:OptimusVibe.App.Input"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
+             xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              xmlns:vm="clr-namespace:OptimusVibe.App.ViewModels">
     <!-- DataContext: GameDetailViewModel. One scrolling page: title, summary card, Recommended / Manual saves tabs. -->
     <UserControl.Resources>
@@ -16,9 +17,144 @@
             </Style.Triggers>
         </Style>
 
+        <!-- A recommended preset as a tile: fixed width on the desktop (wrapping), one of two columns when compact. -->
+        <Style x:Key="PresetCard.Tile" TargetType="Border" BasedOn="{StaticResource PresetCard}">
+            <Setter Property="Width" Value="{DynamicResource PresetCardWidth}" />
+            <Setter Property="MinHeight" Value="{DynamicResource PresetCardMinHeight}" />
+            <Setter Property="Margin" Value="{DynamicResource PresetCardMargin}" />
+        </Style>
+
+        <!-- Compact: two lines of the description; the whole text while the card has focus (or the mouse is on it). -->
+        <Style x:Key="PresetDescription" TargetType="TextBlock" BasedOn="{StaticResource Text.Dim}">
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                    <Setter Property="MaxHeight" Value="38" />
+                </Trigger>
+                <DataTrigger Binding="{Binding IsKeyboardFocusWithin, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                    <Setter Property="TextTrimming" Value="None" />
+                    <Setter Property="MaxHeight" Value="1000" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                    <Setter Property="TextTrimming" Value="None" />
+                    <Setter Property="MaxHeight" Value="1000" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PresetGrid" TargetType="ItemsControl">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="ItemsPanel">
+                        <Setter.Value>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="2" />
+                            </ItemsPanelTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- the three summary metrics: a column on the desktop, one row when compact -->
+        <Style x:Key="SummaryMetrics" TargetType="WrapPanel">
+            <Setter Property="Orientation" Value="Vertical" />
+            <Setter Property="Grid.Row" Value="1" />
+            <Setter Property="Grid.ColumnSpan" Value="2" />
+            <Setter Property="Margin" Value="0,18,0,0" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Orientation" Value="Horizontal" />
+                    <Setter Property="Grid.Row" Value="0" />
+                    <Setter Property="Grid.Column" Value="1" />
+                    <Setter Property="Grid.ColumnSpan" Value="1" />
+                    <Setter Property="Margin" Value="22,0,0,0" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="views:MetricRow">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Margin" Value="0,0,10,0" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- "What you want from it": a title and the text on the desktop; just two lines of the text when compact -->
+        <Style x:Key="IntentTitle" TargetType="TextBlock" BasedOn="{StaticResource Text.H2}">
+            <Setter Property="Foreground" Value="{DynamicResource FeatureTextBrush}" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="IntentText" TargetType="TextBlock" BasedOn="{StaticResource Text.Body}">
+            <Setter Property="Foreground" Value="{DynamicResource FeatureTextBrush}" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="0,16,0,0" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                    <Setter Property="Margin" Value="0" />
+                    <Setter Property="MaxHeight" Value="40" />
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="SyncEvidence" TargetType="ItemsControl">
+            <Setter Property="Focusable" Value="False" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="AskDetail" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- the lead sentence: under the title, or on the title's line when compact -->
+        <Style x:Key="GameLead" TargetType="TextBlock" BasedOn="{StaticResource Text.Lead}">
+            <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="MaxWidth" Value="760" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Grid.Row" Value="1" />
+            <Setter Property="Grid.ColumnSpan" Value="2" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Grid.Row" Value="0" />
+                    <Setter Property="Grid.Column" Value="1" />
+                    <Setter Property="Grid.ColumnSpan" Value="1" />
+                    <Setter Property="Margin" Value="18,0,0,3" />
+                    <Setter Property="MaxWidth" Value="100000" />
+                    <Setter Property="VerticalAlignment" Value="Bottom" />
+                    <Setter Property="TextWrapping" Value="NoWrap" />
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                    <Setter Property="FontSize" Value="{DynamicResource DimSize}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- ======================================================== recommended preset card -->
         <DataTemplate x:Key="RecommendedCard" DataType="{x:Type vm:PresetCardViewModel}">
-            <Border Width="372" MinHeight="230" Margin="0,0,16,16" Style="{StaticResource PresetCard}">
+            <Border Style="{StaticResource PresetCard.Tile}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,18,0,0">
                         <WrapPanel>
@@ -37,10 +173,10 @@
                         </WrapPanel>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="{Binding Label}" Style="{StaticResource Text.H2}" FontSize="22" />
+                        <TextBlock Text="{Binding Label}" Style="{StaticResource Text.CardTitle}" />
                         <TextBlock Text="{Binding StateLine}" Style="{StaticResource Text.Caption}" Margin="0,4,0,0"
                                    Visibility="{Binding StateLine, Converter={StaticResource VisibleWhen}}" />
-                        <TextBlock Text="{Binding Description}" Style="{StaticResource Text.Dim}" Margin="0,12,0,0"
+                        <TextBlock Text="{Binding Description}" Style="{StaticResource PresetDescription}" Margin="0,12,0,0"
                                    Visibility="{Binding HasDescription, Converter={StaticResource VisibleWhen}}" />
                         <TextBlock Text="{Binding Error}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" FontSize="14" Margin="0,8,0,0"
                                    Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}" />
@@ -51,11 +187,11 @@
 
         <!-- ======================================================== manual save card -->
         <DataTemplate x:Key="ManualCard" DataType="{x:Type vm:PresetCardViewModel}">
-            <Border Margin="0,0,0,16" Style="{StaticResource PresetCard}">
+            <Border Margin="{DynamicResource CardMargin}" Style="{StaticResource PresetCard}">
                 <StackPanel>
                     <!-- title / rename -->
                     <StackPanel Visibility="{Binding IsRenaming, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
-                        <TextBlock Text="{Binding Label}" Style="{StaticResource Text.H2}" FontSize="22" />
+                        <TextBlock Text="{Binding Label}" Style="{StaticResource Text.CardTitle}" />
                         <TextBlock Text="{Binding StateLine}" Style="{StaticResource Text.Caption}" Margin="0,4,0,0"
                                    Visibility="{Binding StateLine, Converter={StaticResource VisibleWhen}}" />
                     </StackPanel>
@@ -79,7 +215,7 @@
 
                     <TextBlock Text="{Binding MetaText}" Style="{StaticResource Text.Caption}" Margin="0,4,0,0"
                                Visibility="{Binding MetaText, Converter={StaticResource VisibleWhen}}" />
-                    <TextBlock Text="{Binding Description}" Style="{StaticResource Text.Dim}" Margin="0,10,0,0"
+                    <TextBlock Text="{Binding Description}" Style="{StaticResource PresetDescription}" Margin="0,10,0,0"
                                Visibility="{Binding HasDescription, Converter={StaticResource VisibleWhen}}" />
 
                     <!-- actions -->
@@ -170,43 +306,61 @@
         <!-- ============================================================ main -->
         <ScrollViewer x:Name="Main" VerticalScrollBarVisibility="Auto" Focusable="False"
                       IsEnabled="{Binding IsPreviewOpen, Converter={StaticResource Not}}">
-            <StackPanel Margin="32,8,32,12">
+            <StackPanel Margin="{DynamicResource DetailMargin}">
 
-                <!-- title + one friendly sentence -->
-                <TextBlock Text="{Binding Name}" Style="{StaticResource Text.PageTitle}" />
-                <TextBlock Text="{Binding Lead}" Style="{StaticResource Text.Lead}" Margin="0,6,0,0" MaxWidth="760" HorizontalAlignment="Left"
-                           Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}" />
+                <!-- title + one friendly sentence (compact: on one line) -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="{Binding Name}" Style="{StaticResource Text.PageTitle}" />
+                    <TextBlock Text="{Binding Lead}" Style="{StaticResource GameLead}"
+                               Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}" />
+                </Grid>
 
-                <!-- summary + the one feature card -->
-                <Grid Margin="0,22,0,0" Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}">
+                <!-- summary + the one feature card (compact: the metrics sit in one row beside the title) -->
+                <Grid Margin="{DynamicResource BlockGap}" Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Border Style="{StaticResource Card}">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource Text.H2}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource Text.H2}" VerticalAlignment="Center">
                                 <Run Text="Active on this" />
                                 <Run Text="{Binding DeviceFriendly, Mode=OneWay}" />
                             </TextBlock>
-                            <StackPanel Margin="0,18,0,0">
-                                <views:MetricRow Glyph="&#xE735;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding ActivePresetLabel}" Unit="preset" Margin="0,0,0,12" />
-                                <views:MetricRow Glyph="&#xE9D9;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding TargetFpsValue}" Unit="fps target" Margin="0,0,0,12" />
-                                <views:MetricRow Glyph="&#xE713;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding SettingsCountValue}" Unit="settings" />
-                            </StackPanel>
-                        </StackPanel>
+                            <WrapPanel Style="{StaticResource SummaryMetrics}">
+                                <views:MetricRow Glyph="&#xE735;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding ActivePresetLabel}" Unit="preset" />
+                                <views:MetricRow Glyph="&#xE9D9;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding TargetFpsValue}" Unit="fps target" />
+                                <views:MetricRow Glyph="&#xE713;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding SettingsCountValue}" Unit="settings" Margin="0" />
+                            </WrapPanel>
+                        </Grid>
                     </Border>
-                    <Border Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="340"
+                    <Border Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="{DynamicResource IntentCardWidth}"
                             Visibility="{Binding HasIntent, Converter={StaticResource VisibleWhen}}">
                         <DockPanel>
-                            <TextBlock DockPanel.Dock="Top" Text="What you want from it" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
-                            <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource Text.Body}" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Bottom" Margin="0,16,0,0" />
+                            <TextBlock DockPanel.Dock="Top" Text="What you want from it" Style="{StaticResource IntentTitle}" />
+                            <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource IntentText}" ToolTip="{Binding IntentDisplay}" />
                         </DockPanel>
                     </Border>
                 </Grid>
 
                 <!-- settings sync: do this game's graphics settings travel between machines? -->
-                <Border Style="{StaticResource Card}" Margin="0,16,0,0" HorizontalAlignment="Left" MaxWidth="760"
+                <Border Style="{StaticResource Card}" Margin="{DynamicResource BlockGapMd}" HorizontalAlignment="Left" MaxWidth="760"
                         Visibility="{Binding HasSync, Converter={StaticResource VisibleWhen}}">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -222,7 +376,7 @@
                                 <Run Text="Settings sync" />
                                 <Run Text="{Binding SyncSummary, Mode=OneWay}" FontWeight="Normal" Foreground="{DynamicResource TextDimBrush}" />
                             </TextBlock>
-                            <ItemsControl ItemsSource="{Binding SyncEvidence}" Margin="0,6,0,0" Focusable="False">
+                            <ItemsControl ItemsSource="{Binding SyncEvidence}" Margin="0,6,0,0" Style="{StaticResource SyncEvidence}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding}" Style="{StaticResource Text.Caption}" Margin="0,0,0,3" />
@@ -239,22 +393,21 @@
                 </Border>
 
                 <!-- game lab: request / refresh presets, re-check settings sync -->
-                <views:LabGamePanel DataContext="{Binding Lab}" Margin="0,16,0,0"
+                <views:LabGamePanel DataContext="{Binding Lab}" Margin="{DynamicResource BlockGapMd}"
                                     Visibility="{Binding DataContext.HasGame, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}" />
 
                 <!-- post-game prompt: per game, this device only -->
-                <CheckBox IsChecked="{Binding AskToSaveAfterPlaying}" Margin="4,14,0,0" HorizontalAlignment="Left"
+                <CheckBox IsChecked="{Binding AskToSaveAfterPlaying}" Margin="{DynamicResource AskMargin}" HorizontalAlignment="Left"
                           Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}"
                           ToolTip="After you quit, offer to keep settings you changed in the game. Turn off to stop asking for this game on this device.">
-                    <TextBlock TextWrapping="Wrap">
-                        <Run Text="Ask me to save after playing" FontWeight="SemiBold" />
-                        <LineBreak />
-                        <Run Text="When settings change in the game, offer to keep them as a save." Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
-                    </TextBlock>
+                    <StackPanel>
+                        <TextBlock Text="Ask me to save after playing" FontWeight="SemiBold" />
+                        <TextBlock Text="When settings change in the game, offer to keep them as a save." Style="{StaticResource AskDetail}" />
+                    </StackPanel>
                 </CheckBox>
 
                 <!-- config error -->
-                <Border Style="{StaticResource Card}" Margin="0,22,0,0" HorizontalAlignment="Left" MaxWidth="760"
+                <Border Style="{StaticResource Card}" Margin="{DynamicResource BlockGap}" HorizontalAlignment="Left" MaxWidth="760"
                         Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}">
                     <StackPanel>
                         <TextBlock Style="{StaticResource Text.H2}" Text="This game's config needs a fix" />
@@ -264,18 +417,12 @@
                 </Border>
 
                 <!-- tabs -->
-                <TabControl x:Name="Tabs" SelectedIndex="{Binding SelectedTabIndex}" Margin="0,22,0,0"
+                <TabControl x:Name="Tabs" SelectedIndex="{Binding SelectedTabIndex}" Margin="{DynamicResource TabsMargin}"
                             Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}">
                     <TabItem Header="Recommended">
                         <StackPanel>
-                            <ItemsControl ItemsSource="{Binding Recommended}" ItemTemplate="{StaticResource RecommendedCard}" Focusable="False"
-                                          Visibility="{Binding HasRecommended, Converter={StaticResource VisibleWhen}}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
+                            <ItemsControl ItemsSource="{Binding Recommended}" ItemTemplate="{StaticResource RecommendedCard}" Style="{StaticResource PresetGrid}"
+                                          Visibility="{Binding HasRecommended, Converter={StaticResource VisibleWhen}}" />
 
                             <!-- empty state -->
                             <Border Style="{StaticResource Card}" HorizontalAlignment="Left" MaxWidth="760"
@@ -332,7 +479,7 @@
                         </TabItem.Header>
                         <StackPanel>
                             <!-- save current -->
-                            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <Border Style="{StaticResource Card}" Margin="{DynamicResource CardMargin}">
                                 <StackPanel>
                                     <Grid Visibility="{Binding IsSaveFormOpen, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
                                         <Grid.ColumnDefinitions>
@@ -389,10 +536,10 @@
               KeyboardNavigation.DirectionalNavigation="Cycle"
               Visibility="{Binding DataContext.IsPreviewOpen, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}">
             <Border Background="{DynamicResource BackdropBrush}" />
-            <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
+            <Border Style="{StaticResource Overlay.Card}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
-                        <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" FontSize="28" />
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource Text.OverlayTitle}" />
                         <TextBlock Text="{Binding Summary}" Style="{StaticResource Text.Lead}" Margin="0,6,0,16" />
                     </StackPanel>
 
@@ -405,17 +552,21 @@
                                   Visibility="{Binding ShowAlsoUse, Converter={StaticResource VisibleWhen}}" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <!-- apply mode -->
-                            <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CloseCommand}" Margin="0,0,6,0"
-                                    Visibility="{Binding IsApplyMode, Converter={StaticResource VisibleWhen}}" />
+                            <Button Style="{StaticResource Button.Quiet}" Command="{Binding CloseCommand}" Margin="0,0,6,0" AutomationProperties.Name="Cancel"
+                                    Visibility="{Binding IsApplyMode, Converter={StaticResource VisibleWhen}}">
+                                <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                            </Button>
                             <Button AutomationProperties.Name="Confirm apply" Style="{StaticResource Button.Primary}" Command="{Binding ConfirmCommand}" MinWidth="130"
                                     input:FocusCue.FocusWhenShown="True" Content="Apply now"
                                     Visibility="{Binding IsApplyMode, Converter={StaticResource VisibleWhen}}" />
                             <!-- preview mode -->
                             <Button Content="Apply now…" Command="{Binding SwitchToApplyCommand}" Margin="0,0,8,0"
                                     Visibility="{Binding IsApplyMode, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
-                            <Button Content="Close" Style="{StaticResource Button.Primary}" Command="{Binding CloseCommand}" MinWidth="110"
+                            <Button Style="{StaticResource Button.Primary}" Command="{Binding CloseCommand}" MinWidth="110" AutomationProperties.Name="Close"
                                     input:FocusCue.FocusWhenShown="True"
-                                    Visibility="{Binding IsApplyMode, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
+                                    Visibility="{Binding IsApplyMode, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                                <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Close" /></StackPanel>
+                            </Button>
                         </StackPanel>
                     </Grid>
 

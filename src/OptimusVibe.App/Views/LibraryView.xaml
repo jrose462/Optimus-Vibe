@@ -3,14 +3,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:OptimusVibe.App.ViewModels"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
+             xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              x:Name="Root">
-    <!-- DataContext: LibraryViewModel. Page title, a "This device" summary, filters, then the cover grid. -->
+    <!-- DataContext: LibraryViewModel. Page title, a "This device" summary, filters, then the cover grid.
+         Compact (about 1280x720 DIPs): the title and one slim summary strip share a row, both filter rows become one scrolling row,
+         and the game name sits on the cover so two full rows of covers fit above the navigation. -->
     <UserControl.Resources>
         <DataTemplate x:Key="Tile" DataType="{x:Type vm:LibraryTileViewModel}">
             <StackPanel Width="{Binding TileWidth, ElementName=Root}" ToolTip="{Binding StoreText}">
                 <Grid Height="{Binding ArtHeight, ElementName=Root}">
                     <!-- no cover art: the game's own exe icon on a quiet tile, with its name -->
-                    <Border CornerRadius="24" Background="{DynamicResource CoverTileBrush}">
+                    <Border CornerRadius="{DynamicResource TileRadius}" Background="{DynamicResource CoverTileBrush}">
                         <StackPanel VerticalAlignment="Center" Margin="16,0,16,0">
                             <Image Source="{Binding Icon}" Width="56" Height="56" Stretch="Uniform" HorizontalAlignment="Center"
                                    RenderOptions.BitmapScalingMode="HighQuality"
@@ -18,18 +21,29 @@
                             <TextBlock Text="&#xE7FC;" FontFamily="{StaticResource IconFont}" FontSize="44" HorizontalAlignment="Center"
                                        Foreground="{DynamicResource TextFaintBrush}"
                                        Visibility="{Binding HasIcon, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
+                            <!-- compact: the name is on the tile's lower edge instead -->
                             <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" TextAlignment="Center"
-                                       TextWrapping="Wrap" MaxHeight="68" TextTrimming="CharacterEllipsis" Margin="0,14,0,0" />
+                                       TextWrapping="Wrap" MaxHeight="68" TextTrimming="CharacterEllipsis" Margin="0,14,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <Trigger Property="svc:Density.IsCompact" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </Border>
                     <!-- cover art -->
-                    <Border CornerRadius="24" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
+                    <Border CornerRadius="{DynamicResource TileRadius}" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
                         <Border.Background>
                             <ImageBrush ImageSource="{Binding Art}" Stretch="UniformToFill" />
                         </Border.Background>
                     </Border>
                     <!-- soft shade at the bottom of real covers -->
-                    <Border CornerRadius="0,0,24,24" VerticalAlignment="Bottom" Height="56" IsHitTestVisible="False"
+                    <Border CornerRadius="{DynamicResource TileShadeRadius}" VerticalAlignment="Bottom" Height="56" IsHitTestVisible="False"
                             Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
@@ -38,8 +52,35 @@
                             </LinearGradientBrush>
                         </Border.Background>
                     </Border>
+                    <!-- compact: name + status over the lower edge of the cover -->
+                    <Border Style="{StaticResource Only.Compact}" VerticalAlignment="Bottom" CornerRadius="{DynamicResource TileShadeRadius}"
+                            Padding="9,20,9,6" IsHitTestVisible="False">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0" />
+                                <GradientStop Color="#D8000000" Offset="0.5" />
+                                <GradientStop Color="#EE000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}" FontSize="{DynamicResource TileNameSize}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis" />
+                            <Grid Margin="0,1,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Style="{StaticResource Dot.Attention}" Margin="0,1,6,0"
+                                            Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
+                                    <TextBlock Text="{Binding StatusLine}" FontSize="{DynamicResource CaptionSize}" Foreground="#D6DBE3" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="13" VerticalAlignment="Center" Margin="6,1,0,0"
+                                           Foreground="#D6DBE3" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                     <!-- dimmed when not installed -->
-                    <Border CornerRadius="24" Background="{DynamicResource TileDimBrush}" IsHitTestVisible="False">
+                    <Border CornerRadius="{DynamicResource TileRadius}" Background="{DynamicResource TileDimBrush}" IsHitTestVisible="False">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -77,57 +118,88 @@
                     </StackPanel>
                 </Grid>
 
-                <TextBlock Text="{Binding Name}" FontSize="16.5" FontWeight="SemiBold" Margin="6,12,6,0" TextTrimming="CharacterEllipsis" />
-                <Grid Margin="6,3,6,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal">
-                    <Border Style="{StaticResource Dot.Attention}" Margin="0,1,8,0"
-                            Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
-                    <TextBlock Text="{Binding StatusLine}" Style="{StaticResource Text.Caption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                    <!-- does this game's settings sync? cloud / device / question mark; the tooltip says why -->
-                    <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="15" VerticalAlignment="Center" Margin="8,1,0,0"
-                               ToolTip="{Binding SyncTip}" AutomationProperties.Name="{Binding SyncTip}">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding SyncBucket}" Value="Syncs">
-                                        <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding SyncBucket}" Value="StaysOnDevice">
-                                        <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                </Grid>
+                <!-- comfortable: caption under the cover -->
+                <StackPanel Style="{StaticResource Only.Comfortable}">
+                    <TextBlock Text="{Binding Name}" FontSize="{DynamicResource TileNameSize}" FontWeight="SemiBold" Margin="6,12,6,0" TextTrimming="CharacterEllipsis" />
+                    <Grid Margin="6,3,6,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <Border Style="{StaticResource Dot.Attention}" Margin="0,1,8,0"
+                                    Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
+                            <TextBlock Text="{Binding StatusLine}" Style="{StaticResource Text.Caption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <!-- does this game's settings sync? cloud / device / question mark; the tooltip says why -->
+                        <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="15" VerticalAlignment="Center" Margin="8,1,0,0"
+                                   ToolTip="{Binding SyncTip}" AutomationProperties.Name="{Binding SyncTip}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SyncBucket}" Value="Syncs">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SyncBucket}" Value="StaysOnDevice">
+                                            <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </StackPanel>
             </StackPanel>
         </DataTemplate>
+
+        <!-- the filter strip's container: stacked rows on the desktop, one scrolling row when compact -->
+        <Style x:Key="FilterRows" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Vertical" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Orientation" Value="Horizontal" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="FilterScroller" TargetType="ScrollViewer" BasedOn="{StaticResource {x:Type ScrollViewer}}">
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="VerticalScrollBarVisibility" Value="Disabled" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="HorizontalScrollBarVisibility" Value="Hidden" />
+                    <Setter Property="PanningMode" Value="HorizontalOnly" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="SyncRow" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Margin" Value="0,4,0,6" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Margin" Value="18,0,0,0" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
-        <Grid Margin="32,10,32,12">
+        <Grid x:Name="PageGrid" Margin="{DynamicResource PageMargin}">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- title + one friendly sentence -->
-            <StackPanel>
+            <!-- ============================================================ comfortable: title + one friendly sentence -->
+            <StackPanel Style="{StaticResource Only.Comfortable}">
                 <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" />
                 <TextBlock Text="{Binding Lead}" Style="{StaticResource Text.Lead}" Margin="0,6,0,0" MaxWidth="760" HorizontalAlignment="Left" />
             </StackPanel>
 
-            <!-- this device + the one feature card -->
-            <Grid Grid.Row="1" Margin="0,22,0,0">
+            <!-- comfortable: this device + the one feature card -->
+            <Grid Grid.Row="1" Margin="0,22,0,0" Style="{StaticResource Only.Comfortable}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -156,73 +228,100 @@
                 </Border>
             </Grid>
 
-            <!-- filters (outlined pill strip) + scan status -->
-            <Grid Grid.Row="2" Margin="0,22,0,6">
+            <!-- ============================================================ compact: title + one slim summary strip -->
+            <Grid x:Name="CompactTop" Style="{StaticResource Only.Compact}" Margin="0,0,0,2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Border Style="{StaticResource SegmentStrip}">
-                    <ItemsControl x:Name="Pills" ItemsSource="{Binding Filters}" Focusable="False">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:FilterPillViewModel}">
-                                <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsSelected}"
-                                        AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding ToolTipText}"
-                                        Command="{Binding DataContext.SetFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="19" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding Label}" Margin="10,0,0,0" VerticalAlignment="Center"
-                                                   Visibility="{Binding IsSelected, Converter={StaticResource VisibleWhen}}" />
-                                        <TextBlock Text="{Binding Count}" Margin="8,0,0,0" FontSize="13.5" Opacity="0.75" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" VerticalAlignment="Center" Margin="4,0,18,0" />
+                <Border Grid.Column="1" Style="{StaticResource Card}" Padding="14,4" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                    <ScrollViewer Style="{StaticResource FilterScroller}" Focusable="False">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="&#xE7F8;" FontFamily="{StaticResource IconFont}" FontSize="16" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding DeviceName, Mode=OneWay}" Style="{StaticResource Text.Dim}" VerticalAlignment="Center" Margin="8,0,22,0" TextWrapping="NoWrap" />
+                            <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" Margin="0,0,20,0" />
+                            <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" Margin="0,0,20,0" />
+                            <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" Margin="0,0,20,0" />
+                            <Border Background="{DynamicResource FeatureBrush}" CornerRadius="14" Padding="12,3,12,4" VerticalAlignment="Center"
+                                    ToolTip="Ask Claude to “process Optimus-Vibe requests” and they will get presets. Until then they start normally."
+                                    Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE916;" FontFamily="{StaticResource IconFont}" FontSize="14" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Center" Margin="0,1,8,0" />
+                                    <TextBlock Text="{Binding QueuedNote}" FontSize="{DynamicResource CaptionSize}" FontWeight="SemiBold" Foreground="{DynamicResource FeatureTextBrush}" TextWrapping="NoWrap" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Border>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
-                            Visibility="{Binding IsScanning, Converter={StaticResource VisibleWhen}}">
-                    <TextBlock Text="Looking for games…" FontSize="14.5" Foreground="{DynamicResource TextDimBrush}" />
-                </StackPanel>
             </Grid>
 
-            <!-- settings sync filter (second row, combines with the status filters above; the D-pad reaches it, LB/RB stay on the first row) -->
-            <Grid Grid.Row="3" Margin="0,4,0,6">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Settings sync" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="4,0,12,0" />
-                    <Border Style="{StaticResource SegmentStrip}">
-                        <ItemsControl x:Name="SyncPills" ItemsSource="{Binding SyncFilters}" Focusable="False">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="{x:Type vm:SyncPillViewModel}">
-                                    <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsSelected}" MinHeight="44" Padding="16,0"
-                                            AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding ToolTipText}"
-                                            Command="{Binding DataContext.SetSyncFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="17" VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding Label}" Margin="9,0,0,0" FontSize="14.5" VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding Count}" Margin="9,0,0,0" FontSize="13.5" Opacity="0.75" VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </Border>
+            <!-- ============================================================ filters: status pills + settings sync (stacked; one scrolling row when compact) -->
+            <ScrollViewer x:Name="FilterScroller" Grid.Row="2" Style="{StaticResource FilterScroller}" Margin="{DynamicResource FilterMargin}" Focusable="False">
+                <StackPanel Style="{StaticResource FilterRows}">
+                    <!-- status pills (outlined pill strip) + scan status -->
+                    <StackPanel Orientation="Horizontal">
+                        <views:ButtonGlyph Kind="LB" Margin="0,0,8,0" />
+                        <Border Style="{StaticResource SegmentStrip}">
+                            <ItemsControl x:Name="Pills" ItemsSource="{Binding Filters}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FilterPillViewModel}">
+                                        <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsSelected}"
+                                                AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding ToolTipText}"
+                                                Command="{Binding DataContext.SetFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource SegmentGlyphSize}" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Label}" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding IsSelected, Converter={StaticResource VisibleWhen}}" />
+                                                <TextBlock Text="{Binding Count}" Margin="8,0,0,0" FontSize="13.5" Opacity="0.75" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                        <views:ButtonGlyph Kind="RB" Margin="8,0,0,0" />
+                        <TextBlock Text="Looking for games…" FontSize="14.5" Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center" Margin="16,0,0,0"
+                                   Visibility="{Binding IsScanning, Converter={StaticResource VisibleWhen}}" />
+                    </StackPanel>
+
+                    <!-- settings sync filter (combines with the status filters; the D-pad reaches it, LB/RB stay on the status pills) -->
+                    <StackPanel Style="{StaticResource SyncRow}">
+                        <TextBlock Text="Settings sync" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="4,0,12,0" TextWrapping="NoWrap" />
+                        <Border Style="{StaticResource SegmentStrip}">
+                            <ItemsControl x:Name="SyncPills" ItemsSource="{Binding SyncFilters}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SyncPillViewModel}">
+                                        <Button Style="{StaticResource Button.Segment}" Tag="{Binding IsSelected}" MinHeight="{DynamicResource SyncMinHeight}" Padding="{DynamicResource SyncPadding}"
+                                                AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding ToolTipText}"
+                                                Command="{Binding DataContext.SetSyncFilterCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="17" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Label}" Margin="9,0,0,0" FontSize="14.5" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Count}" Margin="9,0,0,0" FontSize="13.5" Opacity="0.75" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                    </StackPanel>
                 </StackPanel>
-            </Grid>
+            </ScrollViewer>
 
             <!-- the grid -->
-            <Grid Grid.Row="4">
-                <ListBox x:Name="TileList" Margin="-14,6,-14,0" Padding="14,0,14,24"
+            <Grid Grid.Row="3">
+                <ListBox x:Name="TileList" Margin="{DynamicResource TileListMargin}" Padding="{DynamicResource TileListPadding}"
                          Style="{StaticResource TileGrid}" ItemContainerStyle="{StaticResource LibraryTile}"
                          ItemsSource="{Binding Tiles}" SelectedItem="{Binding SelectedTile}" ItemTemplate="{StaticResource Tile}"
                          AutomationProperties.Name="Games">

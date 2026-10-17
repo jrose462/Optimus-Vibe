@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using OptimusVibe.App.Input;
 using OptimusVibe.App.Services;
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
@@ -130,7 +131,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
     private void OnOverlayChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ReportViewModel.IsOpen)) OnPropertyChanged(nameof(IsModalOpen));
+        if (e.PropertyName == nameof(ReportViewModel.IsOpen))
+        {
+            OnPropertyChanged(nameof(IsModalOpen));
+            OnPropertyChanged(nameof(ControllerHints));
+        }
     }
 
     /// <summary>The window minimizes after a launch and comes back when the game (our wrapper) exits.</summary>
@@ -172,7 +177,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         OnPropertyChanged(nameof(IsDetailPage));
         OnPropertyChanged(nameof(IsSettingsPage));
         OnPropertyChanged(nameof(IsLibraryMode));
-        OnPropertyChanged(nameof(ControllerHint));
+        OnPropertyChanged(nameof(ControllerHints));
         OnPropertyChanged(nameof(ShowConfigLine));
         RaiseNav();
         CommandManager.InvalidateRequerySuggested();
@@ -193,17 +198,20 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public bool IsGamepadConnected
     {
         get => _gamepad;
-        set { if (Set(ref _gamepad, value)) OnPropertyChanged(nameof(ControllerHint)); }
+        set { if (Set(ref _gamepad, value)) OnPropertyChanged(nameof(ControllerHints)); }
     }
 
-    public string ControllerHint => !IsReady
-        ? "A select  ·  B back"
+    /// <summary>The hints the footer / header shows while a gamepad is connected (buttons are drawn as glyphs).</summary>
+    public IReadOnlyList<PadHint> ControllerHints => IsModalOpen
+        ? [new(PadButton.A, "Select"), new(PadButton.B, "Close")]
+        : !IsReady
+        ? [new(PadButton.A, "Select"), new(PadButton.B, "Back")]
         : Page switch
         {
-            AppPage.Library => "A play  ·  X presets  ·  LB RB filter  ·  Menu settings",
-            AppPage.Detail => "A select  ·  B back  ·  LB RB switch tabs",
-            AppPage.Settings => "A select  ·  B back",
-            _ => "A select  ·  B back  ·  LB RB switch tabs  ·  X launch",
+            AppPage.Library => [new(PadButton.A, "Play"), new(PadButton.X, "Presets"), new(PadButton.LB, PadButton.RB, "Filter"), new(PadButton.Y, "Sync"), new(PadButton.Menu, "Settings")],
+            AppPage.Detail => [new(PadButton.A, "Select"), new(PadButton.B, "Back"), new(PadButton.X, "Play"), new(PadButton.LB, PadButton.RB, "Tabs")],
+            AppPage.Settings => [new(PadButton.A, "Select"), new(PadButton.B, "Back"), new(PadButton.LB, PadButton.RB, "Sections")],
+            _ => [new(PadButton.A, "Select"), new(PadButton.B, "Back"), new(PadButton.X, "Launch"), new(PadButton.LB, PadButton.RB, "Tabs")],
         };
 
     // ---------------------------------------------------------------- bottom navigation

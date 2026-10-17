@@ -1,11 +1,13 @@
 <Window x:Class="OptimusVibe.App.Views.CapturePromptWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:OptimusVibe.App.Views"
+        xmlns:svc="clr-namespace:OptimusVibe.App.Services"
         Title="Optimus-Vibe"
         WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized" Topmost="True" ShowInTaskbar="False"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource TextBrush}"
-        FontFamily="{StaticResource UiFont}" FontSize="15"
+        FontFamily="{StaticResource UiFont}" FontSize="{DynamicResource WindowFontSize}"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
     <!-- DataContext: CapturePromptModel. Full-screen so it sits above the Xbox full-screen shell / Big Picture; A, B, X, Y or the buttons answer. -->
     <Grid>
@@ -13,23 +15,36 @@
         <Border Background="{DynamicResource PageGlowBrush}" IsHitTestVisible="False" />
         <Border Background="{DynamicResource PagePatternBrush}" IsHitTestVisible="False" />
 
-        <Viewbox Stretch="Uniform" StretchDirection="Both" MaxWidth="1700" MaxHeight="950" VerticalAlignment="Center">
-            <Border Style="{StaticResource Card}" Width="940" Margin="40" Padding="44,36">
+        <Viewbox Stretch="Uniform" MaxWidth="1700" MaxHeight="950" VerticalAlignment="Center">
+            <Viewbox.Style>
+                <Style TargetType="Viewbox">
+                    <Setter Property="StretchDirection" Value="Both" />
+                    <Style.Triggers>
+                        <!-- compact: never scale up, the room is for the content -->
+                        <Trigger Property="svc:Density.IsCompact" Value="True">
+                            <Setter Property="StretchDirection" Value="DownOnly" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Viewbox.Style>
+            <Border Style="{StaticResource Card}" Width="{DynamicResource PromptWidth}" Margin="{DynamicResource PromptMargin}" Padding="{DynamicResource PromptPadding}">
                 <StackPanel>
                     <TextBlock Text="Optimus-Vibe" FontFamily="{StaticResource DisplayFont}" FontSize="16" Foreground="{DynamicResource AccentTextBrush}" FontWeight="SemiBold" />
                     <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" Margin="0,6,0,0" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding Lead}" Style="{StaticResource Text.Lead}" Margin="0,6,0,0" TextWrapping="Wrap" />
 
                     <!-- what changed -->
-                    <Border Style="{StaticResource Card.Inset}" Margin="0,22,0,0" Padding="22,16">
+                    <Border Style="{StaticResource Card.Inset}" Margin="{DynamicResource BlockGap}" Padding="{DynamicResource PromptInsetPadding}">
                         <StackPanel>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False" MaxHeight="{DynamicResource PromptListMaxHeight}">
                             <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="16.5" Margin="0,3" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="{DynamicResource PromptLineSize}" Margin="0,3" TextTrimming="CharacterEllipsis" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            </ScrollViewer>
                             <TextBlock Text="{Binding MoreText}" Style="{StaticResource Text.Caption}" Margin="0,6,0,0"
                                        Visibility="{Binding MoreText, Converter={StaticResource VisibleWhen}}" />
                         </StackPanel>
@@ -42,36 +57,28 @@
                             <Button x:Name="SaveButton" Style="{StaticResource Button.Large}" Margin="0,0,10,10" Click="OnSave" HorizontalContentAlignment="Left"
                                     AutomationProperties.Name="Save">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource MetricGreenBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="A" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="A" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="{Binding SaveText}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button x:Name="SaveAsButton" Style="{StaticResource Button.Large}" Margin="10,0,0,10" Click="OnSaveAs" HorizontalContentAlignment="Left"
                                     AutomationProperties.Name="Save as">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource AttentionBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="Y" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="Y" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="Save as…" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button x:Name="DontSaveButton" Style="{StaticResource Button.Large}" Margin="0,0,10,10" Click="OnDontSave" HorizontalContentAlignment="Left"
                                     AutomationProperties.Name="Don't save">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource DangerBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="B" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="B" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="Don't save" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button x:Name="NeverButton" Style="{StaticResource Button.Large}" Margin="10,0,0,10" Click="OnNever" HorizontalContentAlignment="Left"
                                     AutomationProperties.Name="Don't ask again for this game">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource MetricCyanBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="X" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="X" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="Don't ask again for this game" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
@@ -87,25 +94,19 @@
                         <WrapPanel Margin="0,16,0,0">
                             <Button Style="{StaticResource Button.Large}" Click="OnConfirmName" Margin="0,0,10,0" AutomationProperties.Name="Save with this name">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource MetricGreenBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="A" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="A" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="Save" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button Style="{StaticResource Button.Large}" Click="OnKeyboard" Margin="0,0,10,0" AutomationProperties.Name="Open the on-screen keyboard">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource MetricCyanBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="X" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="X" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="Keyboard" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button Style="{StaticResource Button.Large}" Click="OnBackFromName" AutomationProperties.Name="Back">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource DangerBrush}" Margin="0,0,12,0">
-                                        <TextBlock Text="B" FontWeight="Bold" Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <views:ButtonGlyph Kind="B" Size="Large" Always="True" Margin="0,0,12,0" />
                                     <TextBlock Text="Back" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>

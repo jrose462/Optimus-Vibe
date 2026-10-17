@@ -1,0 +1,126 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <!-- ============================================================ density: comfortable (desktop)
+         Spacing, radii, type sizes and control heights. Density.Compact.xaml defines exactly the same keys; Density.cs swaps the
+         active dictionary (like a palette), and Dark.xaml / the views reference every key with DynamicResource. -->
+
+    <!-- type -->
+    <sys:Double x:Key="WindowFontSize">15</sys:Double>
+    <sys:Double x:Key="PageTitleSize">34</sys:Double>
+    <sys:Double x:Key="LeadSize">17</sys:Double>
+    <sys:Double x:Key="LeadLineHeight">24</sys:Double>
+    <sys:Double x:Key="H2Size">20</sys:Double>
+    <sys:Double x:Key="H3Size">17</sys:Double>
+    <sys:Double x:Key="BodySize">15</sys:Double>
+    <sys:Double x:Key="BodyLineHeight">22</sys:Double>
+    <sys:Double x:Key="DimSize">14.5</sys:Double>
+    <sys:Double x:Key="DimLineHeight">21</sys:Double>
+    <sys:Double x:Key="CaptionSize">13.5</sys:Double>
+    <sys:Double x:Key="MetricValueSize">32</sys:Double>
+    <sys:Double x:Key="MetricUnitSize">16</sys:Double>
+    <sys:Double x:Key="MetricIconSize">38</sys:Double>
+    <sys:Double x:Key="CardTitleSize">22</sys:Double>
+    <sys:Double x:Key="OverlayTitleSize">28</sys:Double>
+    <sys:Double x:Key="HeaderTitleSize">22</sys:Double>
+    <sys:Double x:Key="TileNameSize">16.5</sys:Double>
+
+    <!-- surfaces -->
+    <CornerRadius x:Key="CardRadius">28</CornerRadius>
+    <CornerRadius x:Key="InsetRadius">20</CornerRadius>
+    <CornerRadius x:Key="TileRadius">24</CornerRadius>
+    <CornerRadius x:Key="TileShadeRadius">0,0,24,24</CornerRadius>
+    <CornerRadius x:Key="NavRadius">38</CornerRadius>
+    <CornerRadius x:Key="BannerRadius">26</CornerRadius>
+    <Thickness x:Key="CardPadding">26</Thickness>
+    <Thickness x:Key="InsetPadding">18,14</Thickness>
+    <Thickness x:Key="CardMargin">0,0,0,16</Thickness>
+    <Thickness x:Key="BannerPadding">24,14</Thickness>
+
+    <!-- page frames -->
+    <Thickness x:Key="HeaderMargin">32,14,24,4</Thickness>
+    <Thickness x:Key="BannerMargin">32,8,32,4</Thickness>
+    <Thickness x:Key="PageMargin">32,10,32,12</Thickness>
+    <Thickness x:Key="DetailMargin">32,8,32,12</Thickness>
+    <Thickness x:Key="StripMargin">26,6,32,8</Thickness>
+    <Thickness x:Key="SettingsMargin">26,6,32,24</Thickness>
+    <Thickness x:Key="NavRowMargin">32,6,32,18</Thickness>
+    <Thickness x:Key="TabContentMargin">0,18,0,0</Thickness>
+    <Thickness x:Key="TabsMargin">0,22,0,0</Thickness>
+    <Thickness x:Key="BlockGap">0,22,0,0</Thickness>
+
+    <!-- overlays (report, Steam review, diff preview) -->
+    <Thickness x:Key="OverlayMargin">24</Thickness>
+    <Thickness x:Key="OverlayPadding">32,28</Thickness>
+    <sys:Double x:Key="OverlayMaxWidth">860</sys:Double>
+    <sys:Double x:Key="OverlayListMaxHeight">420</sys:Double>
+    <sys:Double x:Key="PromptListMaxHeight">100000</sys:Double>
+    <Thickness x:Key="PromptPadding">44,36</Thickness>
+    <sys:Double x:Key="PromptWidth">940</sys:Double>
+
+    <!-- controls -->
+    <sys:Double x:Key="BtnMinHeight">46</sys:Double>
+    <sys:Double x:Key="BtnMinWidth">46</sys:Double>
+    <sys:Double x:Key="BtnLargeMinHeight">54</sys:Double>
+    <sys:Double x:Key="BtnFontSize">15</sys:Double>
+    <Thickness x:Key="BtnPadding">22,8</Thickness>
+    <Thickness x:Key="BtnLargePadding">28,10</Thickness>
+    <sys:Double x:Key="IconBtnSize">46</sys:Double>
+    <sys:Double x:Key="IconBtnGlyphSize">19</sys:Double>
+    <sys:Double x:Key="FabSize">64</sys:Double>
+    <sys:Double x:Key="FabGlyphSize">24</sys:Double>
+    <sys:Double x:Key="SegmentMinHeight">52</sys:Double>
+    <Thickness x:Key="SegmentPadding">20,0</Thickness>
+    <sys:Double x:Key="SegmentGlyphSize">19</sys:Double>
+    <sys:Double x:Key="ChoiceMinHeight">56</sys:Double>
+    <Thickness x:Key="ChoicePadding">20,14</Thickness>
+    <sys:Double x:Key="NavItemMinHeight">62</sys:Double>
+    <sys:Double x:Key="NavItemMinWidth">88</sys:Double>
+    <sys:Double x:Key="NavFontSize">13</sys:Double>
+    <sys:Double x:Key="NavGlyphSize">21</sys:Double>
+    <Thickness x:Key="NavItemPadding">14,6</Thickness>
+    <Thickness x:Key="NavPadding">8</Thickness>
+    <Thickness x:Key="NavLabelMargin">0,3,0,0</Thickness>
+    <sys:Double x:Key="InputMinHeight">48</sys:Double>
+    <Thickness x:Key="InputPadding">16,10</Thickness>
+    <sys:Double x:Key="CheckMinHeight">46</sys:Double>
+    <sys:Double x:Key="TabMinHeight">48</sys:Double>
+    <Thickness x:Key="TabPadding">24,0</Thickness>
+    <sys:Double x:Key="ListItemMinHeight">62</sys:Double>
+    <Thickness x:Key="ListItemPadding">18,12</Thickness>
+    <Thickness x:Key="TileMargin">0,8,0,10</Thickness>
+    <CornerRadius x:Key="MetricIconRadius">19</CornerRadius>
+    <Thickness x:Key="QuietPadding">16,8</Thickness>
+    <sys:Double x:Key="BtnLargeFontSize">16.5</sys:Double>
+    <Thickness x:Key="TileRingMargin">-6,-6,-6,36</Thickness>
+    <CornerRadius x:Key="TileRingRadius">28</CornerRadius>
+    <sys:Double x:Key="TabFontSize">15.5</sys:Double>
+    <Thickness x:Key="ManageListMargin">32,12,0,8</Thickness>
+    <Thickness x:Key="ManageListPadding">14,22,14,14</Thickness>
+    <Thickness x:Key="ManageListTitleMargin">12,0,0,12</Thickness>
+    <Thickness x:Key="FilterMargin">0,22,0,6</Thickness>
+    <sys:Double x:Key="SyncMinHeight">44</sys:Double>
+    <Thickness x:Key="SyncPadding">16,0</Thickness>
+    <Thickness x:Key="TileListMargin">-14,6,-14,0</Thickness>
+    <Thickness x:Key="TileListPadding">14,0,14,24</Thickness>
+    <sys:Double x:Key="MetricGlyphSize">17</sys:Double>
+    <sys:Double x:Key="ToggleMaxWidth">460</sys:Double>
+    <sys:Double x:Key="DetailCoverWidth">220</sys:Double>
+    <sys:Double x:Key="DetailCoverHeight">330</sys:Double>
+    <Thickness x:Key="DetailTextMargin">32,0,0,0</Thickness>
+    <Thickness x:Key="BlockGapLg">0,28,0,0</Thickness>
+    <Thickness x:Key="LabGap">0,20,0,0</Thickness>
+    <sys:Double x:Key="PresetCardWidth">372</sys:Double>
+    <sys:Double x:Key="PresetCardMinHeight">230</sys:Double>
+    <Thickness x:Key="PresetCardMargin">0,0,16,16</Thickness>
+    <sys:Double x:Key="IntentCardWidth">340</sys:Double>
+    <Thickness x:Key="BlockGapMd">0,16,0,0</Thickness>
+    <Thickness x:Key="AskMargin">4,14,0,0</Thickness>
+    <sys:Double x:Key="LabMaxWidth">760</sys:Double>
+    <sys:Double x:Key="LabListMaxHeight">190</sys:Double>
+    <sys:Double x:Key="ThemePreviewHeight">108</sys:Double>
+    <Thickness x:Key="SectionPadding">26</Thickness>
+    <Thickness x:Key="PromptMargin">40</Thickness>
+    <sys:Double x:Key="PromptLineSize">16.5</sys:Double>
+    <Thickness x:Key="PromptInsetPadding">22,16</Thickness>
+</ResourceDictionary>

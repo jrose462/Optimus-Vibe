@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using OptimusVibe.App.Input;
+using OptimusVibe.App.Services;
 using OptimusVibe.App.ViewModels;
 
 namespace OptimusVibe.App.Views;
@@ -25,11 +26,19 @@ public partial class MainWindow : Window, IGamepadActions
         // The Ally's 7" panel at 125-150% is ~1280-1536 DIPs wide: use the whole screen there.
         if (SystemParameters.PrimaryScreenWidth < 1600 || SystemParameters.PrimaryScreenHeight < 900)
             WindowState = WindowState.Maximized;
+#if DEBUG
+        DebugScenes.ApplyWindowOverride(this);
+#endif
 
         FocusCue.Attach(this);
         _focusKeeper = new FocusKeeper(this, FocusDefault);
         var pad = new GamepadNavigator(this, this);
-        pad.ControllerChanged += connected => _vm.IsGamepadConnected = connected;
+        pad.ControllerChanged += connected =>
+        {
+            _vm.IsGamepadConnected = connected;
+            PadState.SetIsConnected(this, connected);
+        };
+        Density.Attach(this);
 
         PreviewKeyDown += OnPreviewKeyDown;
         vm.PropertyChanged += OnViewModelChanged;
@@ -109,6 +118,11 @@ public partial class MainWindow : Window, IGamepadActions
             if (delta > 0) _vm.Library.NextFilter(); else _vm.Library.PreviousFilter();
             return;
         }
+        if (_vm.IsSettingsPage)
+        {
+            SettingsPage.JumpSection(delta);
+            return;
+        }
         if (!_vm.IsManagePage && !_vm.IsDetailPage) return;
         if (_vm.IsDetailPage && !_vm.DetailHasConfig) return;
         if (_vm.SelectedDetail is not { HasGame: true } detail || detail.IsPreviewOpen) return;
@@ -125,7 +139,7 @@ public partial class MainWindow : Window, IGamepadActions
         else Execute(_vm.OpenSettingsCommand);
     }
 
-    /// <summary>X: library → open the focused game's presets; manage → launch the selected game.</summary>
+    /// <summary>X: library → open the focused game's presets; manage and a game page → launch it.</summary>
     public void Secondary()
     {
         if (_vm.IsLibraryPage)
@@ -136,6 +150,10 @@ public partial class MainWindow : Window, IGamepadActions
         else if (_vm.IsManagePage)
         {
             Execute(_vm.LaunchCommand);
+        }
+        else if (_vm.IsDetailPage && _vm.DetailTile is { } playing)
+        {
+            Execute(playing.PlayCommand);
         }
     }
 

@@ -9,13 +9,13 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Border Style="{StaticResource MetricIcon}" Background="{Binding IconBrush, ElementName=Self}">
-            <TextBlock Text="{Binding Glyph, ElementName=Self}" FontFamily="{StaticResource IconFont}" FontSize="17"
+            <TextBlock Text="{Binding Glyph, ElementName=Self}" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource MetricGlyphSize}"
                        Foreground="{DynamicResource MetricGlyphBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <TextBlock Grid.Column="1" Margin="12,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-            <Run Text="{Binding Value, ElementName=Self, Mode=OneWay}" FontFamily="{StaticResource DisplayFont}" FontSize="32" FontWeight="Bold"
+            <Run Text="{Binding Value, ElementName=Self, Mode=OneWay}" FontFamily="{StaticResource DisplayFont}" FontSize="{DynamicResource MetricValueSize}" FontWeight="Bold"
                  Foreground="{DynamicResource TextBrush}" />
-            <Run Text="{Binding Unit, ElementName=Self, Mode=OneWay}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextDimBrush}" />
+            <Run Text="{Binding Unit, ElementName=Self, Mode=OneWay}" FontSize="{DynamicResource MetricUnitSize}" FontWeight="SemiBold" Foreground="{DynamicResource TextDimBrush}" />
         </TextBlock>
     </Grid>
 </UserControl>

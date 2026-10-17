@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
+             xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              xmlns:input="clr-namespace:OptimusVibe.App.Input">
     <!-- DataContext: MainViewModel. One library game: back + the manage toggle, then its presets (or why there are none). -->
     <Grid>
@@ -11,20 +12,23 @@
         </Grid.RowDefinitions>
 
         <!-- strip -->
-        <Grid DataContext="{Binding DetailTile}" Margin="26,6,32,8">
+        <Grid DataContext="{Binding DetailTile}" Margin="{DynamicResource StripMargin}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Button x:Name="BackButton" Style="{StaticResource Button.Icon}" VerticalAlignment="Center" AutomationProperties.Name="Back to library"
                     ToolTip="Back to the library"
                     Command="{Binding DataContext.BackToLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <TextBlock Text="&#xE72B;" />
             </Button>
+            <views:ButtonGlyph Kind="B" Size="Small" Margin="6,0,0,0" />
+            </StackPanel>
 
             <!-- manage toggle -->
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" MaxWidth="460"
+            <WrapPanel Grid.Column="2" VerticalAlignment="Center" Orientation="Horizontal" MaxWidth="{DynamicResource ToggleMaxWidth}"
                         Visibility="{Binding CanToggleManaged, Converter={StaticResource VisibleWhen}}">
                 <CheckBox x:Name="ManageToggle" Content="Manage this game's settings" FontWeight="SemiBold"
                           IsChecked="{Binding IsManaged, Mode=OneWay}"
@@ -37,17 +41,27 @@
                           CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}"
                           Visibility="{Binding IsSteam, Converter={StaticResource VisibleWhen}}"
                           ToolTip="Off: Optimus-Vibe never changes this game's Steam launch option, whatever you choose in the update review. Synced to your other devices." />
-                <Grid Margin="38,0,0,0"
+                <Grid Margin="38,0,0,0" VerticalAlignment="Center"
                             Visibility="{Binding SuggestOptOut, Converter={StaticResource VisibleWhen}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Border Style="{StaticResource Dot.Attention}" Margin="0,5,8,0" VerticalAlignment="Top" />
-                    <TextBlock Grid.Column="1" Style="{StaticResource Text.Caption}" TextWrapping="Wrap"
-                               Text="This game keeps its graphics settings per machine, so you can safely opt out." />
+                    <TextBlock Grid.Column="1" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                                <Setter Property="Text" Value="This game keeps its graphics settings per machine, so you can safely opt out." />
+                                <Style.Triggers>
+                                    <Trigger Property="svc:Density.IsCompact" Value="True">
+                                        <Setter Property="Text" Value="Settings stay on this machine: safe to opt out." />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </Grid>
-            </StackPanel>
+            </WrapPanel>
         </Grid>
 
         <!-- presets (configured games) -->
@@ -57,13 +71,13 @@
         <!-- no config yet / opted out -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False"
                       Visibility="{Binding DetailHasConfig, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
-            <Grid DataContext="{Binding DetailTile}" Margin="32,8,32,12" MaxWidth="1000" HorizontalAlignment="Left">
+            <Grid DataContext="{Binding DetailTile}" Margin="{DynamicResource DetailMargin}" MaxWidth="1000" HorizontalAlignment="Left">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Grid Width="220" Height="330" VerticalAlignment="Top">
-                    <Border CornerRadius="24" Background="{DynamicResource CoverTileBrush}">
+                <Grid Width="{DynamicResource DetailCoverWidth}" Height="{DynamicResource DetailCoverHeight}" VerticalAlignment="Top">
+                    <Border CornerRadius="{DynamicResource TileRadius}" Background="{DynamicResource CoverTileBrush}">
                         <StackPanel VerticalAlignment="Center" Margin="12">
                             <Image Source="{Binding Icon}" Width="56" Height="56" Stretch="Uniform" HorizontalAlignment="Center"
                                    Visibility="{Binding HasIcon, Converter={StaticResource VisibleWhen}}" />
@@ -73,16 +87,16 @@
                             <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Margin="0,14,0,0" />
                         </StackPanel>
                     </Border>
-                    <Border CornerRadius="24" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
+                    <Border CornerRadius="{DynamicResource TileRadius}" Visibility="{Binding HasArt, Converter={StaticResource VisibleWhen}}">
                         <Border.Background>
                             <ImageBrush ImageSource="{Binding Art}" Stretch="UniformToFill" />
                         </Border.Background>
                     </Border>
                 </Grid>
-                <StackPanel Grid.Column="1" Margin="32,0,0,0">
+                <StackPanel Grid.Column="1" Margin="{DynamicResource DetailTextMargin}">
                     <TextBlock Text="{Binding Name}" Style="{StaticResource Text.PageTitle}" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding PlayHint}" Style="{StaticResource Text.Lead}" Margin="0,6,0,0" />
-                    <Button x:Name="PlayButton" Style="{StaticResource Button.Large}" HorizontalAlignment="Left" Margin="0,22,0,0" MinWidth="180"
+                    <Button x:Name="PlayButton" Style="{StaticResource Button.Large}" HorizontalAlignment="Left" Margin="{DynamicResource BlockGap}" MinWidth="180"
                             Command="{Binding PlayCommand}" AutomationProperties.Name="Play" input:FocusCue.FocusWhenShown="False">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE768;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -91,7 +105,7 @@
                     </Button>
 
                     <!-- queued for Claude: the one feature card -->
-                    <Border Style="{StaticResource Card.Feature}" Margin="0,28,0,0"
+                    <Border Style="{StaticResource Card.Feature}" Margin="{DynamicResource BlockGapLg}"
                             Visibility="{Binding IsQueued, Converter={StaticResource VisibleWhen}}">
                         <StackPanel>
                             <TextBlock Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
@@ -102,11 +116,11 @@
 
                     <!-- game lab -->
                     <StackPanel Visibility="{Binding IsManaged, Converter={StaticResource VisibleWhen}}">
-                        <views:LabGamePanel DataContext="{Binding Lab}" Margin="0,20,0,0" />
+                        <views:LabGamePanel DataContext="{Binding Lab}" Margin="{DynamicResource LabGap}" />
                     </StackPanel>
 
                     <!-- opted out -->
-                    <Border Style="{StaticResource Card}" Margin="0,28,0,0"
+                    <Border Style="{StaticResource Card}" Margin="{DynamicResource BlockGapLg}"
                             Visibility="{Binding IsManaged, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
                         <StackPanel>
                             <TextBlock Text="Opted out" Style="{StaticResource Text.H2}" />

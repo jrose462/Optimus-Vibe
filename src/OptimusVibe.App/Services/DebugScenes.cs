@@ -44,7 +44,9 @@ public static class DebugScenes
     public static int RunCaptureDemo(Application app)
     {
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        ThemeManager.Apply(SettingsStore.Load().Theme);
+        var saved = SettingsStore.Load();
+        ThemeManager.Apply(saved.Theme);
+        Density.SetMode(saved.Density);
         var w = new CapturePromptWindow(SampleCapture());
         if (ShotPath is { } shot)
             w.ContentRendered += async (_, _) =>
@@ -68,17 +70,84 @@ public static class DebugScenes
         }
     }
 
-    /// <summary>Runs the named scene against the main window once it is ready, saves the screenshot and exits.</summary>
+    /// <summary>OPTIMUSVIBE_WINDOW=1280x720: a normal (not maximized) window of that size in DIPs, to check the compact layout on a big screen.</summary>
+    public static void ApplyWindowOverride(Window window)
+    {
+        var spec = Environment.GetEnvironmentVariable("OPTIMUSVIBE_WINDOW");
+        if (spec is null) return;
+        var parts = spec.Split('x', 'X');
+        if (parts.Length != 2 || !double.TryParse(parts[0], out var w) || !double.TryParse(parts[1], out var h)) return;
+        window.WindowState = WindowState.Normal;
+        window.Width = w;
+        window.Height = h;
+        window.MinWidth = 0;
+        window.MinHeight = 0;
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.Left = 40;
+        window.Top = 20;
+    }
+
+    /// <summary>
+    /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, game-request,
+    /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review.
+    /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
+    /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
     {
         if (Scene is not { Length: > 0 } scene || ShotPath is not { } shot) return;
         for (var i = 0; i < 100 && !(vm.IsReady && vm.Library.HasScanned); i++) await Task.Delay(200);
         await Task.Delay(500);
+        if (Environment.GetEnvironmentVariable("OPTIMUSVIBE_PAD") == "1")
+        {
+            vm.IsGamepadConnected = true;
+            OptimusVibe.App.Input.PadState.SetIsConnected(window, true);
+        }
+        var tuned = vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.Managed) ?? vm.Library.Tiles.FirstOrDefault();
         switch (scene)
         {
+            case "library":
+                break;
+            case "library-focus":
+                window.FocusDefault();
+                OptimusVibe.App.Input.FocusCue.SetShow(window, true);
+                break;
+            case "detail":
+            case "detail-saves":
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(800);
+                if (scene == "detail-saves" && vm.SelectedDetail is { } d) d.SelectedTabIndex = GameDetailViewModel.ManualTab;
+                break;
+            case "manage":
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(300);
+                vm.CloseDetail();
+                vm.ShowManageCommand.Execute(null);
+                await Task.Delay(800);
+                break;
+            case "settings":
+                vm.OpenSettings();
+                await Task.Delay(1500);
+                break;
+            case "settings-appearance":
+                vm.OpenSettings("appearance");
+                await Task.Delay(1500);
+                break;
             case "settings-lab":
                 vm.OpenSettings("gamelab");
                 await Task.Delay(3500);
+                break;
+            case "report":
+                vm.OpenReport(null, null);
+                await Task.Delay(800);
+                break;
+            case "steam-review":
+                vm.OfferSteamChanges(vm.Library.Tiles.Take(9).Select((t, i) =>
+                    new OptimusVibe.Library.LaunchOptionChange(new[] { 1086940, 1091500, 1145350, 1285190, 1774580, 1888160, 220440, 2379780, 367520 }[i], null,
+                        i % 3 == 0 ? null : "-novid", "\"OptimusVibe.exe\" run game -- %command%")).ToList());
+                vm.ReviewSteamCommand.Execute(null);
+                await Task.Delay(800);
                 break;
             case "game-request":
                 var tile = vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.NeedsPresets) ?? vm.Library.Tiles.FirstOrDefault();
@@ -87,9 +156,11 @@ public static class DebugScenes
                 await Task.Delay(800);
                 if (tile.Lab.RequestCommand.CanExecute(null)) tile.Lab.RequestCommand.Execute(null);
                 await Task.Delay(3500);
+                foreach (var sv in Descendants<ScrollViewer>(window).Where(s => s.IsVisible && s.ScrollableHeight > 0)) sv.ScrollToVerticalOffset(sv.ExtentHeight);
                 break;
         }
-if (scene == "game-request")            foreach (var sv in Descendants<ScrollViewer>(window).Where(s => s.IsVisible && s.ScrollableHeight > 0)) sv.ScrollToVerticalOffset(sv.ExtentHeight);        vm.DismissToastCommand.Execute(null);        await Task.Delay(500);
+        vm.DismissToastCommand.Execute(null);
+        await Task.Delay(500);
         Save((FrameworkElement)window.Content, shot);
         Application.Current.Shutdown();
     }

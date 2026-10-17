@@ -6,21 +6,56 @@
              xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              xmlns:input="clr-namespace:OptimusVibe.App.Input"
              x:Name="Root">
-    <!-- DataContext: SettingsViewModel. One column of cards; every control reachable with the D-pad, B goes back. -->
-    <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
-        <Grid Margin="26,6,32,24">
+    <!-- DataContext: SettingsViewModel. One column of cards; every control reachable with the D-pad, B goes back.
+         Compact: every card is a collapsible section (one open at a time) and a pinned header carries the section index (LB / RB jump). -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- compact header: back, title and the section index in one pinned row -->
+        <Grid Style="{StaticResource Only.Compact}" Margin="14,2,20,4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MaxWidth="1040" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="CompactBackButton" Style="{StaticResource Button.Icon}" Command="{Binding CloseCommand}" AutomationProperties.Name="Back" ToolTip="Back (B)">
+                    <TextBlock Text="&#xE72B;" />
+                </Button>
+                <views:ButtonGlyph Kind="B" Size="Small" Margin="4,0,0,0" />
+            </StackPanel>
+            <TextBlock Grid.Column="1" Text="Settings" Style="{StaticResource Text.PageTitle}" VerticalAlignment="Center" Margin="12,0,18,0" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <views:ButtonGlyph Kind="LB" Margin="0,0,8,0" />
+                <ScrollViewer x:Name="IndexScroller" Style="{StaticResource HorizontalOnlyScroller}" Focusable="False">
+                    <Border Style="{StaticResource SegmentStrip}">
+                        <StackPanel x:Name="SectionIndex" Orientation="Horizontal" />
+                    </Border>
+                </ScrollViewer>
+                <views:ButtonGlyph Kind="RB" Margin="8,0,0,0" />
+            </StackPanel>
+        </Grid>
+
+    <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False">
+        <Grid Margin="{DynamicResource SettingsMargin}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ContentColumn" Width="*" MaxWidth="1040" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel>
+            <StackPanel x:Name="SectionsPanel">
 
                 <!-- title -->
-                <StackPanel Margin="0,0,0,22">
-                    <Button x:Name="BackButton" Style="{StaticResource Button.Icon}" Command="{Binding CloseCommand}" AutomationProperties.Name="Back"
-                            HorizontalAlignment="Left" Margin="-8,0,0,6" ToolTip="Back">
-                        <TextBlock Text="&#xE72B;" />
-                    </Button>
+                <StackPanel Margin="0,0,0,22" Style="{StaticResource Only.Comfortable}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="-8,0,0,6">
+                        <Button x:Name="BackButton" Style="{StaticResource Button.Icon}" Command="{Binding CloseCommand}" AutomationProperties.Name="Back"
+                                ToolTip="Back">
+                            <TextBlock Text="&#xE72B;" />
+                        </Button>
+                        <views:ButtonGlyph Kind="B" Size="Small" Margin="6,0,0,0" />
+                    </StackPanel>
                     <StackPanel>
                         <TextBlock Text="Settings" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0"
@@ -29,7 +64,7 @@
                 </StackPanel>
 
                 <!-- ======================================================== a newer version (the one feature card) -->
-                <Border Style="{StaticResource Card.Feature}" Margin="0,0,0,16" DataContext="{Binding Updates}"
+                <Border Style="{StaticResource Card.Feature}" Margin="{DynamicResource CardMargin}" DataContext="{Binding Updates}"
                         Visibility="{Binding IsAvailable, Converter={StaticResource VisibleWhen}}">
                     <StackPanel>
                         <TextBlock Text="A new version is ready" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
@@ -48,9 +83,8 @@
                 </Border>
 
                 <!-- ======================================================== sync -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <views:SettingsSection Header="Sync" ShortName="Sync">
                     <StackPanel>
-                        <TextBlock Text="Sync" Style="{StaticResource Text.H2}" />
                         <TextBlock Margin="0,4,0,0">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Dim}">
@@ -98,25 +132,19 @@
                         </CheckBox>
                         <TextBlock Text="{Binding LastUpdatedText}" Style="{StaticResource Text.Caption}" Margin="4,6,0,0" />
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== github account -->
-                <Border x:Name="AccountCard" Style="{StaticResource Card}" Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Text="GitHub account" Style="{StaticResource Text.H2}" Margin="0,0,0,14" />
+                <views:SettingsSection x:Name="AccountCard" Header="GitHub account" ShortName="Account">
+                    <StackPanel Margin="0,14,0,0">
                         <views:GitHubSignInPanel DataContext="{Binding Account}" />
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== repository -->
-                <Border x:Name="RepoCard" Style="{StaticResource Card}" Margin="0,0,0,16" DataContext="{Binding Account}">
+                <views:SettingsSection x:Name="RepoCard" Header="Config repo" ShortName="Repo" DataContext="{Binding Account}">
                     <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Config repo" Style="{StaticResource Text.H2}" VerticalAlignment="Center" />
+                        <Grid HorizontalAlignment="Right">
                             <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding LoadReposCommand}" AutomationProperties.Name="Reload repositories"
                                     Content="Reload list" Visibility="{Binding IsSignedIn, Converter={StaticResource VisibleWhen}}" />
                         </Grid>
@@ -214,17 +242,12 @@
                             </Border>
                         </StackPanel>
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== game lab -->
-                <Border x:Name="LabCard" Style="{StaticResource Card}" Margin="0,0,0,16" DataContext="{Binding Lab}">
+                <views:SettingsSection x:Name="LabCard" Header="Game lab" ShortName="Lab" DataContext="{Binding Lab}">
                     <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Game lab" Style="{StaticResource Text.H2}" VerticalAlignment="Center" />
+                        <Grid HorizontalAlignment="Right">
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <TextBlock Text="Checking…" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0"
                                            Visibility="{Binding IsChecking, Converter={StaticResource VisibleWhen}}" />
@@ -323,7 +346,9 @@
                                                                 <WrapPanel>
                                                                     <Button Style="{StaticResource Button.Primary}" Command="{Binding DataContext.Account.OpenVerificationCommand, ElementName=LabCard}" Content="Open GitHub" Margin="0,0,8,0" />
                                                                     <Button Command="{Binding DataContext.Account.CopyCodeCommand, ElementName=LabCard}" Content="Copy code" Margin="0,0,8,0" />
-                                                                    <Button Style="{StaticResource Button.Quiet}" Command="{Binding DataContext.Account.CancelSignInCommand, ElementName=LabCard}" Content="Cancel" />
+                                                                    <Button Style="{StaticResource Button.Quiet}" Command="{Binding DataContext.Account.CancelSignInCommand, ElementName=LabCard}" AutomationProperties.Name="Cancel">
+                                                                        <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                                                                    </Button>
                                                                 </WrapPanel>
                                                             </StackPanel>
                                                         </Border>
@@ -422,12 +447,11 @@
                             </TextBlock>
                         </CheckBox>
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== app updates (the APP repo, not the config repo above) -->
-                <Border x:Name="UpdatesCard" Style="{StaticResource Card}" Margin="0,0,0,16" DataContext="{Binding Updates}">
+                <views:SettingsSection x:Name="UpdatesCard" Header="Updates" ShortName="Updates" DataContext="{Binding Updates}">
                     <StackPanel>
-                        <TextBlock Text="Updates" Style="{StaticResource Text.H2}" />
                         <TextBlock Text="{Binding VersionText, Mode=OneWay}" Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
 
                         <Button Command="{Binding CheckCommand}" HorizontalAlignment="Left" Margin="0,16,0,0"
@@ -446,12 +470,11 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== library -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <views:SettingsSection Header="Game library" ShortName="Library">
                     <StackPanel>
-                        <TextBlock Text="Game library" Style="{StaticResource Text.H2}" />
                         <TextBlock Text="Which launchers to look in for installed games." Style="{StaticResource Text.Dim}" Margin="0,4,0,8" />
                         <ItemsControl ItemsSource="{Binding Stores}" Focusable="False">
                             <ItemsControl.ItemsPanel>
@@ -496,13 +519,12 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== appearance -->
-                <Border x:Name="AppearanceCard" Style="{StaticResource Card}" Margin="0,0,0,16">
+                <views:SettingsSection x:Name="AppearanceCard" Header="Appearance" ShortName="Look">
                     <StackPanel>
-                        <TextBlock Text="Appearance" Style="{StaticResource Text.H2}" />
-                        <TextBlock Text="The colours for this machine. A change applies at once." Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
+                        <TextBlock Text="The colours and the layout density for this machine. A change applies at once." Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
                         <ItemsControl ItemsSource="{Binding Themes}" Focusable="False" Margin="0,16,0,0">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -516,7 +538,7 @@
                                             Command="{Binding DataContext.SetThemeCommand, ElementName=Root}" CommandParameter="{Binding}">
                                         <StackPanel>
                                             <!-- mini preview: page, glow, a card with two text lines, an accent pill and the feature colour -->
-                                            <Border Height="108" CornerRadius="16" Background="{Binding PageBrush}" ClipToBounds="True">
+                                            <Border Height="{DynamicResource ThemePreviewHeight}" CornerRadius="16" Background="{Binding PageBrush}" ClipToBounds="True">
                                                 <Grid>
                                                     <Border Background="{Binding GlowBrush}" />
                                                     <Border Background="{Binding PatternBrush}" />
@@ -549,13 +571,33 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <TextBlock Text="Layout" Style="{StaticResource Text.H3}" Margin="0,22,0,10" />
+                        <ItemsControl ItemsSource="{Binding Densities}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:OptionViewModel}">
+                                    <Button Style="{StaticResource Button.Choice}" Tag="{Binding IsOn}" Margin="0,0,10,0" VerticalAlignment="Stretch"
+                                            AutomationProperties.Name="{Binding Label}"
+                                            Command="{Binding DataContext.SetDensityCommand, ElementName=Root}" CommandParameter="{Binding}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Label}" FontSize="16" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Hint}" Style="{StaticResource Text.Dim}" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== devices -->
-                <Border x:Name="DevicesCard" Style="{StaticResource Card}" Margin="0,0,0,16">
+                <views:SettingsSection x:Name="DevicesCard" Header="Devices" ShortName="Devices">
                     <StackPanel>
-                        <TextBlock Text="Devices" Style="{StaticResource Text.H2}" />
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0">
                             <Run Text="Optimus-Vibe treats this machine as" />
                             <Run Text="{Binding DeviceName, Mode=OneWay}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" /><Run Text="." />
@@ -809,19 +851,19 @@
                             </StackPanel>
                         </Border>
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
 
                 <!-- ======================================================== report a problem -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <views:SettingsSection Header="Something not right?" ShortName="Report">
                     <StackPanel>
-                        <TextBlock Text="Something not right?" Style="{StaticResource Text.H2}" />
                         <TextBlock Style="{StaticResource Text.Dim}" Margin="0,4,0,0"
                                    Text="Describe it, preview what would be sent, then file it as an issue." />
                         <Button Command="{Binding OpenReportCommand}" HorizontalAlignment="Left" Margin="0,16,0,0" AutomationProperties.Name="Report a problem"
                                 Content="Report a problem" />
                     </StackPanel>
-                </Border>
+                </views:SettingsSection>
             </StackPanel>
         </Grid>
     </ScrollViewer>
+    </Grid>
 </UserControl>

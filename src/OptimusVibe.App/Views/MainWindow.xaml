@@ -9,7 +9,7 @@
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource TextBrush}"
-        FontFamily="{StaticResource UiFont}" FontSize="15"
+        FontFamily="{StaticResource UiFont}" FontSize="{DynamicResource WindowFontSize}"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
 
     <Window.InputBindings>
@@ -34,15 +34,21 @@
             </Grid.RowDefinitions>
 
             <!-- ============================================================ header -->
-            <Grid Margin="32,14,24,4">
+            <Grid Margin="{DynamicResource HeaderMargin}">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Optimus-Vibe" FontFamily="{StaticResource DisplayFont}" FontSize="22" FontWeight="SemiBold"
+                <TextBlock Text="Optimus-Vibe" FontFamily="{StaticResource DisplayFont}" FontSize="{DynamicResource HeaderTitleSize}" FontWeight="SemiBold"
                            VerticalAlignment="Center" />
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- compact: the controller hints live in the header (comfortable: a quiet line above the navigation) -->
+                <Grid Grid.Column="1" Style="{StaticResource Only.Compact}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <views:ControllerHints Visibility="{Binding IsGamepadConnected, Converter={StaticResource VisibleWhen}}" />
+                </Grid>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- non-modal: a newer release exists (silent daily check) -->
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Update available" Command="{Binding Updates.ShowCommand}"
                             ToolTip="A new version is ready. Open Settings to get it."
@@ -52,16 +58,18 @@
                             <Border Style="{StaticResource Dot.Attention}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-6,0" />
                         </Grid>
                     </Button>
+                    <views:ButtonGlyph Kind="Y" Size="Small" Margin="6,0,0,0" />
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Sync" Command="{Binding SyncCommand}"
-                            ToolTip="Sync your saves and library with the config repo">
+                            ToolTip="Sync your saves and library with the config repo (Y)">
                         <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFont}" />
                     </Button>
+                    <views:ButtonGlyph Kind="View" Size="Small" Margin="6,0,0,0" />
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Refresh" Command="{Binding RefreshCommand}"
-                            ToolTip="Reload everything and look for games again">
+                            ToolTip="Reload everything and look for games again (View)">
                         <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" />
                     </Button>
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Report a problem" Command="{Binding OpenReportCommand}"
-                            ToolTip="Report a problem"
+                            ToolTip="Report a problem" Margin="6,0,0,0"
                             Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
                         <TextBlock Text="&#xEBE8;" FontFamily="{StaticResource IconFont}" />
                     </Button>
@@ -72,7 +80,7 @@
                          Visibility="{Binding IsBusy, Converter={StaticResource VisibleWhen}}" />
 
             <!-- ============================================================ steam banner (non-modal) -->
-            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="32,8,32,4" Padding="24,14" CornerRadius="26"
+            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="{DynamicResource BannerMargin}" Padding="{DynamicResource BannerPadding}" CornerRadius="{DynamicResource BannerRadius}"
                     Visibility="{Binding HasSteamBanner, Converter={StaticResource VisibleWhen}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -126,9 +134,9 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <Border Style="{StaticResource Card}" Margin="32,12,0,8" Padding="14,22,14,14">
+                        <Border Style="{StaticResource Card}" Margin="{DynamicResource ManageListMargin}" Padding="{DynamicResource ManageListPadding}">
                             <DockPanel>
-                                <TextBlock DockPanel.Dock="Top" Style="{StaticResource Text.H2}" Margin="12,0,0,12">
+                                <TextBlock DockPanel.Dock="Top" Style="{StaticResource Text.H2}" Margin="{DynamicResource ManageListTitleMargin}">
                                     <Run Text="Your games" />
                                     <Run Text="{Binding Games.Count, Mode=OneWay}" Foreground="{DynamicResource TextFaintBrush}" FontWeight="Normal" />
                                 </TextBlock>
@@ -199,10 +207,10 @@
                 <Grid DataContext="{Binding Report}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
                       Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
                     <Border Background="{DynamicResource BackdropBrush}" />
-                    <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
+                    <Border Style="{StaticResource Overlay.Card}">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top">
-                                <TextBlock Text="Report a problem" Style="{StaticResource Text.PageTitle}" FontSize="28" />
+                                <TextBlock Text="Report a problem" Style="{StaticResource Text.OverlayTitle}" />
                                 <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0"
                                            Text="Tell us what went wrong. You can preview exactly what gets sent before it is filed as a public issue. No GitHub sign-in needed." />
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" Text="{Binding ContextText}" />
@@ -216,7 +224,9 @@
                                        Text="{Binding SendInfoText}" />
 
                             <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
-                                <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CloseCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource Button.Quiet}" Command="{Binding CloseCommand}" Margin="0,0,8,0" AutomationProperties.Name="Cancel">
+                                    <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                                </Button>
                                 <Button Content="Preview" Command="{Binding PreviewCommand}" Margin="0,0,8,0" AutomationProperties.Name="Preview report" />
                                 <Button Style="{StaticResource Button.Primary}" Content="{Binding SendLabel}" Command="{Binding SendCommand}" MinWidth="120"
                                         AutomationProperties.Name="Send report" ToolTip="Available once you have previewed the current text" />
@@ -250,10 +260,10 @@
                 <Grid DataContext="{Binding SteamReview}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
                       Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
                     <Border Background="{DynamicResource BackdropBrush}" />
-                    <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
+                    <Border Style="{StaticResource Overlay.Card}">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top">
-                                <TextBlock Text="Steam launch options" Style="{StaticResource Text.PageTitle}" FontSize="28" />
+                                <TextBlock Text="Steam launch options" Style="{StaticResource Text.OverlayTitle}" />
                                 <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0" TextWrapping="Wrap"
                                            Text="Pick the games whose Steam launch option should be updated. Steam is closed first." />
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
@@ -263,14 +273,16 @@
                             <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
                                 <Button Content="Select all" Style="{StaticResource Button.Quiet}" Command="{Binding SelectAllCommand}" Margin="0,0,8,0" />
                                 <Button Content="Select none" Style="{StaticResource Button.Quiet}" Command="{Binding SelectNoneCommand}" Margin="0,0,8,0" />
-                                <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" Margin="0,0,8,0" AutomationProperties.Name="Cancel">
+                                    <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                                </Button>
                                 <Button Style="{StaticResource Button.Primary}" Content="{Binding ApplyLabel}" Command="{Binding ApplyCommand}" MinWidth="170"
                                         AutomationProperties.Name="Apply selected" />
                             </WrapPanel>
 
                             <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Text.Caption}" Margin="6,12,0,0" Text="{Binding SummaryText}" />
 
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False" MaxHeight="420" Margin="0,16,0,0">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False" MaxHeight="{DynamicResource OverlayListMaxHeight}" Margin="0,16,0,0">
                                 <ItemsControl ItemsSource="{Binding Items}" Margin="0,0,12,0" Focusable="False">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:SteamReviewItem}">
@@ -316,70 +328,75 @@
                 </Border>
             </Grid>
 
-            <!-- ============================================================ quiet controller hints (only while a gamepad is connected) -->
-            <TextBlock Grid.Row="4" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center" Margin="0,2,0,2"
-                       Text="{Binding ControllerHint}"
-                       Visibility="{Binding IsGamepadConnected, Converter={StaticResource VisibleWhen}}" />
+            <!-- ============================================================ quiet controller hints (only while a gamepad is connected; compact: in the header) -->
+            <Grid Grid.Row="4" Style="{StaticResource Only.Comfortable}" HorizontalAlignment="Center" Margin="0,2,0,2">
+                <views:ControllerHints Visibility="{Binding IsGamepadConnected, Converter={StaticResource VisibleWhen}}" />
+            </Grid>
 
             <!-- ============================================================ floating navigation + action button -->
-            <Grid Grid.Row="5" Margin="32,6,32,18" Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
+            <Grid Grid.Row="5" Margin="{DynamicResource NavRowMargin}" Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="1" Background="{DynamicResource NavBrush}" CornerRadius="38" Padding="8" HorizontalAlignment="Center">
+                <Border Grid.Column="1" Background="{DynamicResource NavBrush}" CornerRadius="{DynamicResource NavRadius}" Padding="{DynamicResource NavPadding}" HorizontalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
                         <Button Style="{StaticResource Button.NavItem}" Tag="{Binding NavLibrary}" Command="{Binding ShowLibraryCommand}"
                                 AutomationProperties.Name="Library" ToolTip="Your games as covers">
                             <StackPanel HorizontalAlignment="Center">
-                                <TextBlock Text="&#xF0E2;" FontFamily="{StaticResource IconFont}" FontSize="21" HorizontalAlignment="Center" />
-                                <TextBlock Text="Library" Margin="0,3,0,0" HorizontalAlignment="Center" />
+                                <TextBlock Text="&#xF0E2;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource NavGlyphSize}" HorizontalAlignment="Center" />
+                                <TextBlock Text="Library" Margin="{DynamicResource NavLabelMargin}" HorizontalAlignment="Center" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource Button.NavItem}" Tag="{Binding NavManage}" Command="{Binding ShowManageCommand}"
                                 AutomationProperties.Name="Presets" ToolTip="Games and their presets side by side">
                             <StackPanel HorizontalAlignment="Center">
-                                <TextBlock Text="&#xE9E9;" FontFamily="{StaticResource IconFont}" FontSize="21" HorizontalAlignment="Center" />
-                                <TextBlock Text="Presets" Margin="0,3,0,0" HorizontalAlignment="Center" />
+                                <TextBlock Text="&#xE9E9;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource NavGlyphSize}" HorizontalAlignment="Center" />
+                                <TextBlock Text="Presets" Margin="{DynamicResource NavLabelMargin}" HorizontalAlignment="Center" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource Button.NavItem}" Tag="{Binding NavSaves}" Command="{Binding ShowSavesCommand}"
                                 AutomationProperties.Name="Saves" ToolTip="Your own saved settings">
                             <StackPanel HorizontalAlignment="Center">
-                                <TextBlock Text="&#xE74E;" FontFamily="{StaticResource IconFont}" FontSize="21" HorizontalAlignment="Center" />
-                                <TextBlock Text="Saves" Margin="0,3,0,0" HorizontalAlignment="Center" />
+                                <TextBlock Text="&#xE74E;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource NavGlyphSize}" HorizontalAlignment="Center" />
+                                <TextBlock Text="Saves" Margin="{DynamicResource NavLabelMargin}" HorizontalAlignment="Center" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource Button.NavItem}" Tag="{Binding NavSettings}" Command="{Binding OpenSettingsCommand}"
                                 AutomationProperties.Name="Settings" ToolTip="Sync, launchers and device (Ctrl+,)">
                             <StackPanel HorizontalAlignment="Center">
-                                <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="21" HorizontalAlignment="Center" />
-                                <TextBlock Text="Settings" Margin="0,3,0,0" HorizontalAlignment="Center" />
+                                <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource NavGlyphSize}" HorizontalAlignment="Center" />
+                                <TextBlock Text="Settings" Margin="{DynamicResource NavLabelMargin}" HorizontalAlignment="Center" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
                 </Border>
 
-                <!-- one round action per page -->
-                <Grid Grid.Column="2" HorizontalAlignment="Right">
-                    <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding Library.RescanCommand}" AutomationProperties.Name="Rescan games"
-                            ToolTip="Look for installed games again"
-                            Visibility="{Binding IsLibraryPage, Converter={StaticResource VisibleWhen}}">
-                        <TextBlock Text="&#xE72C;" />
-                    </Button>
-                    <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding DetailTile.PlayCommand}" AutomationProperties.Name="Play"
-                            ToolTip="{Binding DetailTile.PlayHint}"
-                            Visibility="{Binding IsDetailPage, Converter={StaticResource VisibleWhen}}">
-                        <TextBlock Text="&#xE768;" />
-                    </Button>
-                    <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding LaunchCommand}" AutomationProperties.Name="Launch game"
-                            ToolTip="Launch with the active preset"
-                            Visibility="{Binding IsManagePage, Converter={StaticResource VisibleWhen}}">
-                        <TextBlock Text="&#xE768;" />
-                    </Button>
-                </Grid>
+                <!-- one round action per page, with the controller button that does the same -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <views:ButtonGlyph Kind="View" Margin="0,0,8,0" Visibility="{Binding IsLibraryPage, Converter={StaticResource VisibleWhen}}" />
+                    <views:ButtonGlyph Kind="X" Margin="0,0,8,0" Visibility="{Binding IsDetailPage, Converter={StaticResource VisibleWhen}}" />
+                    <views:ButtonGlyph Kind="X" Margin="0,0,8,0" Visibility="{Binding IsManagePage, Converter={StaticResource VisibleWhen}}" />
+                    <Grid>
+                        <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding Library.RescanCommand}" AutomationProperties.Name="Rescan games"
+                                ToolTip="Look for installed games again"
+                                Visibility="{Binding IsLibraryPage, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock Text="&#xE72C;" />
+                        </Button>
+                        <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding DetailTile.PlayCommand}" AutomationProperties.Name="Play"
+                                ToolTip="{Binding DetailTile.PlayHint}"
+                                Visibility="{Binding IsDetailPage, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock Text="&#xE768;" />
+                        </Button>
+                        <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding LaunchCommand}" AutomationProperties.Name="Launch game"
+                                ToolTip="Launch with the active preset"
+                                Visibility="{Binding IsManagePage, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock Text="&#xE768;" />
+                        </Button>
+                    </Grid>
+                </StackPanel>
             </Grid>
         </Grid>
     </Grid>

@@ -1,8 +1,10 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using OptimusVibe.App.Services;
 using OptimusVibe.App.ViewModels;
 
 namespace OptimusVibe.App.Views;
@@ -16,6 +18,9 @@ public partial class LibraryView : UserControl
     private const double TargetSlot = 220; // ~5 columns at 1280 DIPs (Ally 7" at 150%)
     private const double CaptionHeight = 58;  // name + status line under the art
     private const double SlotGap = 26;
+    private const double CompactTargetSlot = 168; // 7 columns at 1280 DIPs
+    private const double CompactSlotGap = 10;
+    private const double CompactRowMargin = 8;    // the tile's vertical margin
 
     public static readonly DependencyProperty TileWidthProperty =
         DependencyProperty.Register(nameof(TileWidth), typeof(double), typeof(LibraryView), new PropertyMetadata(200.0));
@@ -35,20 +40,34 @@ public partial class LibraryView : UserControl
         InitializeComponent();
         TileList.SizeChanged += (_, _) => Layout();
         Scroller.SizeChanged += (_, _) => Layout();
+        CompactTop.SizeChanged += (_, _) => Layout();
+        FilterScroller.SizeChanged += (_, _) => Layout();
+        DependencyPropertyDescriptor.FromProperty(Density.IsCompactProperty, typeof(LibraryView))
+            .AddValueChanged(this, (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, Layout));
+        // the filter row scrolls sideways only: hand the wheel to the page so it still scrolls up and down over it
+        FilterScroller.PreviewMouseWheel += (_, e) =>
+        {
+            if (e.Handled) return;
+            e.Handled = true;
+            Scroller.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta) { RoutedEvent = MouseWheelEvent, Source = FilterScroller });
+        };
         TileList.PreviewKeyDown += OnTilesKeyDown;
         TileList.MouseDoubleClick += OnTilesDoubleClick;
         Pills.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Down && (FocusSyncPills() || FocusSelectedTile())) e.Handled = true;
+            if (e.Key == Key.Down && ((!Compact && FocusSyncPills()) || FocusSelectedTile())) e.Handled = true;
         };
         SyncPills.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Up && FocusPills()) e.Handled = true;
+            if (e.Key == Key.Up && !Compact && FocusPills()) e.Handled = true;
             else if (e.Key == Key.Down && FocusSelectedTile()) e.Handled = true;
         };
     }
 
     private LibraryViewModel? Vm => DataContext as LibraryViewModel;
+
+    /// <summary>Compact: both filter rows are one row, so Up / Down skip the sync pills.</summary>
+    private bool Compact => Density.GetIsCompact(this);
 
     private void Layout()
     {
@@ -57,15 +76,31 @@ public partial class LibraryView : UserControl
         double viewport = Scroller.ActualHeight;
         if (avail <= 0 || viewport <= 0) return;
 
-        int cols = Math.Max(2, (int)Math.Floor(avail / TargetSlot));
+        bool compact = Density.GetIsCompact(this);
+        double targetSlot = compact ? CompactTargetSlot : TargetSlot;
+        double gap = compact ? CompactSlotGap : SlotGap;
+        int cols = Math.Max(2, (int)Math.Floor(avail / targetSlot));
         double slot = Math.Floor(avail / cols);
-        double tile = slot - SlotGap;
+        double tile = slot - gap;
         double art = tile * 1.5;                              // Steam portrait covers are 2:3
-        double maxArt = viewport - CaptionHeight - 40;        // a whole tile always fits on screen
-        if (art > maxArt && maxArt > 150)
+        if (compact)
         {
-            art = maxArt;
-            tile = Math.Floor(art / 1.5);
+            // Names sit on the cover, so a row is just the art. Shorten the covers (cropped, not squashed) until two full rows fit
+            // between the filters and the navigation, but never below 1.2:1.
+            double top = 0;
+            try { top = TileList.TransformToAncestor(PageGrid).Transform(new Point(0, 0)).Y + PageGrid.Margin.Top; }
+            catch (InvalidOperationException) { /* not in the tree yet */ }
+            double rowRoom = (viewport - top - 10) / 2 - CompactRowMargin;
+            art = Math.Clamp(rowRoom, tile * 1.2, tile * 1.5);
+        }
+        else
+        {
+            double maxArt = viewport - CaptionHeight - 40;    // a whole tile always fits on screen
+            if (art > maxArt && maxArt > 150)
+            {
+                art = maxArt;
+                tile = Math.Floor(art / 1.5);
+            }
         }
         Columns = cols;
         SlotWidth = slot;
@@ -123,10 +158,10 @@ public partial class LibraryView : UserControl
     public bool TryMove(UIElement focused, FocusNavigationDirection dir)
     {
         if (IsInside(Pills, focused))
-            return dir == FocusNavigationDirection.Down && (FocusSyncPills() || FocusSelectedTile());
+            return dir == FocusNavigationDirection.Down && ((!Compact && FocusSyncPills()) || FocusSelectedTile());
         if (IsInside(SyncPills, focused))
         {
-            if (dir == FocusNavigationDirection.Up) return FocusPills();
+            if (dir == FocusNavigationDirection.Up) return !Compact && FocusPills() || Compact;
             return dir == FocusNavigationDirection.Down && FocusSelectedTile();
         }
         if (!IsTile(focused)) return false;
@@ -147,7 +182,7 @@ public partial class LibraryView : UserControl
         };
         if (target < 0)
         {
-            if (dir == FocusNavigationDirection.Up) return FocusSyncPills() || FocusPills();
+            if (dir == FocusNavigationDirection.Up) return (!Compact && FocusSyncPills()) || FocusPills();
             return true; // edge of the grid: stay put rather than jumping somewhere unexpected
         }
         if (TileList.ItemContainerGenerator.ContainerFromIndex(target) is ListBoxItem next)

@@ -31,7 +31,7 @@ public sealed class WpfCapturePrompt : ICapturePrompt
     private static CaptureDecision Show(CaptureRequest request)
     {
         // The headless run path starts before the themed main window: apply this machine's theme first.
-        try { ThemeManager.Apply(SettingsStore.Load().Theme); }
+        try { var saved = SettingsStore.Load(); ThemeManager.Apply(saved.Theme); Density.SetMode(saved.Density); }
         catch (Exception ex) { Log.Warn($"Theme not applied: {ex.Message}"); }
 
         var window = new CapturePromptWindow(request);

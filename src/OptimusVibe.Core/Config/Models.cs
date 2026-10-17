@@ -165,6 +165,9 @@ public sealed class AppSettings
     /// <summary>Colour theme (per machine): default | majestic | circuit.</summary>
     public string Theme { get; set; } = "default";
 
+    /// <summary>Layout density (per machine): auto (compact on short windows, e.g. the Ally's 7" screen) | compact | comfortable.</summary>
+    public string Density { get; set; } = "auto";
+
     /// <summary>
     /// Game lab (this machine): newly detected games without presets get a lab request automatically instead of only the
     /// local requests.yaml queue. Only applies once the lab is set up.

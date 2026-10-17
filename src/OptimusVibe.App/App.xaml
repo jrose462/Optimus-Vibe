@@ -8,6 +8,8 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- the active palette comes first (ThemeManager swaps it), then the styles that reference it with DynamicResource -->
                 <ResourceDictionary Source="Themes/Palette.Default.xaml" />
+                <!-- the active density comes next (Density.cs swaps it): spacing, radii, type sizes, control heights -->
+                <ResourceDictionary Source="Themes/Density.Comfortable.xaml" />
                 <ResourceDictionary Source="Themes/Dark.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <conv:VisibleWhenConverter x:Key="VisibleWhen" />
