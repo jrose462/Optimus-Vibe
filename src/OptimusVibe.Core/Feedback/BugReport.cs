@@ -310,12 +310,13 @@ public static partial class BugReport
     /// Redacts GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_..., github_pat_...), Bearer / Authorization header values, and
     /// replaces the user's profile folder (C:\Users\&lt;name&gt;) with %USERPROFILE%.
     /// </summary>
-    public static string Sanitize(string text, string? userProfile = null)
+    public static string Sanitize(string text, string? userProfile = null, string? userName = null, string? machineName = null)
     {
         if (string.IsNullOrEmpty(text)) return text ?? "";
         var s = GitHubToken().Replace(text, "[REDACTED-TOKEN]");
         s = AuthHeader().Replace(s, "$1[REDACTED]");
         s = Bearer().Replace(s, "$1[REDACTED]");
+        s = Email().Replace(s, "[EMAIL]");
         if (!string.IsNullOrWhiteSpace(userProfile))
         {
             var p = userProfile.TrimEnd('\\', '/');
@@ -326,8 +327,45 @@ public static partial class BugReport
             }
         }
         s = AnyProfile().Replace(s, "%USERPROFILE%");
+        s = SteamUserdata().Replace(s, "$1[STEAM-ID]");
+        s = Steam64().Replace(s, "[STEAM-ID]");
+        s = IPv4().Replace(s, "[IP]");
+        s = IPv6().Replace(s, m => m.Value.Any(char.IsDigit) ? "[IP]" : m.Value);
+
+        // Names last, as whole words (paths and emails are already handled). Names shorter than 3 chars are skipped.
+        var machine = (machineName ?? SafeMachineName())?.Trim();
+        if (machine is { Length: >= 3 })
+            s = Regex.Replace(s, @"(?<![A-Za-z0-9_])" + Regex.Escape(machine) + @"(?![A-Za-z0-9_])", "[MACHINE]", RegexOptions.IgnoreCase);
+        var names = new List<string>();
+        var user = (userName ?? SafeUserName())?.Trim();
+        if (!string.IsNullOrEmpty(user)) names.Add(user);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+        {
+            var leaf = userProfile.TrimEnd('\\', '/').Split('\\', '/').LastOrDefault()?.Trim();
+            if (!string.IsNullOrEmpty(leaf)) names.Add(leaf);
+        }
+        foreach (var n in names.Distinct(StringComparer.OrdinalIgnoreCase))
+            if (n.Length >= 3) s = Regex.Replace(s, @"(?<![A-Za-z0-9_])" + Regex.Escape(n) + @"(?![A-Za-z0-9_])", "[USER]", RegexOptions.IgnoreCase);
         return s;
     }
+
+    private static string? SafeUserName() { try { return Environment.UserName; } catch (Exception) { return null; } }
+    private static string? SafeMachineName() { try { return Environment.MachineName; } catch (Exception) { return null; } }
+
+    [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")]
+    private static partial Regex Email();
+
+    [GeneratedRegex(@"(?i)(\buserdata[\\/]+)\d{3,}")]
+    private static partial Regex SteamUserdata();
+
+    [GeneratedRegex(@"\b7656119\d{10}\b")]
+    private static partial Regex Steam64();
+
+    [GeneratedRegex(@"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.]*\d)")]
+    private static partial Regex IPv4();
+
+    [GeneratedRegex(@"(?<![0-9A-Fa-f:])(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){0,6})?|::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){0,6}))(?![0-9A-Fa-f:])")]
+    private static partial Regex IPv6();
 
     [GeneratedRegex(@"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})")]
     private static partial Regex GitHubToken();

@@ -205,7 +205,10 @@
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" Text="{Binding ContextText}" />
                             </StackPanel>
 
-                            <!-- how it is sent (no GitHub sign-in either way) -->
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Text.Dim}" Margin="0,14,0,0" TextWrapping="Wrap" FontWeight="SemiBold"
+                                       Text="This report will be public on GitHub. Review the preview - personal details are removed automatically." />
+
+                            <!-- how it is sent -->
                             <TextBlock DockPanel.Dock="Top" Style="{StaticResource Text.Dim}" Margin="0,14,0,0" TextWrapping="Wrap"
                                        Text="{Binding SendInfoText}" />
 

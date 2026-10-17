@@ -121,6 +121,13 @@ jobs:
             }
           }
 
+      - name: Collect license files
+        run: |
+          foreach ($f in 'THIRD_PARTY_NOTICES.md', 'LICENSE') {
+            if (-not (Test-Path $f)) { Write-Output "::error::$f is missing from the repo root."; exit 1 }
+            Copy-Item $f "dist/$f"
+          }
+
       - name: Write SHA256 files
         run: |
           foreach ($exe in Get-ChildItem dist -Filter *.exe) {
@@ -141,6 +148,7 @@ jobs:
           gh release create $env:TAG `
             dist/OptimusVibe.exe dist/OptimusVibe.exe.sha256 `
             dist/optimus-vibe.exe dist/optimus-vibe.exe.sha256 `
+            dist/THIRD_PARTY_NOTICES.md dist/LICENSE `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:TARGET `
             --title $env:TAG `

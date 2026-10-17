@@ -34,6 +34,27 @@ public sealed class BugReportTests
         Assert.Contains(@"%USERPROFILE%\AppData\x.log", s);
     }
 
+    [Fact]
+    public void Sanitize_RedactsUserNameMachineEmailIpAndSteamIds()
+    {
+        var s = BugReport.Sanitize(
+            "user jdoe on PC-JDOE-9 mail jdoe@example.com ip 192.168.1.20 and fe80::1ff:fe23:4567:890a and 2001:db8:0:0:0:0:0:1 " +
+            "id 76561198012345678 path D:\\Steam\\userdata\\12345678\\config\\localconfig.vdf ver 10.0.26100.1 Foo::Bar",
+            Profile, userName: "jdoe", machineName: "PC-JDOE-9");
+        Assert.DoesNotContain("jdoe", s);
+        Assert.DoesNotContain("PC-JDOE-9", s);
+        Assert.DoesNotContain("example.com", s);
+        Assert.DoesNotContain("192.168.1.20", s);
+        Assert.DoesNotContain("fe80", s);
+        Assert.DoesNotContain("2001:db8", s);
+        Assert.DoesNotContain("76561198012345678", s);
+        Assert.DoesNotContain("12345678", s);
+        Assert.Contains("[EMAIL]", s);
+        Assert.Contains("[MACHINE]", s);
+        Assert.Contains("10.0.26100.1", s);
+        Assert.Contains("Foo::Bar", s);
+    }
+
     private static BugReportContext Ctx(IReadOnlyList<string>? log = null) => new()
     {
         Source = "optimus-vibe CLI",

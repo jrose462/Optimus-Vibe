@@ -1,13 +1,14 @@
 # CI, releases and the bug-report loop
 
 The app repo (`jrose462/Optimus-Vibe`) is **public** and holds code only; users keep their own settings in a private
-config repo. Three GitHub Actions workflows live in `.github/workflows/`. Claude's prompts for the bug loop are in
+config repo. Four GitHub Actions workflows live in `.github/workflows/`. Claude's prompts for the bug loop are in
 `.github/claude/`, and the labels they use are listed in `.github/labels.md`.
 
 | Workflow | Trigger | Runner | What it does |
 |---|---|---|---|
 | `ci.yml` | push to `main`, every pull request, manual | `windows-latest` | restore, build Release, `dotnet test`; uploads the `.trx` results as an artifact when something fails |
 | `release.yml` | push of a tag `vX.Y.Z`, or manual with a version | `windows-latest` | test, publish both exes single-file self-contained win-x64 at that version (baking in the bug-report token and OAuth client id), write `.sha256` files, create the GitHub Release |
+| `project-board.yml` | issue/PR/release events | `ubuntu-latest` | moves items on the project board (needs `PROJECT_TOKEN`); never runs Claude or untrusted code |
 | `claude-bug-triage.yml` | issue opened/edited whose body carries the app's hidden report marker (any author); `@claude` comments from the owner/members/collaborators | `ubuntu-latest` | The workflow labels the issue `bug-report`; Claude posts an action plan and, for clear small fixes, opens a PR that `ci.yml` then tests. At most 5 runs per UTC day, checked before any Claude step |
 
 ## CI (`ci.yml`)
@@ -48,7 +49,7 @@ The workflow:
    each exe's ProductVersion starts with the version.
 3. Writes `OptimusVibe.exe.sha256` and `optimus-vibe.exe.sha256` in `sha256sum` format
    (`<lowercase hex><two spaces><file name>` + LF, no BOM).
-4. Runs `gh release create v<version>` with the four files and `--generate-notes` (notes come from merged PRs
+4. Also copies `THIRD_PARTY_NOTICES.md` and `LICENSE` (repo root, required) into the assets. Runs `gh release create v<version>` with those and the four exe files and `--generate-notes` (notes come from merged PRs
    and commits since the previous release).
 
 Release asset names are exactly `OptimusVibe.exe`, `OptimusVibe.exe.sha256`, `optimus-vibe.exe` and
@@ -105,64 +106,112 @@ length; the marker line is included). The user submits it with their own GitHub 
 ## The bug-report loop (`claude-bug-triage.yml`)
 
 ```
-App "Report a problem"  ->  issue labelled bug-report (marker comment, description, device info, sanitized logs)
-  -> claude-bug-triage.yml: Claude reads the issue + logs + CLAUDE.md/README + code
-  -> issue comment "Action plan" (root cause hypothesis, files to change, risks, test plan), label claude-plan
-  -> if the fix is clear and small: branch claude/issue-<n>, fix + regression test, PR "Fixes #<n>" (label claude-fix)
-  -> ci.yml builds and tests the PR on Windows
-  -> you review and merge (closing the issue), then tag a release; the app's updater picks it up
+App "Report a problem"  ->  issue (marker comment, description, device info, sanitized logs)
+  -> gate job: credentials present? already triaged? daily cap (5/UTC day)? add bug-report label
+  -> claude job: action-plan comment; if the fix is clear and small, branch claude/issue-<n> + fix + regression test + PR "Fixes #<n>"
+  -> guard job: policy check of the pushed branch (closes the PR and deletes the branch on a violation)
+  -> ci.yml builds and tests the PR on Windows; you review and merge (closes the issue); tag a release; the app updates itself
 ```
 
-Details:
+Triage is fully automatic: every marked report gets a plan, and a fix PR when Claude is confident. A human still reviews and
+merges every PR (branch protection, below). End-to-end flow of the whole product: [pipeline.md](pipeline.md).
 
-- **Triggers (issues).** Every app-generated report starts with the hidden comment `<!-- optimus-vibe:report v1 -->`, whoever files it
-  (signed-in user, built-in token or browser). Non-collaborators can't apply labels, so the client does not rely on the
-  `bug-report` label (it tries it and retries without when GitHub refuses). A new or edited issue whose body contains the marker
-  starts the workflow, which (1) checks credentials, skips issues that already have Claude's `<!-- claude-bug-triage -->` plan
-  comment and enforces the daily cap, all before any Claude step, (2) adds the `bug-report` label itself with the workflow's
-  `GITHUB_TOKEN`, then (3) runs Claude. The marker is not a secret, so anyone can start a run by copying it: that is what the
-  cap is for, and issue text is untrusted data for Claude (see `.github/claude/repo-rules.md`). Runs are serialised per issue.
-- **`@claude` comments** on any issue or PR start a follow-up run (for example "@claude CI failed, fix the test" on
-  Claude's PR, or "@claude triage this" on a browser-filed report). Only comments whose `author_association` is OWNER, MEMBER or
-  COLLABORATOR trigger it; bot comments are ignored.
-- **Daily cap.** The first step (before checkout and before Claude) counts today's (UTC) non-skipped runs of this workflow with
-  `gh run list --workflow claude-bug-triage.yml --created ">=<today>"` and turns the run into a no-op when there are more than
-  5, including itself. Change `DAILY_CAP` in the workflow to adjust.
-- **What Claude may do** is set by `.github/claude/repo-rules.md` and `--allowedTools` in the workflow: read and
-  edit code, `git` on its branch, `gh issue` / `gh pr` / `gh run` commands, and
-  `dotnet build -p:EnableWindowsTargeting=true` as a compile check. It cannot run the tests (Linux runner,
-  Windows targets) and relies on `ci.yml`. It must never touch `.github/`, never pushes to `main`, and treats issue text and
-  logs as untrusted data.
-- **Cost.** Each triage is one Claude Code session (capped at 60 turns and 45 minutes), billed to the API key or
-  to your Claude subscription.
+- **Triggers.** An opened/edited issue whose body contains `<!-- optimus-vibe:report v1 -->` (any author), or an `@claude`
+  comment on an **issue** (not a PR) from an OWNER, MEMBER or COLLABORATOR (bots ignored). The marker is public, so anyone can
+  trigger a run by copying it; that is what the daily cap and the guard are for.
+- **Three jobs.** `gate` (no Claude; reads only whether the Claude secrets exist), `claude` (the only job with the Claude
+  credential; permissions `contents/pull-requests/issues: write`, `id-token: write`; checkout with `persist-credentials: false`,
+  the action pushes with its own Claude GitHub App token), `guard` (no Claude, no secrets, no checkout, REST API only).
+  `BUG_REPORT_TOKEN` and `PROJECT_TOKEN` are never referenced in these jobs.
+- **Tools Claude gets.** Allowed: `Read, Glob, Grep, Edit, MultiEdit, Write, TodoWrite` and Bash only for `gh issue view`,
+  `gh issue comment ... --body-file .claude-out/*`, `gh pr create --base main --head claude/issue-* ... --body-file
+  .claude-out/*`, `gh pr view`, `git status/diff/log/add`, `git commit -m`, `git switch -c` / `git checkout -b claude/issue-*`,
+  `git push [-u] origin claude/issue-*`. Denied: reading `/proc`, `/etc`, `/sys`, `/root`, `/home`, `~`, `.git/config`;
+  editing `.github/**`, `*.csproj`, `*.props`, `*.targets`, `nuget.config`; WebFetch/WebSearch; `env`, `printenv`, `set`,
+  `export`, `curl`, `wget`, `cat`; pushes to `main`, refspecs with `:`, force/delete pushes; `git commit -F`, `git diff
+  --no-index`, `git config/remote`; `gh api`, `gh issue edit`, `gh run`, `gh secret`, `gh auth`; `dotnet` (Linux cannot run our
+  tests; CI does). Bodies are written to `.claude-out/` (git-excluded) so `--body-file` cannot be aimed at `/proc/self/environ`.
+- **Guard.** After Claude, every `claude/*` branch is compared with `main` through the compare API (no code is checked out or
+  run). The branch is rejected when its name is not `claude/issue-<n>`, it touches `.github/**`, `*.csproj`/`*.props`/
+  `*.targets`/`*.sln`, `nuget.config`, `packages.lock.json`, `global.json`, `.config/`, changes more than 200 lines (the
+  prompt asks for ~150), or has an open PR not targeting `main`. A rejected branch gets its PR closed with an explanatory
+  comment and the branch deleted.
+- **Daily cap** (`DAILY_CAP: '5'` in the gate) and the "already has a `<!-- claude-bug-triage -->` plan comment" check run
+  before Claude; runs are serialised per issue.
+- **Caveat.** `claude-code-action` checks that the triggering actor has write access; a report filed under a
+  non-collaborator's own GitHub login may be refused by the action (reports filed with the built-in token are authored by
+  the owner and pass). If runs fail with "actor does not have write permissions", post `@claude` on the issue yourself.
+- **Cost.** One Claude Code session per run (40 turns, 45 min), billed to the API key or Claude subscription.
 
-## Setup: what you need to do
+## The project board (`project-board.yml`)
 
-The Claude workflow is **inert until a credential secret exists**. Its first step reads `ANTHROPIC_API_KEY` and
-`CLAUDE_CODE_OAUTH_TOKEN` into environment variables and sets the output `enabled=false` when both are empty;
-every later step has `if: steps.gate.outputs.enabled == 'true'`, so the run finishes green with the notice
-"Claude bug triage is inactive". (Secrets cannot be used in a job-level `if:`, hence the gate step.) CI and
-Release need no secrets (without `BUG_REPORT_TOKEN` the exes just use the browser fallback).
+Board: <https://github.com/users/jrose462/projects/5> (Status field: Reported, Planned, Fix in PR, Fixed, Released).
+A user-owned Project cannot be written with `GITHUB_TOKEN`, so this separate small workflow uses the secret `PROJECT_TOKEN`.
+It never runs Claude and never checks out or runs any code. Status only moves forward.
 
-1. **Create the labels** once: run the one-liner in `.github/labels.md`.
-2. **Install the Claude GitHub App** on `jrose462/Optimus-Vibe`: in a local Claude Code session run
-   `/install-github-app` (it installs the app and can add the secret for you), or install it from
-   <https://github.com/apps/claude> and pick this repository. The action gets its GitHub token from the app via
-   OIDC (`id-token: write`), so Claude's comments, commits and PRs are made as the Claude app and **its PRs
-   trigger `ci.yml`**. (Pushes and PRs made with a workflow's own `GITHUB_TOKEN` do not trigger other workflows,
-   which is why the app is the supported path.)
-3. **Add one repository secret** (Settings → Secrets and variables → Actions → New repository secret):
-   - `ANTHROPIC_API_KEY`: an API key from console.anthropic.com (pay per use), **or**
-   - `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token` locally and paste the token; usage counts against your
-     Claude Pro/Max subscription.
+| Event | Board effect |
+|---|---|
+| issue opened/edited with the report marker, or labeled `bug-report` | add issue, Status = Reported |
+| comment by a Bot containing `<!-- claude-bug-triage -->` | Status = Planned |
+| PR opened/reopened (same-repo branch) linked to an issue (`Fixes #n` via GitHub's closing references, or branch `claude/issue-<n>`) | issue and PR added, Status = Fix in PR |
+| PR merged | linked issue and PR Status = Fixed |
+| release published (not draft/prerelease) | every Fixed item of this repo whose issue/PR is closed/merged becomes Released, and the issue gets the comment "Shipped in vX.Y.Z — the app will update itself." |
 
-   The workflow passes both to `anthropics/claude-code-action@v1` (`anthropic_api_key` and
-   `claude_code_oauth_token`); an unset secret is an empty string and the action uses the one that is set.
-4. **Add the `BUG_REPORT_TOKEN` secret** (see "The bug-report token" above) before the release you want to ship, and
-   optionally the variable `OPTIMUSVIBE_GITHUB_CLIENT_ID`.
-5. File a test report from a released build (or an issue whose body contains the marker line `<!-- optimus-vibe:report v1 -->`) and check the run under Actions: you should get a plan comment from the Claude app within a few minutes.
+Without `PROJECT_TOKEN` every run is a green no-op with a notice. **Why `pull_request_target` is safe here:** it runs the
+workflow from `main` with secrets even for forks, which is dangerous only if PR code or PR text is executed. This workflow
+checks out nothing, passes event values through environment variables, uses them only as numbers/ids, ignores fork PRs on
+open (a fork could fake a branch name), and takes issue links from GitHub's own `closingIssuesReferences`. A merged fork PR
+is processed because the owner merged it.
 
-To switch the loop off again, delete the Claude secret (or disable the workflow under Actions).
+## Threat model
+
+The repo is public: anyone can open issues, comments and fork PRs, and the bug-report marker and the built-in issues token
+(extractable from the exes) are effectively public.
+
+| Threat | Mitigation |
+|---|---|
+| **Prompt injection** in an issue/comment/log making Claude exfiltrate secrets, change workflows or push malicious code | prompts state issue text is untrusted data (`.github/claude/repo-rules.md`); tight allow and deny lists (above); no network tools; the Claude job holds no secret but its own credential; the plan reaches humans only as a comment; fix PRs are policed by the guard and CI and still need human review |
+| **Token extraction** (Claude reading env, `/proc`, `.git/config`, or `--body-file` tricks) | env/proc/config reads and `env`/`printenv`/`curl` denied; body files restricted to `.claude-out/`; checkout does not persist credentials; `BUG_REPORT_TOKEN`/`PROJECT_TOKEN` never present in the Claude job; the built-in `BUG_REPORT_TOKEN` is issues-only on this repo and treated as public |
+| **Cost abuse** (spamming marked issues) | daily cap of 5 checked before Claude, per-issue dedupe, 40-turn / 45-min limits |
+| **Fork PRs / malicious workflow changes** | `ci.yml` uses `pull_request` (never `pull_request_target`), `contents: read`, no secrets, so forks get a read-only token; the "Protect .github" job fails PRs touching `.github/**` unless the author is the owner; CODEOWNERS requires the owner's review (including `/.github/`); default workflow permissions are read-only and Actions cannot approve PRs |
+| **Poisoned release** | releases only from tags/dispatch by people with write access; branch protection on `main`; Claude cannot touch `release.yml` or project files |
+| **Board manipulation** | the board workflow reacts only to Bot-authored plan comments, issue events and GitHub's own linkage, never to PR text |
+
+## Branch protection and repo settings (already applied)
+
+- `main`: pull request required with 1 approving review and **CODEOWNERS review**; required status check **Build and test
+  (windows)**; no force-push, no deletion; administrators are not enforced (the owner can merge their own work). Consider
+  adding **Protect .github** as a required check.
+- Default workflow permissions are read-only; Actions cannot create or approve pull requests.
+- Secret scanning with push protection, private vulnerability reporting and Dependabot alerts are enabled.
+- `.github/CODEOWNERS`: `* @jrose462` and `/.github/ @jrose462`.
+
+## Setup checklist: what you need to do
+
+The Claude workflow is **inert until a Claude credential secret exists** (the gate job ends green with a notice), and the board
+workflow is inert until `PROJECT_TOKEN` exists. CI and Release need no secrets (without `BUG_REPORT_TOKEN` the exes use the
+browser fallback).
+
+1. **Labels** (once): run the one-liner in `.github/labels.md`. The workflow also creates any missing label itself.
+2. **Install the Claude GitHub App** on `jrose462/Optimus-Vibe`: run `/install-github-app` in Claude Code, or install from
+   <https://github.com/apps/claude> and select this repo. The action obtains its token from the app via OIDC, so Claude's
+   pushes and PRs are made as the app and trigger `ci.yml`.
+3. **Claude credential** (Settings -> Secrets and variables -> Actions -> New repository secret), one of:
+   - `ANTHROPIC_API_KEY`: key from console.anthropic.com; or
+   - `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token` locally and paste the token (counts against Pro/Max).
+4. **`BUG_REPORT_TOKEN`**: see "The bug-report token" above (fine-grained PAT, only this repo, Issues read/write); needed before
+   the release you want to ship.
+5. **`PROJECT_TOKEN`** for the board: github.com/settings/tokens -> **Generate new token (classic)**, scope **`project`** only
+   (not `repo`), with an expiry; or a fine-grained token with resource owner = your user and account permission **Projects:
+   Read and write** (if board calls fail with a fine-grained token, use the classic one). Add it as the repository secret
+   `PROJECT_TOKEN`. The Status option ids are hard-coded in `project-board.yml` (`OPT_*`); deleting and recreating an option
+   changes its id.
+6. File a test report (an issue whose body contains `<!-- optimus-vibe:report v1 -->`) and watch Actions: expect a plan
+   comment, the issue on the board as Reported, then Planned.
+7. Optional: make **Protect .github** a required status check. Cut a release and confirm `THIRD_PARTY_NOTICES.md` and
+   `LICENSE` are attached (both must exist in the repo root or the release fails).
+
+To switch the loop off, delete the Claude secret or disable the workflow.
 
 ## Public repository notes
 

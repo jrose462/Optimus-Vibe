@@ -136,3 +136,11 @@ a game file would break a save (renamed file id, removed key), tell the user and
   `fix(games): correct overwatch render scale key`, `chore(devices): tighten ally-x match`, `docs: ...`,
   `feat(handlers): ...`, `test: ...`. Manual-save commits made by the app use `chore(saves): ...`.
 - Do not commit anything from `%LOCALAPPDATA%\OptimusVibe` (backups, logs, state, selections, settings.json).
+
+## Public repo rules
+
+This repo is PUBLIC (MIT). Never commit personal data (emails, user paths, Steam ids, machine names), tokens, game art/logos,
+screenshots showing game art, or binaries; never copy code without a compatible license. Bug reports are public issues and
+are sanitized in `BugReport.Sanitize` (see `PRIVACY.md`); extend it and its tests when a new kind of personal data can reach a
+report. The bug-to-release loop is automated by Claude and CI: see `docs/pipeline.md`. Redistributed dependencies must be
+listed in `THIRD_PARTY_NOTICES.md` when `PackageReference`s change.

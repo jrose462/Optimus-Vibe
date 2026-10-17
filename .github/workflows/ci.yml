@@ -21,6 +21,35 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
 
 jobs:
+  # Defence in depth next to branch protection + CODEOWNERS: only the repo owner may change .github/** (workflows, prompts).
+  # Uses the read-only GITHUB_TOKEN and the REST API only; it never checks out or runs PR code.
+  protect-github-dir:
+    name: Protect .github
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Fail if a non-owner PR touches .github/**
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          hits=$(printf '%s\n' "$files" | grep -iE '^\.github/' || true)
+          if [ -z "$hits" ]; then echo "No .github/** changes."; exit 0; fi
+          if [ "${AUTHOR,,}" = "${OWNER,,}" ]; then
+            echo "::notice::PR touches .github/** and is authored by the repo owner; allowed."; exit 0
+          fi
+          echo "::error::Only the repository owner may change .github/**. Touched:"
+          printf '%s\n' "$hits"
+          exit 1
+
   build-test:
     name: Build and test (windows)
     runs-on: windows-latest

@@ -1,34 +1,36 @@
 using System.Globalization;
 using OptimusVibe.Config;
 using OptimusVibe.Logging;
-using NvAPIWrapper;
-using NvAPIWrapper.DRS;
-using NvAPIWrapper.Native.DRS;
 
 namespace OptimusVibe.Driver;
 
 /// <summary>
 /// Desktop (NVIDIA): writes settings into the driver's per-application DRS profile for the game's executables.
 /// The profile only affects that game, so the change is persistent and <see cref="Apply"/> returns null (nothing to undo).
+/// Talks to the driver through our own minimal NVAPI layer (<see cref="NvApiNative"/>), no third-party wrapper.
 /// <para>Setting keys accepted (case-insensitive):</para>
 /// <list type="number">
 /// <item>Friendly aliases: FrameRateLimiter (fps | off), VSync (app | off | on), PowerMode (adaptive | max | optimal).</item>
-/// <item>Any <see cref="KnownSettingId"/> name, e.g. PreRenderLimit; value numeric (decimal or 0x hex) or a member name of the
-/// matching NvAPIWrapper.DRS.SettingValues enum (e.g. VSyncMode: ForceOff).</item>
+/// <item>Any name in <see cref="NvidiaSettingTable"/>, e.g. PreRenderLimit; value numeric (decimal or 0x hex) or one of the table's
+/// value names for that setting (e.g. VSyncMode: ForceOff).</item>
 /// <item>A raw setting id in hex, e.g. "0x10835002", with a numeric value.</item>
 /// </list>
 /// </summary>
 public sealed class NvidiaDrsManager : IDriverSettings
 {
-    private static readonly object InitGate = new();
-    private static bool? _initialized;
-    private static string _initError = "";
+    private readonly INvDrsApi _api;
+
+    public NvidiaDrsManager() : this(NvApiNative.Instance)
+    {
+    }
+
+    internal NvidiaDrsManager(INvDrsApi api) => _api = api;
 
     public string Vendor => "nvidia";
 
     // ---------------------------------------------------------------------------------------------
-    // Aliases. IDs/values verified against NvAPIWrapper 0.8.1.101 KnownSettingId / SettingValues enums
-    // (VSync, PowerMode) and against the installed driver's NvAPI_DRS_GetSettingNameFromId (FrameRateLimiter).
+    // Aliases. IDs/values from NVIDIA's NvApiDriverSettings.h (VSYNCMODE_ID, PREFERRED_PSTATE_ID, FRL_FPS_ID) and
+    // confirmed against the installed driver.
 
     private sealed record Alias(string Name, uint Id, string Help, Func<string, uint?> Parse, Func<uint, string> Format);
 
@@ -64,16 +66,7 @@ public sealed class NvidiaDrsManager : IDriverSettings
 
     // ---------------------------------------------------------------------------------------------
 
-    public bool IsAvailable(out string reason)
-    {
-        if (EnsureInitialized())
-        {
-            reason = "";
-            return true;
-        }
-        reason = _initError;
-        return false;
-    }
+    public bool IsAvailable(out string reason) => _api.TryInitialize(out reason);
 
     public IReadOnlyList<DriverChange> Plan(GameDef game, IReadOnlyDictionary<string, string> settings)
     {
@@ -91,12 +84,12 @@ public sealed class NvidiaDrsManager : IDriverSettings
 
         try
         {
-            using var session = DriverSettingsSession.CreateAndLoad();
+            using var session = _api.OpenSession();
             var profile = FindExistingProfile(session, game, out _);
             return resolved.Select(r =>
             {
                 string? current = null;
-                if (profile != null && TryReadDword(profile, r.Id, out var value, out _))
+                if (profile != null && TryReadDword(session, profile.Value, r.Id, out var value, out _))
                     current = r.Format(value);
                 return new DriverChange(r.Key, current, r.Format(r.Target));
             }).ToList();
@@ -127,34 +120,36 @@ public sealed class NvidiaDrsManager : IDriverSettings
 
         try
         {
-            using var session = DriverSettingsSession.CreateAndLoad();
-            var profile = FindExistingProfile(session, game, out var missing);
-            if (profile == null)
+            using var session = _api.OpenSession();
+            var found = FindExistingProfile(session, game, out var missing);
+            nint profile;
+            if (found == null)
             {
                 var name = $"Optimus-Vibe - {game.Name}";
-                profile = TryFindProfileByName(session, name) ?? TryFindProfileByName(session, $"GameProfiles - {game.Name}") ?? DriverSettingsProfile.CreateProfile(session, name, null);
+                profile = TryFindProfileByName(session, name) ?? TryFindProfileByName(session, $"GameProfiles - {game.Name}") ?? session.CreateProfile(name);
                 Log.Info($"NVIDIA: created driver profile '{name}'.");
             }
+            else profile = found.Value;
+            var profileName = session.GetProfileName(profile);
 
             foreach (var exe in missing)
             {
-                // (profile, applicationName, friendlyName, launcherName, fileInFolders, isMetro, commandLine)
-                ProfileApplication.CreateApplication(profile, exe.ToLowerInvariant(), null, null, null, false, null);
-                Log.Info($"NVIDIA: added {exe.ToLowerInvariant()} to driver profile '{profile.Name}'.");
+                session.CreateApplication(profile, exe.ToLowerInvariant());
+                Log.Info($"NVIDIA: added {exe.ToLowerInvariant()} to driver profile '{profileName}'.");
             }
 
             var dirty = missing.Count > 0;
             foreach (var r in resolved)
             {
-                var hasOwn = TryReadDword(profile, r.Id, out var current, out var inProfile) && inProfile;
+                var hasOwn = TryReadDword(session, profile, r.Id, out var current, out var inProfile) && inProfile;
                 if (hasOwn && current == r.Target) continue;
-                profile.SetSetting(r.Id, r.Target);
+                session.SetDword(profile, r.Id, r.Target);
                 dirty = true;
-                Log.Info($"NVIDIA: {profile.Name}: {r.Key} = {r.Format(r.Target)}");
+                Log.Info($"NVIDIA: {profileName}: {r.Key} = {r.Format(r.Target)}");
             }
 
             if (dirty) session.Save();
-            else Log.Info($"NVIDIA: driver profile '{profile.Name}' already up to date.");
+            else Log.Info($"NVIDIA: driver profile '{profileName}' already up to date.");
         }
         catch (Exception ex)
         {
@@ -170,30 +165,6 @@ public sealed class NvidiaDrsManager : IDriverSettings
     }
 
     // ---------------------------------------------------------------------------------------------
-
-    private static bool EnsureInitialized()
-    {
-        lock (InitGate)
-        {
-            if (_initialized.HasValue) return _initialized.Value;
-            try
-            {
-                NVIDIA.Initialize();
-                _initialized = true;
-            }
-            catch (DllNotFoundException)
-            {
-                _initError = "NVIDIA driver API (nvapi64.dll) not found; no NVIDIA driver installed.";
-                _initialized = false;
-            }
-            catch (Exception ex)
-            {
-                _initError = $"NVIDIA driver API could not be initialized: {ex.Message}";
-                _initialized = false;
-            }
-            return _initialized.Value;
-        }
-    }
 
     private static List<Resolved> Resolve(IReadOnlyDictionary<string, string> settings)
     {
@@ -216,22 +187,21 @@ public sealed class NvidiaDrsManager : IDriverSettings
                     continue;
                 }
 
-                if (Enum.TryParse<KnownSettingId>(key, ignoreCase: true, out var known) &&
-                    Enum.IsDefined(typeof(KnownSettingId), known) && !key.All(char.IsDigit))
+                if (!key.All(char.IsDigit) && NvidiaSettingTable.Ids.TryGetValue(key, out var knownId))
                 {
-                    var id = (uint)known;
-                    var valueType = typeof(KnownSettingId).Assembly.GetType($"NvAPIWrapper.DRS.SettingValues.{known}");
+                    var known = NvidiaSettingTable.Ids.Keys.First(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+                    NvidiaSettingTable.Values.TryGetValue(known, out var names);
                     uint target;
                     if (TryParseUInt(value, out var n)) target = n;
-                    else if (valueType is { IsEnum: true } && Enum.TryParse(valueType, value, ignoreCase: true, out var ev))
-                        target = Convert.ToUInt32(ev, CultureInfo.InvariantCulture);
+                    else if (names != null && names.Any(x => string.Equals(x.Name, value, StringComparison.OrdinalIgnoreCase)))
+                        target = names.First(x => string.Equals(x.Name, value, StringComparison.OrdinalIgnoreCase)).Value;
                     else
                     {
                         Log.Warn($"NVIDIA: invalid value '{value}' for {known}; expected a number" +
-                                 (valueType is { IsEnum: true } ? $" or one of {string.Join(", ", Enum.GetNames(valueType))}" : "") + "; skipped.");
+                                 (names is { Length: > 0 } ? $" or one of {string.Join(", ", names.Select(x => x.Name))}" : "") + "; skipped.");
                         continue;
                     }
-                    list.Add(new Resolved(known.ToString(), id, target, v => FormatKnown(valueType, v)));
+                    list.Add(new Resolved(known, knownId, target, v => FormatKnown(names, v)));
                     continue;
                 }
 
@@ -246,7 +216,7 @@ public sealed class NvidiaDrsManager : IDriverSettings
                     continue;
                 }
 
-                Log.Warn($"NVIDIA: unknown driver setting '{key}' (use FrameRateLimiter, VSync, PowerMode, a KnownSettingId name, or a 0x setting id); skipped.");
+                Log.Warn($"NVIDIA: unknown driver setting '{key}' (use FrameRateLimiter, VSync, PowerMode, a known setting name, or a 0x setting id); skipped.");
             }
             catch (Exception ex)
             {
@@ -257,61 +227,49 @@ public sealed class NvidiaDrsManager : IDriverSettings
     }
 
     /// <summary>The DRS profile any of the game's executables already belongs to (first match); lists exes not in any profile.</summary>
-    private static DriverSettingsProfile? FindExistingProfile(DriverSettingsSession session, GameDef game, out List<string> missing)
+    private static nint? FindExistingProfile(IDrsSession session, GameDef game, out List<string> missing)
     {
         missing = new List<string>();
-        DriverSettingsProfile? found = null;
+        nint? found = null;
         foreach (var exe in game.Processes.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()))
         {
-            DriverSettingsProfile? profile = null;
-            try { profile = session.FindApplicationProfile(exe); }
-            catch { /* NVAPI_EXECUTABLE_NOT_FOUND */ }
+            bool hit;
+            nint profile = 0;
+            try { hit = session.FindApplicationProfile(exe, out profile); }
+            catch { hit = false; /* treat lookup errors like "not found" */ }
 
-            if (profile == null) missing.Add(exe);
-            else found ??= profile;
+            if (hit) found ??= profile;
+            else missing.Add(exe);
         }
         return found;
     }
 
-    private static DriverSettingsProfile? TryFindProfileByName(DriverSettingsSession session, string name)
+    private static nint? TryFindProfileByName(IDrsSession session, string name)
     {
-        try { return session.FindProfileByName(name); }
+        try { return session.FindProfileByName(name, out var p) ? p : null; }
         catch { return null; }
     }
 
     /// <summary>Effective DWORD value of a setting for this profile (may be inherited from the global/base profile).</summary>
-    private static bool TryReadDword(DriverSettingsProfile profile, uint id, out uint value, out bool inThisProfile)
+    private static bool TryReadDword(IDrsSession session, nint profile, uint id, out uint value, out bool inThisProfile)
     {
-        value = 0;
-        inThisProfile = false;
         try
         {
-            var setting = profile.GetSetting(id);
-            if (setting == null || setting.SettingType != DRSSettingType.Integer) return false;
-            value = Convert.ToUInt32(setting.CurrentValue, CultureInfo.InvariantCulture);
-            inThisProfile = setting.SettingLocation == DRSSettingLocation.CurrentProfile;
-            return true;
+            return session.TryGetDword(profile, id, out value, out inThisProfile);
         }
         catch
         {
-            return false; // NVAPI_SETTING_NOT_FOUND: not set anywhere
+            value = 0;
+            inThisProfile = false;
+            return false;
         }
     }
 
-    private static string FormatKnown(Type? valueType, uint value)
+    private static string FormatKnown((string Name, uint Value)[]? names, uint value)
     {
-        if (valueType is { IsEnum: true })
-        {
-            try
-            {
-                var boxed = Enum.ToObject(valueType, value);
-                if (Enum.IsDefined(valueType, boxed)) return Enum.GetName(valueType, boxed) ?? FormatNumber(value);
-            }
-            catch
-            {
-                // fall through
-            }
-        }
+        if (names != null)
+            foreach (var (name, v) in names)
+                if (v == value) return name;
         return FormatNumber(value);
     }
 

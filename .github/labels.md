@@ -2,9 +2,9 @@
 
 | Label | Color | Used by | Meaning |
 |---|---|---|---|
-| `bug-report` | `d73a4a` | App "Report a problem"; `claude-bug-triage.yml` trigger | Bug filed from the app (description, device info, sanitized logs). Adding it to an issue starts Claude triage. |
-| `claude-plan` | `5319e7` | Claude (on the issue) | Claude has posted an action plan comment. |
-| `claude-fix` | `0e8a16` | Claude (on the PR) | Pull request opened by Claude for a bug report. |
+| `bug-report` | `d73a4a` | App "Report a problem"; `claude-bug-triage.yml` trigger | Bug filed from the app (description, device info, sanitized logs). The triage workflow adds it itself. |
+| `claude-plan` | `5319e7` | optional, set by a human | Claude has posted an action plan comment (the workflow no longer sets it; the plan comment marker is what automation reads). |
+| `claude-fix` | `0e8a16` | optional |  Pull request opened by Claude for a bug report. |
 
 Create them once (needs the `gh` CLI signed in with access to the repo; `--force` updates an existing label):
 
