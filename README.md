@@ -56,7 +56,15 @@ It works like Apollo/Sunshine prep commands: apply before launch, undo the tempo
 
 ## Install
 
-Requires the .NET 8 SDK to build. Published exes are self-contained, so target machines need no runtime.
+**Download:** grab `OptimusVibe.exe` (and optionally `optimus-vibe.exe`) from the
+[latest release](https://github.com/jrose462/Optimus-Vibe/releases/latest), put it in `C:\Tools\Optimus-Vibe\` and run it.
+Each release also has a `.sha256` file if you want to verify the download (`Get-FileHash OptimusVibe.exe`).
+
+> **"Windows protected your PC" / Unknown publisher:** the exes aren't code-signed yet, so Windows SmartScreen warns
+> on the first run of a file downloaded with a browser. Click **More info → Run anyway**. You only see this once per
+> download; in-app updates are downloaded by the app itself and don't trigger it. Code signing is planned.
+
+**Build from source:** requires the .NET 8 SDK. Published exes are self-contained, so target machines need no runtime.
 
 There are two exes, built on the same core:
 
