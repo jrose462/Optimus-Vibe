@@ -1,7 +1,7 @@
-# Claude bug squash â€” the app's "Report a problem" files a public issue whose body starts with
+# Claude bug squash - the app's "Report a problem" files a public issue whose body starts with
 # `<!-- optimus-vibe:report v1 -->`. This workflow:
 #   intake   (any time, no Claude)  label it, comment "queued", and requeue `needs-info` reports when the reporter replies.
-#   plan     (Thursdays 00:01â€“10:00 America/Los_Angeles, or an explicit run) pick which issues to process.
+#   plan     (Thursdays 00:01-10:00 America/Los_Angeles, or an explicit run) pick which issues to process.
 #   squash   (Claude, read-only token, file tools only) stage 1 AUDIT with a stronger model: verdict + implementation plan;
 #            stage 2 FIX with a cheaper model: edit files per the plan. Output = files + a patch artifact.
 #   publish  (no Claude) validate the artifact; comment, label, close/lock; check the patch against the policy; push
@@ -98,7 +98,7 @@ jobs:
           done
           if [ "$EVENT_NAME" = "issue_comment" ]; then
             gh issue edit "$ISSUE" --remove-label triage:needs-info
-            gh issue comment "$ISSUE" --body "Thanks for the extra details â€” this report is back in the queue for the next weekly bug squash."
+            gh issue comment "$ISSUE" --body "Thanks for the extra details - this report is back in the queue for the next weekly bug squash."
             exit 0
           fi
           gh issue edit "$ISSUE" --add-label bug-report || true
@@ -252,7 +252,7 @@ jobs:
             { echo "$kind<<$delim"; cat .github/claude/repo-rules.md; echo; cat ".github/claude/$kind-prompt.md"; echo; run_info; echo "$delim"; } >> "$GITHUB_OUTPUT"
           done
 
-      - name: Claude â€” audit (stronger model)
+      - name: Claude - audit (stronger model)
         if: steps.window.outputs.go == 'true'
         id: audit
         uses: anthropics/claude-code-action@v1
@@ -282,7 +282,7 @@ jobs:
              && { [ "$DEADLINE" = "0" ] || [ "$(date +%s)" -lt "$DEADLINE" ]; }; then go=true; fi
           echo "fix=$go" >> "$GITHUB_OUTPUT"; echo "Fix stage: $go"
 
-      - name: Claude â€” fix (cheaper model)
+      - name: Claude - fix (cheaper model)
         if: steps.decide.outputs.fix == 'true'
         id: fix
         uses: anthropics/claude-code-action@v1
@@ -353,6 +353,9 @@ jobs:
         if: steps.dl.outcome == 'success'
         run: |
           set -uo pipefail
+          for spec in "triage:valid|0e8a16" "triage:duplicate|cfd3d7" "triage:by-design|cfd3d7" "triage:needs-info|fbca04" \n                      "triage:not-a-bug|cfd3d7" "triage:suspicious|b60205" "triage:needs-human|d93f0b" "claude-fix|0e8a16"; do
+            gh label create "${spec%%|*}" --color "${spec##*|}" 2>/dev/null || true
+          done
           verdict=$(jq -r 'if (.verdict | IN("valid","duplicate","by-design","needs-info","not-a-bug","suspicious")) then .verdict else "invalid" end' out/audit.json 2>/dev/null || echo invalid)
           conf=$(jq -r '.confidence // "" | select(IN("high","medium","low")) // "unknown"' out/audit.json 2>/dev/null || echo unknown)
           fixable=$(jq -r '.fixable_by_small_model == true' out/audit.json 2>/dev/null || echo false)
@@ -372,7 +375,7 @@ jobs:
 
           Duplicate of #$dup"
           gh issue comment "$ISSUE" --body "$AUDIT_MARKER
-          **Weekly bug squash â€” audit:** \`$verdict\` (confidence: $conf)
+          **Weekly bug squash - audit:** \`$verdict\` (confidence: $conf)
 
           $body"
           case "$verdict" in
