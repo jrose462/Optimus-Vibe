@@ -353,7 +353,7 @@ jobs:
         if: steps.dl.outcome == 'success'
         run: |
           set -uo pipefail
-          for spec in "triage:valid|0e8a16" "triage:duplicate|cfd3d7" "triage:by-design|cfd3d7" "triage:needs-info|fbca04" \n                      "triage:not-a-bug|cfd3d7" "triage:suspicious|b60205" "triage:needs-human|d93f0b" "claude-fix|0e8a16"; do
+          for spec in "triage:valid|0e8a16" "triage:duplicate|cfd3d7" "triage:by-design|cfd3d7" "triage:needs-info|fbca04" "triage:not-a-bug|cfd3d7" "triage:suspicious|b60205" "triage:needs-human|d93f0b" "claude-fix|0e8a16"; do
             gh label create "${spec%%|*}" --color "${spec##*|}" 2>/dev/null || true
           done
           verdict=$(jq -r 'if (.verdict | IN("valid","duplicate","by-design","needs-info","not-a-bug","suspicious")) then .verdict else "invalid" end' out/audit.json 2>/dev/null || echo invalid)
