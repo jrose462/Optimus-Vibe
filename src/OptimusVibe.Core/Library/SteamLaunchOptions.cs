@@ -208,6 +208,7 @@ public static class SteamLaunchOptions
     public static (IReadOnlyList<(int AppId, string GameId)> Enable, IReadOnlyList<int> Disable) ManagedTargets(ConfigStore store, string device)
     {
         var optOut = LoadOptOuts(store.Paths);
+        var skip = LoadSkips(store.Paths);
         var enable = new List<(int, string)>();
         var disable = new List<int>();
         foreach (var id in store.GameIds())
@@ -220,15 +221,33 @@ public static class SteamLaunchOptions
                 continue;
             }
             if (game.SteamAppId is not { } appId) continue;
+            if (skip.Contains($"steam:{appId}") || skip.Contains(game.Id)) continue;
             if (optOut.Contains($"steam:{appId}") || optOut.Contains(game.Id)) disable.Add(appId);
             else if (ProfileResolver.PresetNames(game, device).Count > 0) enable.Add((appId, game.Id));
         }
         foreach (var key in optOut)
             if (key.StartsWith("steam:", StringComparison.OrdinalIgnoreCase)
                 && int.TryParse(key["steam:".Length..], NumberStyles.None, CultureInfo.InvariantCulture, out var appId)
-                && !disable.Contains(appId))
+                && !disable.Contains(appId) && !skip.Contains(key))
                 disable.Add(appId);
         return (enable, disable);
+    }
+
+    /// <summary>steamLaunchOptionsSkip keys from config\library.yaml (case-insensitive); empty when the file is missing or unreadable.</summary>
+    public static HashSet<string> LoadSkips(AppPaths paths)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (File.Exists(paths.LibraryFile))
+                foreach (var k in Yaml.Load<LibraryFile>(paths.LibraryFile).SteamLaunchOptionsSkip ?? [])
+                    if (!string.IsNullOrWhiteSpace(k)) set.Add(k.Trim());
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read {paths.LibraryFile}: {ex.Message}");
+        }
+        return set;
     }
 
     /// <summary>optOut keys from config\library.yaml (case-insensitive); empty when the file is missing or unreadable.</summary>

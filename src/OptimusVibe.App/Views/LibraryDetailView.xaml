@@ -11,7 +11,7 @@
         </Grid.RowDefinitions>
 
         <!-- strip -->
-        <Grid DataContext="{Binding DetailTile}" Margin="26,6,32,0">
+        <Grid DataContext="{Binding DetailTile}" Margin="26,6,32,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -31,6 +31,12 @@
                           Command="{Binding SetManagedCommand}"
                           CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}"
                           ToolTip="Off: Optimus-Vibe never touches this game. It starts normally and its Steam launch option is removed. Synced to your other devices." />
+                <CheckBox x:Name="SteamKeepToggle" Content="Keep Steam launch option up to date"
+                          IsChecked="{Binding KeepSteamOptionUpToDate, Mode=OneWay}"
+                          Command="{Binding SetSteamKeepCommand}"
+                          CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}"
+                          Visibility="{Binding IsSteam, Converter={StaticResource VisibleWhen}}"
+                          ToolTip="Off: Optimus-Vibe never changes this game's Steam launch option, whatever you choose in the update review. Synced to your other devices." />
                 <Grid Margin="38,0,0,0"
                             Visibility="{Binding SuggestOptOut, Converter={StaticResource VisibleWhen}}">
                     <Grid.ColumnDefinitions>

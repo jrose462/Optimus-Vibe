@@ -63,6 +63,9 @@ public sealed class LibraryEntry
     public required LibraryStatus Status { get; init; }
     public bool OptedOut { get; init; }
 
+    /// <summary>In library.yaml steamLaunchOptionsSkip: Optimus-Vibe never touches this game's Steam launch option.</summary>
+    public bool SteamLaunchOptionSkipped { get; init; }
+
     /// <summary>The cloud-sync check for this game on this device (null when not computed, e.g. no game config).</summary>
     public CloudSyncReport? CloudSync { get; init; }
 

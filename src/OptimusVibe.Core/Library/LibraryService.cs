@@ -13,7 +13,8 @@ public static class LibraryService
     private const string LibraryHeader =
         "# Optimus-Vibe library choices, shared by every device (git-synced). Written by Optimus-Vibe.\n" +
         "# optOut: detected games (\"store:id\", e.g. steam:1285190) that Optimus-Vibe leaves alone —\n" +
-        "# no settings are applied and they launch plainly (the Steam launch option is removed).\n";
+        "# no settings are applied and they launch plainly (the Steam launch option is removed).\n" +
+        "# steamLaunchOptionsSkip: Steam games (\"steam:appid\") whose Steam launch option Optimus-Vibe never touches.\n";
 
     private const string RequestsHeader =
         "# Games detected on a device that have no Optimus-Vibe presets yet (or none for that device).\n" +
@@ -32,7 +33,10 @@ public static class LibraryService
         CloudSyncChecker? cloudSync = null)
     {
         var games = LoadGames(store);
-        var optOut = OptOutSet(LoadLibrary(store));
+        var lib = LoadLibrary(store);
+        var optOut = OptOutSet(lib);
+        var skips = lib.SteamLaunchOptionsSkip.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var entries = new List<LibraryEntry>();
 
@@ -52,6 +56,7 @@ public static class LibraryService
                 Game = game,
                 Status = status,
                 OptedOut = opted,
+                SteamLaunchOptionSkipped = skips.Contains(d.Key),
                 CloudSync = CheckSync(cloudSync, game),
             });
         }
@@ -66,6 +71,7 @@ public static class LibraryService
                 Game = game,
                 Status = LibraryStatus.NotInstalled,
                 OptedOut = optOut.Contains(key),
+                SteamLaunchOptionSkipped = skips.Contains(key),
                 CloudSync = CheckSync(cloudSync, game),
             });
         }
@@ -98,6 +104,7 @@ public static class LibraryService
         {
             var lib = Yaml.Load<LibraryFile>(file);
             lib.OptOut ??= new();
+            lib.SteamLaunchOptionsSkip ??= new();
             return lib;
         }
         catch (Exception ex)
@@ -118,6 +125,27 @@ public static class LibraryService
         if (had == optOut && File.Exists(store.Paths.LibraryFile)) return; // nothing changed
         lib.OptOut = lib.OptOut.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
         Write(store.Paths.LibraryFile, LibraryHeader, lib);
+    }
+
+    /// <summary>Keys ("steam:appid") in config/library.yaml steamLaunchOptionsSkip (case-insensitive).</summary>
+    public static HashSet<string> SteamLaunchOptionSkips(ConfigStore store) =>
+        LoadLibrary(store).SteamLaunchOptionsSkip.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Add/remove a key in config/library.yaml steamLaunchOptionsSkip. Returns true when the file changed.</summary>
+    public static bool SetSteamLaunchOptionSkip(ConfigStore store, string key, bool skip)
+    {
+        key = key.Trim();
+        if (key.Length == 0) throw new ConfigException("Empty library key (expected store:id, e.g. steam:1285190)");
+        var lib = LoadLibrary(store);
+        var had = lib.SteamLaunchOptionsSkip.Any(k => k.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (had == skip) return false; // nothing changed
+        lib.SteamLaunchOptionsSkip.RemoveAll(k => k.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (skip) lib.SteamLaunchOptionsSkip.Add(key);
+        lib.SteamLaunchOptionsSkip = lib.SteamLaunchOptionsSkip.Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+        Write(store.Paths.LibraryFile, LibraryHeader, lib);
+        return true;
     }
 
     public static RequestsFile LoadRequests(ConfigStore store)

@@ -26,6 +26,7 @@ public sealed class LibraryTileViewModel : ObservableObject
         PlayCommand = new AsyncRelayCommand(() => owner.PlayAsync(this), () => Idle() && CanPlay);
         OpenCommand = new RelayCommand(() => owner.OpenDetail(this));
         SetManagedCommand = new AsyncRelayCommand(p => owner.SetManagedAsync(this, p is true), _ => Idle() && CanToggleManaged);
+        SetSteamKeepCommand = new AsyncRelayCommand(p => owner.SetSteamKeepUpToDateAsync(this, p is true), _ => Idle() && IsSteam);
     }
 
     public LibraryEntry Entry => _entry;
@@ -77,6 +78,10 @@ public sealed class LibraryTileViewModel : ObservableObject
     public bool IsManaged => !_entry.OptedOut && _entry.Status != LibraryStatus.OptedOut;
 
     public bool CanToggleManaged => IsInstalled || HasConfig;
+
+    /// <summary>Steam games only: "Keep Steam launch option up to date" (off = steamLaunchOptionsSkip).</summary>
+    public bool IsSteam => Key.StartsWith("steam:", StringComparison.OrdinalIgnoreCase);
+    public bool KeepSteamOptionUpToDate => !_entry.SteamLaunchOptionSkipped;
     public bool SuggestOptOut => _entry.SuggestOptOut;
     public bool IsQueued => _entry.Status == LibraryStatus.NeedsPresets && IsManaged;
     public bool CanPlay => GameLauncher.CanLaunch(_entry.Game, _entry.Detected);
@@ -104,6 +109,7 @@ public sealed class LibraryTileViewModel : ObservableObject
     public ICommand PlayCommand { get; }
     public ICommand OpenCommand { get; }
     public ICommand SetManagedCommand { get; }
+    public ICommand SetSteamKeepCommand { get; }
 
     public void Update(LibraryEntry entry, GameItemViewModel? gameItem)
     {

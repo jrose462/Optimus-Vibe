@@ -162,6 +162,9 @@ public sealed class LibraryFile
 {
     /// <summary>Detected games the user opted out of ("store:id", e.g. steam:1285190): not managed, launched plainly.</summary>
     public List<string> OptOut { get; set; } = new();
+
+    /// <summary>Steam games ("steam:appid") whose Steam launch option Optimus-Vibe never touches (neither adds nor removes the wrapper).</summary>
+    public List<string> SteamLaunchOptionsSkip { get; set; } = new();
 }
 
 /// <summary>config/requests.yaml — detected games without presets, queued for Claude's game-settings-recommender skill.</summary>

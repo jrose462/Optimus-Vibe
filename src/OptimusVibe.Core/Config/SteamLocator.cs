@@ -17,6 +17,8 @@ public sealed class SteamLocator
 
     public static string? FindSteamRoot()
     {
+        // OPTIMUSVIBE_STEAM_ROOT points the app and CLI at a scratch copy of the Steam folder (testing).
+        if (Environment.GetEnvironmentVariable("OPTIMUSVIBE_STEAM_ROOT") is { Length: > 0 } over) return Path.GetFullPath(over);
         var path = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string
                    ?? Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) as string;
         return path is null ? null : Path.GetFullPath(path);

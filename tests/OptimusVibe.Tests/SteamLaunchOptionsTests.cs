@@ -194,6 +194,23 @@ public sealed class SteamLaunchOptionsFileTests : IDisposable
     }
 
     [Fact]
+    public void Apply_SubsetOfChanges_LeavesTheOthersUntouched()
+    {
+        var changes = SteamLaunchOptions.Plan([(1091500, "cyberpunk2077"), (999, "newgame")], [1245620], Exe, _account);
+        Assert.Equal(3, changes.Count);
+        var picked = changes.Where(c => c.AppId == 999).ToList();
+
+        SteamLaunchOptions.Apply(picked, _account, isSteamRunning: () => false, backupDir: _backups.Path);
+
+        Assert.Equal($"\"{Exe}\" run newgame -- %command%", SteamLaunchOptions.Get(999, _account));
+        Assert.Equal("-skipStartScreen", SteamLaunchOptions.Get(1091500, _account)); // not picked: unchanged
+        Assert.True(SteamLaunchOptions.IsWrapped(SteamLaunchOptions.Get(1245620, _account))); // not picked: still wrapped
+        // the unpicked changes are still pending
+        Assert.Equal([1091500, 1245620], SteamLaunchOptions.Plan([(1091500, "cyberpunk2077"), (999, "newgame")], [1245620], Exe, _account)
+            .Select(c => c.AppId).Order());
+    }
+
+    [Fact]
     public void Apply_KeepsLastTenBackups()
     {
         for (int i = 0; i < 12; i++)
@@ -256,6 +273,26 @@ public sealed class SteamManagedTargetsTests
 
         Assert.Equal(new[] { (111, "alpha") }, enable.ToArray());
         Assert.Equal(new[] { 222, 444, 555 }, disable.OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public void ManagedTargets_ExcludesSkippedFromEnableAndDisable()
+    {
+        using var fx = new EngineFixture();
+        void Game(string id, int appId) => File.WriteAllText(Path.Combine(fx.Paths.GamesDir, id + ".yaml"),
+            $"name: {id}\nsteamAppId: {appId}\npresets:\n  desktop:\n    quality:\n      label: Q\n");
+        Game("alpha", 111);   // managed
+        Game("beta", 222);    // managed but skipped: never enabled
+        Game("gamma", 333);   // opted out and skipped: never disabled either
+        Game("delta", 444);   // opted out: disabled
+        Game("eps", 555);     // skipped by game id
+        File.WriteAllText(fx.Paths.LibraryFile,
+            "optOut:\n  - steam:333\n  - steam:444\n  - steam:666\n  - steam:777\nsteamLaunchOptionsSkip:\n  - steam:222\n  - STEAM:333\n  - eps\n  - steam:777\n");
+
+        var (enable, disable) = SteamLaunchOptions.ManagedTargets(fx.Store, "desktop");
+
+        Assert.Equal(new[] { (111, "alpha") }, enable.ToArray());
+        Assert.Equal(new[] { 444, 666 }, disable.OrderBy(x => x).ToArray());
     }
 
     [Fact]

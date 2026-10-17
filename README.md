@@ -244,7 +244,7 @@ Global options: `--config <dir>` (config root), `--profile <device>` (override d
 | `sync` | Commit manual saves, pull, and push the config repo (through the selected sync provider) |
 | `library [--queue] [--stores <list>] [--json]` | List detected games with their `store:id` key and status; `--queue` adds games without a config to `config/requests.yaml`; `--stores` limits the launchers scanned (`steam,battlenet,ea,xbox,epic,gog`) |
 | `opt-out <key>` / `opt-in <key>` | Stop / resume managing a detected game (`key` = `store:id`, e.g. `steam:1285190`); stored in `config/library.yaml` |
-| `steam-options [<game>] [--enable \| --disable \| --sync-all] [--dry-run] [--exit-steam]` | Show or change the Optimus-Vibe wrapper in Steam launch options (Steam must be closed to write; see "Steam games") |
+| `steam-options [<game>] [--enable \| --disable \| --skip \| --unskip \| --sync-all] [--dry-run] [--exit-steam]` | Show or change the Optimus-Vibe wrapper in Steam launch options (Steam must be closed to write; see "Steam games") |
 | `github login [--client-id <id>] \| token <PAT> \| repos \| use <owner/name> [--branch <b>] \| create <name> [--public] \| logout \| status` | GitHub sign-in (device code or PAT), list repos you can push to, select or create the config repo and switch to the `github` provider, sign out, show the current setup |
 | `sync-provider git \| github` | Choose how the config repo syncs on this machine: a git checkout (the `configRoot` folder) or the app's GitHub copy |
 | `restore <game> [--original \| --timestamp <stamp>]` | Roll the game's files back from a local backup; with no flag, lists the backups (newest first) and changes nothing |
@@ -281,6 +281,12 @@ there), and removes it again when you opt a game out. Steam overwrites its confi
 writes while Steam is closed: it offers to close Steam, or does it the next time Steam is not running. To manage
 launch options yourself, turn this off in Settings (or `"writeSteamLaunchOptions": false` in
 `%LOCALAPPDATA%\OptimusVibe\settings.json`); `optimus-vibe steam-options` shows and applies the changes by hand.
+
+**Choose which games get it**: when changes are waiting, the banner has a **Review…** button listing each game with a
+checkbox and its launch option before and after; **Apply selected** closes Steam and writes only the ticked ones.
+Unticked games (and any game whose page has *Keep Steam launch option up to date* switched off) go to
+`steamLaunchOptionsSkip` in `config/library.yaml` (synced), so Optimus-Vibe never touches their launch option, whether
+to add or remove it. From the CLI: `optimus-vibe steam-options <game> --skip` / `--unskip`; `--sync-all` respects the list.
 
 The id after `run` is the game id (the YAML file name under `config/games/`). Steam starts the wrapper, and the
 wrapper starts the game. With `run` the app opens no window and no console; output goes to the log (see below). `optimus-vibe.exe run`

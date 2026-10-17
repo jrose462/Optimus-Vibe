@@ -8,7 +8,8 @@ using OptimusVibe.Logging;
 namespace OptimusVibe;
 
 /// <summary>
-/// `steam-options &lt;game|appid&gt; [--enable|--disable] [--dry-run] [--exe path] [--exit-steam]` and
+/// `steam-options &lt;game|appid&gt; [--enable|--disable] [--dry-run] [--exe path] [--exit-steam]`,
+/// `steam-options &lt;game|appid&gt; --skip|--unskip` (never / again touch that game's launch option) and
 /// `steam-options --sync-all [--dry-run] [--exe path] [--exit-steam]`: manage the OptimusVibe.exe wrapper in Steam
 /// launch options (localconfig.vdf of the most recent Steam login).
 /// </summary>
@@ -21,22 +22,24 @@ internal static class SteamCommands
         var disable = new Option<bool>("--disable") { Description = "Remove the wrapper, leaving your own options." };
         var syncAll = new Option<bool>("--sync-all")
         {
-            Description = "Enable for every managed Steam game on this device (config with steamAppId and presets, not opted out in library.yaml); disable for opted-out ones.",
+            Description = "Enable for every managed Steam game on this device (config with steamAppId and presets, not opted out in library.yaml); disable for opted-out ones. Games in steamLaunchOptionsSkip are left alone.",
         };
+        var skip = new Option<bool>("--skip") { Description = "Never touch this game's Steam launch option (--sync-all and the app leave it alone). Edits library.yaml." };
+        var unskip = new Option<bool>("--unskip") { Description = "Let Optimus-Vibe manage this game's Steam launch option again." };
         var dryRun = new Option<bool>("--dry-run") { Description = "Show the changes without writing." };
         var exe = new Option<string?>("--exe") { Description = "Wrapper exe to write (default: OptimusVibe.exe next to this exe)." };
         var exitSteam = new Option<bool>("--exit-steam") { Description = "Ask Steam to exit first if it is running (Steam must be closed to write)." };
 
         var cmd = new Command("steam-options", "Show or change the Optimus-Vibe wrapper in Steam launch options.")
         {
-            target, enable, disable, syncAll, dryRun, exe, exitSteam,
+            target, enable, disable, syncAll, skip, unskip, dryRun, exe, exitSteam,
         };
         cmd.SetAction(pr =>
         {
             try
             {
                 return Execute(pr, pr.GetValue(target), pr.GetValue(enable), pr.GetValue(disable), pr.GetValue(syncAll),
-                    pr.GetValue(dryRun), pr.GetValue(exe), pr.GetValue(exitSteam));
+                    pr.GetValue(skip), pr.GetValue(unskip), pr.GetValue(dryRun), pr.GetValue(exe), pr.GetValue(exitSteam));
             }
             catch (Exception ex) when (ex is ConfigException or PathResolveException or InvalidOperationException)
             {
@@ -52,13 +55,29 @@ internal static class SteamCommands
         return cmd;
     }
 
-    private static int Execute(ParseResult pr, string? target, bool enable, bool disable, bool syncAll, bool dry, string? exeOption, bool exitSteam)
+    private static int Execute(ParseResult pr, string? target, bool enable, bool disable, bool syncAll, bool skip, bool unskip, bool dry, string? exeOption, bool exitSteam)
     {
         if (enable && disable) throw new InvalidOperationException("Use either --enable or --disable, not both.");
+        if (skip && unskip) throw new InvalidOperationException("Use either --skip or --unskip, not both.");
+        if ((skip || unskip) && (enable || disable || syncAll))
+            throw new InvalidOperationException("--skip/--unskip only edit the skip list; use them without --enable/--disable/--sync-all.");
         if (syncAll && (enable || disable || target is not null))
             throw new InvalidOperationException("--sync-all takes no game and no --enable/--disable.");
         if (!syncAll && target is null)
-            throw new InvalidOperationException("Usage: steam-options <game|appid> [--enable|--disable] [--dry-run]  or  steam-options --sync-all [--dry-run]");
+            throw new InvalidOperationException("Usage: steam-options <game|appid> [--enable|--disable|--skip|--unskip] [--dry-run]  or  steam-options --sync-all [--dry-run]");
+
+        if (skip || unskip)
+        {
+            var skipStore = new ConfigStore(AppPaths.Resolve(pr.GetValue<string?>("--config")));
+            var (skipApp, skipGame) = Resolve(skipStore, target!, needGameId: false);
+            var key = $"steam:{skipApp.ToString(CultureInfo.InvariantCulture)}";
+            var label = skipGame is null ? key : $"{skipGame} ({key})";
+            Console.WriteLine(LibraryService.SetSteamLaunchOptionSkip(skipStore, key, skip)
+                ? skip ? $"{label}: Steam launch option is now left alone (steamLaunchOptionsSkip in library.yaml)."
+                       : $"{label}: Steam launch option is managed again; run `steam-options --sync-all` to update it."
+                : skip ? $"{label}: already skipped." : $"{label}: was not skipped.");
+            return 0;
+        }
 
         var account = SteamLaunchOptions.AccountDir()
                       ?? throw new InvalidOperationException("Steam user data not found (is Steam installed and signed in once?).");

@@ -293,11 +293,50 @@ public sealed class LibraryViewModel : ObservableObject
     public LibraryTileViewModel? FindByGameId(string gameId) =>
         _byKey.Values.FirstOrDefault(t => string.Equals(t.GameId, gameId, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Display name for a Steam app id: the library entry, else the game config with that steamAppId, else its game id.</summary>
+    public string SteamGameName(int appId, string? gameId)
+    {
+        if (_byKey.TryGetValue($"steam:{appId}", out var tile)) return tile.Name;
+        var item = _main.Games.FirstOrDefault(g => g.Snapshot.Game?.SteamAppId == appId);
+        if (item is not null) return item.Name;
+        if (!string.IsNullOrEmpty(gameId)) return gameId;
+        return $"Steam app {appId}";
+    }
+
     // ---------------------------------------------------------------- actions
 
     public void OpenDetail(LibraryTileViewModel tile) => _main.OpenLibraryDetail(tile);
 
     public Task PlayAsync(LibraryTileViewModel tile) => _main.PlayTileAsync(tile);
+
+    /// <summary>
+    /// "Keep Steam launch option up to date": write/remove the game's steamLaunchOptionsSkip entry, sync library.yaml when
+    /// AutoSync is on, and re-plan (turning it on shows the Steam banner again when a change is needed).
+    /// </summary>
+    public async Task SetSteamKeepUpToDateAsync(LibraryTileViewModel tile, bool keep)
+    {
+        var session = _main.Session;
+        if (session is null) return;
+        var key = tile.Key;
+        var ok = await _main.RunAsync(keep ? $"Updating {tile.Name}'s Steam launch option" : $"Leaving {tile.Name}'s Steam launch option alone", () => Task.Run(() =>
+        {
+            LibraryService.SetSteamLaunchOptionSkip(session.Store, key, !keep);
+            Log.Info($"Library: {key} Steam launch option {(keep ? "managed" : "skipped")}");
+        }));
+        if (!ok)
+        {
+            tile.Update(tile.Entry, tile.GameItem); // revert the toggle
+            return;
+        }
+
+        await ScanAsync(rescanLaunchers: false); // new entry flags + re-plan Steam launch options
+        var settings = await SettingsStore.LoadAsync();
+        if (settings.AutoSync)
+            await _main.SyncFilesQuietlyAsync($"chore(library): {(keep ? "update" : "skip")} Steam launch option of {key}", session.Paths.LibraryFile);
+        _main.Notify(keep
+            ? $"{tile.Name}: its Steam launch option is kept up to date."
+            : $"{tile.Name}: its Steam launch option stays as it is now.");
+    }
 
     /// <summary>
     /// "Manage this game's settings": write the opt-out to config/library.yaml, fix the Steam launch option for

@@ -153,6 +153,47 @@ public sealed class LibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public void SteamLaunchOptionsSkip_RoundTrip_Idempotent_AndFlagsEntries()
+    {
+        Assert.Empty(LibraryService.LoadLibrary(_store).SteamLaunchOptionsSkip);
+        Assert.False(LibraryService.SetSteamLaunchOptionSkip(_store, "steam:1285190", false)); // nothing to remove: no file
+        Assert.False(File.Exists(_store.Paths.LibraryFile));
+
+        Assert.True(LibraryService.SetSteamLaunchOptionSkip(_store, "steam:1285190", true));
+        Assert.False(LibraryService.SetSteamLaunchOptionSkip(_store, "STEAM:1285190", true)); // idempotent, case-insensitive
+        Assert.True(LibraryService.SetSteamLaunchOptionSkip(_store, "steam:1091500", true));
+        var text = File.ReadAllText(_store.Paths.LibraryFile);
+        Assert.StartsWith("#", text);
+        Assert.Contains("steamLaunchOptionsSkip:", text);
+        Assert.Equal(["steam:1091500", "steam:1285190"], LibraryService.LoadLibrary(_store).SteamLaunchOptionsSkip);
+        Assert.Equal(["steam:1091500", "steam:1285190"], LibraryService.SteamLaunchOptionSkips(_store).Order());
+
+        var entries = LibraryService.Build(_store, Desktop, Detected).ToDictionary(e => e.Key);
+        Assert.True(entries["steam:1285190"].SteamLaunchOptionSkipped);
+        Assert.Equal(LibraryStatus.Managed, entries["steam:1285190"].Status); // presets still applied; only the launch option is left alone
+
+        // opt-out lives next to it untouched
+        LibraryService.SetOptOut(_store, "gog:1", true);
+        Assert.Equal(["gog:1"], LibraryService.LoadLibrary(_store).OptOut);
+        Assert.Equal(2, LibraryService.LoadLibrary(_store).SteamLaunchOptionsSkip.Count);
+
+        Assert.True(LibraryService.SetSteamLaunchOptionSkip(_store, "steam:1285190", false));
+        Assert.Equal(["steam:1091500"], LibraryService.LoadLibrary(_store).SteamLaunchOptionsSkip);
+    }
+
+    [Fact]
+    public void SetSteamLaunchOptionSkip_KeepsExistingHeaderComment()
+    {
+        _tmp.Write(Path.Combine("config", "library.yaml"), "# my header\n# second line\noptOut:\n- gog:1\n");
+        LibraryService.SetSteamLaunchOptionSkip(_store, "steam:7", true);
+        var text = File.ReadAllText(_store.Paths.LibraryFile);
+        Assert.StartsWith("# my header\n# second line\n", text);
+        var lib = LibraryService.LoadLibrary(_store);
+        Assert.Equal(["steam:7"], lib.SteamLaunchOptionsSkip);
+        Assert.Equal(["gog:1"], lib.OptOut);
+    }
+
+    [Fact]
     public void SetOptOut_KeepsExistingHeaderComment()
     {
         _tmp.Write(Path.Combine("config", "library.yaml"), "# my header\n# second line\noptOut: []\n");

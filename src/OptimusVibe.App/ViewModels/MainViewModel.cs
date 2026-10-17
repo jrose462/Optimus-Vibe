@@ -87,6 +87,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         CloseSettingsCommand = new RelayCommand(CloseSettings);
         BackToLibraryCommand = new RelayCommand(CloseDetail);
         ApplySteamCommand = new AsyncRelayCommand(ApplySteamAsync, () => !IsBusy && HasSteamBanner);
+        ReviewSteamCommand = new RelayCommand(OpenSteamReview, () => !IsBusy && HasSteamBanner);
         DismissSteamCommand = new RelayCommand(() => SteamChanges = null);
         ToastActionCommand = new RelayCommand(() =>
         {
@@ -104,6 +105,9 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Library = new LibraryViewModel(this);
         Updates = new UpdatesViewModel(this);
         Report = new ReportViewModel(this);
+        SteamReview = new SteamReviewViewModel(this);
+        Report.PropertyChanged += OnOverlayChanged;
+        SteamReview.PropertyChanged += OnOverlayChanged;
         Settings = new SettingsViewModel(this, Account);
     }
 
@@ -112,6 +116,15 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public GitHubAccountViewModel Account { get; }
     public UpdatesViewModel Updates { get; }
     public ReportViewModel Report { get; }
+    public SteamReviewViewModel SteamReview { get; }
+
+    /// <summary>A modal panel (report / Steam review) covers the page: the page underneath is not interactive.</summary>
+    public bool IsModalOpen => Report.IsOpen || SteamReview.IsOpen;
+
+    private void OnOverlayChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ReportViewModel.IsOpen)) OnPropertyChanged(nameof(IsModalOpen));
+    }
 
     /// <summary>The window minimizes after a launch and comes back when the game (our wrapper) exits.</summary>
     public event Action? MinimizeRequested;
@@ -373,6 +386,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public ICommand CloseSettingsCommand { get; }
     public ICommand BackToLibraryCommand { get; }
     public ICommand ApplySteamCommand { get; }
+    public ICommand ReviewSteamCommand { get; }
     public ICommand DismissSteamCommand { get; }
     public ICommand ToastActionCommand { get; }
     public ICommand OpenReportCommand { get; }
@@ -447,6 +461,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>B / Escape: close whatever is open on the current page. False when nothing was (manage list: B then focuses the list).</summary>
     public bool CancelTransient()
     {
+        if (SteamReview.IsOpen)
+        {
+            SteamReview.Close();
+            return true;
+        }
         if (Report.IsOpen)
         {
             Report.Close();
@@ -734,19 +753,46 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>Changes that need Steam closed: show the banner (never a modal).</summary>
     public void OfferSteamChanges(IReadOnlyList<LaunchOptionChange> changes) => SteamChanges = changes.Count > 0 ? changes : null;
 
+    private void OpenSteamReview()
+    {
+        if (SteamChanges is { Count: > 0 } changes) SteamReview.Open(changes);
+    }
+
     private async Task ApplySteamAsync()
     {
         var changes = SteamChanges;
         if (changes is null || changes.Count == 0) return;
+        await ApplySteamChangesAsync(changes, []);
+    }
+
+    /// <summary>
+    /// Close Steam if it runs, then write <paramref name="changes"/>. <paramref name="skipKeys"/> ("steam:appid" of the
+    /// games the user unticked) go to steamLaunchOptionsSkip afterwards, synced when AutoSync is on, so they aren't proposed again.
+    /// </summary>
+    public async Task<bool> ApplySteamChangesAsync(IReadOnlyList<LaunchOptionChange> changes, IReadOnlyList<string> skipKeys)
+    {
+        var session = Session;
+        if (session is null || changes.Count == 0) return false;
         var ok = await RunAsync("Closing Steam and updating launch options", () => Task.Run(() =>
         {
             if (SteamLaunchOptions.IsSteamRunning() && !SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(30)))
                 throw new InvalidOperationException("Steam didn't close within 30 seconds — close it yourself, then try again.");
             SteamLaunchOptions.Apply(changes);
+            foreach (var key in skipKeys) LibraryService.SetSteamLaunchOptionSkip(session.Store, key, true);
         }));
-        if (!ok) return;
+        if (!ok) return false;
         SteamChanges = null;
-        Notify($"Steam launch options updated for {changes.Count} game(s). You can start Steam again.");
+        Notify(skipKeys.Count == 0
+            ? $"Steam launch options updated for {changes.Count} game(s). You can start Steam again."
+            : $"Steam launch options updated for {changes.Count} game(s); {skipKeys.Count} left as they are. You can start Steam again.");
+        if (skipKeys.Count > 0)
+        {
+            var settings = await SettingsStore.LoadAsync();
+            if (settings.AutoSync)
+                await SyncFilesQuietlyAsync($"chore(library): keep {skipKeys.Count} Steam launch option(s) as they are", session.Paths.LibraryFile);
+            _ = Library.ScanAsync(rescanLaunchers: false); // tiles pick up the new skip flags
+        }
+        return true;
     }
 
     // ---------------------------------------------------------------- play

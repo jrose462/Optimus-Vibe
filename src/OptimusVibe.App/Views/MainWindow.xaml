@@ -85,6 +85,8 @@
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
                         <Button x:Name="ApplySteamButton" Style="{StaticResource Button.Primary}" Command="{Binding ApplySteamCommand}"
                                 Content="Close Steam and apply" AutomationProperties.Name="Close Steam and apply" />
+                        <Button x:Name="ReviewSteamButton" Content="Review…" Command="{Binding ReviewSteamCommand}" Margin="6,0,0,0"
+                                ToolTip="Choose which games get their Steam launch option updated" AutomationProperties.Name="Review Steam launch options" />
                         <Button Content="Later" Style="{StaticResource Button.Quiet}" Command="{Binding DismissSteamCommand}" Margin="6,0,0,0" />
                     </StackPanel>
                 </Grid>
@@ -92,7 +94,7 @@
 
             <!-- ============================================================ content -->
             <Grid Grid.Row="3">
-                <Grid IsEnabled="{Binding Report.IsOpen, Converter={StaticResource Not}}">
+                <Grid IsEnabled="{Binding IsModalOpen, Converter={StaticResource Not}}">
                     <!-- loading -->
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsLoading, Converter={StaticResource VisibleWhen}}">
@@ -238,6 +240,51 @@
                                                  AutomationProperties.Name="Report preview" />
                                     </StackPanel>
                                 </StackPanel>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+
+                <!-- review Steam launch options (modal panel; B / Esc closes) -->
+                <Grid DataContext="{Binding SteamReview}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
+                      Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
+                    <Border Background="{StaticResource BackdropBrush}" />
+                    <Border Style="{StaticResource Card}" MaxWidth="860" Margin="24" VerticalAlignment="Center" Padding="32,28">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top">
+                                <TextBlock Text="Steam launch options" Style="{StaticResource Text.PageTitle}" FontSize="28" />
+                                <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Text="Pick the games whose Steam launch option should be updated. Steam is closed first." />
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Text="Unticked games keep their current Steam launch option; change this per game on its page." />
+                            </StackPanel>
+
+                            <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
+                                <Button Content="Select all" Style="{StaticResource Button.Quiet}" Command="{Binding SelectAllCommand}" Margin="0,0,8,0" />
+                                <Button Content="Select none" Style="{StaticResource Button.Quiet}" Command="{Binding SelectNoneCommand}" Margin="0,0,8,0" />
+                                <Button Content="Cancel" Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource Button.Primary}" Content="{Binding ApplyLabel}" Command="{Binding ApplyCommand}" MinWidth="170"
+                                        AutomationProperties.Name="Apply selected" />
+                            </WrapPanel>
+
+                            <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Text.Caption}" Margin="6,12,0,0" Text="{Binding SummaryText}" />
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False" MaxHeight="420" Margin="0,16,0,0">
+                                <ItemsControl ItemsSource="{Binding Items}" Margin="0,0,12,0" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:SteamReviewItem}">
+                                            <CheckBox IsChecked="{Binding IsChecked}" ToolTip="{Binding ToolTipText}" AutomationProperties.Name="{Binding Name}"
+                                                      input:FocusCue.FocusWhenShown="{Binding IsFirst, Mode=OneTime}">
+                                                <StackPanel MaxWidth="700" Margin="0,4">
+                                                    <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Style="{StaticResource Text.Caption}" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis">
+                                                        <Run Text="{Binding BeforeText, Mode=OneWay}" /><Run Text="  →  " /><Run Text="{Binding AfterText, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </ScrollViewer>
                         </DockPanel>
                     </Border>
