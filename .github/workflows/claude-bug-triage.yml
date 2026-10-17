@@ -176,6 +176,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Claude triage (new bug report)
+        id: claude
         if: github.event_name == 'issues'
         uses: anthropics/claude-code-action@v1
         with:
@@ -186,6 +187,15 @@ jobs:
             --max-turns 40
             --allowedTools "${{ env.CLAUDE_ALLOWED_TOOLS }}"
             --disallowedTools "${{ env.CLAUDE_DISALLOWED_TOOLS }}"
+
+      - name: Show refused tool calls
+        # Only the names/inputs of tool calls the permission rules refused, so the allow/deny lists can be tuned.
+        # Claude cannot read secrets or the environment, so these inputs never contain credentials.
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          jq -c '[.. | objects | select(has("permission_denials")) | .permission_denials[]?] | .[] | {tool: .tool_name, input: .tool_input}' "$EXEC_FILE" 2>/dev/null | head -20 || true
 
       - name: Claude follow-up (@claude comment)
         if: github.event_name == 'issue_comment'
