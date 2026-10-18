@@ -101,10 +101,17 @@ To test a PR locally: `git fetch origin && git switch claude/issue-<n>`, then
 
 When one or more fixes are merged:
 
+1. Bump `Version` in `Directory.Build.props` through a PR (`chore(release): 0.6.0`). Nothing, including your own
+   changes, can be pushed to `main` directly: the **main: PRs and CI** ruleset requires a PR with green CI.
+2. Tag the merged commit:
+
 ```sh
 git switch main && git pull
-git tag v0.5.1 && git push origin v0.5.1
+git tag v0.6.0 && git push origin v0.6.0
 ```
+
+The release workflow refuses a tag that isn't on `main` or whose commit didn't pass CI (it waits for CI that is still
+running).
 
 The release workflow builds and tests, publishes `OptimusVibe.exe` / `optimus-vibe.exe` with checksums, moves every
 Fixed card to **Released** and comments "Shipped in v0.5.1" on each issue. Installed apps update themselves (daily check
