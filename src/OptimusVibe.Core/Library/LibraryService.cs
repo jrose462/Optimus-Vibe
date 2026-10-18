@@ -168,12 +168,12 @@ public static class LibraryService
     /// Removes the queued request for <paramref name="store"/>:<paramref name="storeId"/> (optionally only the one made by
     /// <paramref name="device"/>) from config/requests.yaml; the rest of the file is left as is. Returns whether anything was removed.
     /// </summary>
-    public static bool RemoveRequest(ConfigStore configStore, string store, string storeId, string? device = null)
+    public static bool RemoveRequest(ConfigStore configStore, string store, string storeId, string? device = null, bool onlyUnassigned = false)
     {
         var file = LoadRequests(configStore);
         var removed = file.Requests.RemoveAll(r =>
             r.Store.Equals(store, StringComparison.OrdinalIgnoreCase) && r.StoreId.Equals(storeId, StringComparison.OrdinalIgnoreCase)
-            && (device is null || string.Equals(r.Device, device, StringComparison.OrdinalIgnoreCase)));
+            && (onlyUnassigned ? string.IsNullOrWhiteSpace(r.Device) : device is null || string.Equals(r.Device, device, StringComparison.OrdinalIgnoreCase)));
         if (removed > 0) Write(configStore.Paths.RequestsFile, RequestsHeader, file);
         return removed > 0;
     }

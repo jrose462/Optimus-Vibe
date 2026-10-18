@@ -3,6 +3,8 @@ using System.Windows.Input;
 using OptimusVibe.App.Services;
 using OptimusVibe.CloudSync;
 using OptimusVibe.Config;
+using OptimusVibe.Devices;
+using OptimusVibe.GameLab;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
 
@@ -64,7 +66,7 @@ public sealed class LibraryViewModel : ObservableObject
     private LibraryTileViewModel? _selectedTile;
     private bool _isScanning;
     private bool _hasScanned;
-    private int _pendingRequests;
+    private string _queuedNote = "";
     private int _scanGeneration;
 
     public LibraryViewModel(MainViewModel main)
@@ -157,15 +159,35 @@ public sealed class LibraryViewModel : ObservableObject
         OnPropertyChanged(nameof(Lead));
     }
 
-    /// <summary>Requests waiting in config/requests.yaml for Claude.</summary>
-    public int PendingRequests
-    {
-        get => _pendingRequests;
-        private set { if (Set(ref _pendingRequests, value)) { OnPropertyChanged(nameof(QueuedNote)); OnPropertyChanged(nameof(HasQueuedNote)); } }
-    }
+    /// <summary>The queue note: "1 in the game lab · 1 waiting to send · 2 waiting on Ally X" (see <see cref="QueueSummary"/>).</summary>
+    public string QueuedNote { get => _queuedNote; private set { if (Set(ref _queuedNote, value)) OnPropertyChanged(nameof(HasQueuedNote)); } }
 
-    public bool HasQueuedNote => PendingRequests > 0;
-    public string QueuedNote => PendingRequests == 1 ? "1 game queued for Claude" : $"{PendingRequests} games queued for Claude";
+    public bool HasQueuedNote => _queuedNote.Length > 0;
+
+    /// <summary>Recomputes the note from the lab's open requests, the offline outbox, requests.yaml and this device (UI thread; cheap).</summary>
+    public void RefreshQueueNote()
+    {
+        var session = _main.Session;
+        if (session is null) { QueuedNote = ""; return; }
+        try
+        {
+            IReadOnlyList<GameRequest> requests;
+            try { requests = LibraryService.LoadRequests(session.Store).Requests; }
+            catch (Exception ex) { Log.Warn($"Reading requests.yaml for the queue note failed: {ex.Message}"); requests = []; }
+            Dictionary<string, DeviceDef> devices;
+            try { devices = session.Store.LoadDevices().Devices; }
+            catch (Exception) { devices = new(); }
+            var summary = QueueSummary.Build(_main.Lab.Issues.Where(i => i.IsOpen), _main.Outbox.Items.Select(i => i.Item), requests,
+                session.Device.Name, _main.Lab.IsReady, _detected);
+            QueuedNote = summary.IsEmpty ? "" : summary.Describe(id =>
+                devices.TryGetValue(id, out var def) ? DeviceNames.Display(id, def) : id);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Queue note failed: {ex.Message}");
+            QueuedNote = "";
+        }
+    }
 
     public ICommand SetFilterCommand { get; }
     public ICommand SetSyncFilterCommand { get; }
@@ -275,11 +297,10 @@ public sealed class LibraryViewModel : ObservableObject
         _detected = result.Detected;
         Apply(result.Entries);
         HasScanned = true;
-        if (result.Pending is { } p) PendingRequests = p;
-        else PendingRequests = result.Entries.Count(e => e.Status == LibraryStatus.NeedsPresets && !e.OptedOut);
+        RefreshQueueNote();
         _ = LoadArtAsync();
         if (routeToLab)
-            _ = _main.Lab.AutoRequestAsync(result.Entries.Where(e => e.Status == LibraryStatus.NeedsPresets && !e.OptedOut && e.Detected is not null).ToList());
+            _ = _main.Lab.AfterScanAsync(result.Entries, result.Detected);
 
         if (result.Warnings.Count > 0) _main.Notify(string.Join(" ", result.Warnings), error: true);
         if (result.SteamApplied > 0) _main.Notify($"Steam launch options updated for {result.SteamApplied} game(s).");
@@ -344,7 +365,7 @@ public sealed class LibraryViewModel : ObservableObject
         Tiles.Clear();
         _detected = null;
         HasScanned = false;
-        PendingRequests = 0;
+        QueuedNote = "";
     }
 
     public LibraryTileViewModel? FindByGameId(string gameId) =>

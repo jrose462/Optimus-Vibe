@@ -10,12 +10,12 @@ namespace OptimusVibe.GameLab;
 /// </summary>
 public static class RequestsMigration
 {
-    /// <summary>The entries that should be filed in the lab from here: Device equals <paramref name="thisDevice"/> and the game is among <paramref name="installed"/> (by store + storeId).</summary>
+    /// <summary>The entries that should be filed in the lab from here: Device equals <paramref name="thisDevice"/> (or is empty: legacy entries) and the game is among <paramref name="installed"/> (by store + storeId).</summary>
     public static IReadOnlyList<GameRequest> ToSendFromHere(IEnumerable<GameRequest> requests, string thisDevice, IEnumerable<DetectedGame> installed)
     {
         var here = installed.Select(d => Key(d.Store, d.StoreId)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return requests
-            .Where(r => string.Equals(r.Device, thisDevice, StringComparison.OrdinalIgnoreCase) && here.Contains(Key(r.Store, r.StoreId)))
+            .Where(r => IsMine(r, thisDevice) && here.Contains(Key(r.Store, r.StoreId)))
             .ToList();
     }
 
@@ -26,7 +26,7 @@ public static class RequestsMigration
         var map = new Dictionary<string, DetectedGame>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in installed) map.TryAdd(Key(d.Store, d.StoreId), d);
         return requests
-            .Where(r => string.Equals(r.Device, thisDevice, StringComparison.OrdinalIgnoreCase) && map.ContainsKey(Key(r.Store, r.StoreId)))
+            .Where(r => IsMine(r, thisDevice) && map.ContainsKey(Key(r.Store, r.StoreId)))
             .Select(r => (r, map[Key(r.Store, r.StoreId)]))
             .ToList();
     }
@@ -44,7 +44,11 @@ public static class RequestsMigration
 
     /// <summary>Removes a filed entry from requests.yaml (only the one this device made); the rest of the file is untouched. False when it was already gone.</summary>
     public static bool RemoveFiled(ConfigStore store, GameRequest request) =>
-        LibraryService.RemoveRequest(store, request.Store, request.StoreId, request.Device);
+        LibraryService.RemoveRequest(store, request.Store, request.StoreId, request.Device, onlyUnassigned: string.IsNullOrWhiteSpace(request.Device));
+
+    /// <summary>True when the entry was queued by this device, or by an old version that did not record a device (the first device that has the game installed takes it).</summary>
+    public static bool IsMine(GameRequest r, string thisDevice) =>
+        string.IsNullOrWhiteSpace(r.Device) || string.Equals(r.Device, thisDevice, StringComparison.OrdinalIgnoreCase);
 
     private static string Key(string store, string storeId) => $"{store}:{storeId}";
 }

@@ -390,9 +390,9 @@ public class RequestsMigrationTests
 
         var send = RequestsMigration.ToSendFromHere(reqs, "desktop", installed);
 
-        Assert.Equal(["steam:1", "epic:E"], send.Select(r => $"{r.Store}:{r.StoreId}"));
+        Assert.Equal(["steam:1", "epic:E", "steam:5"], send.Select(r => $"{r.Store}:{r.StoreId}"));
         var withInstalls = RequestsMigration.ToSendFromHereWithInstalls(reqs, "desktop", installed);
-        Assert.Equal(2, withInstalls.Count);
+        Assert.Equal(3, withInstalls.Count);
         Assert.Equal("e", withInstalls[1].Install.StoreId);
     }
 
@@ -470,5 +470,42 @@ public class QueueSummaryTests
         Assert.Equal(2, s.LocalOnly);
         Assert.Equal("2 games queued for Claude", s.Text);
         Assert.Empty(s.WaitingOnOtherDevices);
+    }
+}
+
+public class LegacyNoDeviceRequestTests
+{
+    private static GameRequest Legacy(string id) => new() { Store = "steam", StoreId = id, Name = id, Device = null };
+
+    [Fact]
+    public void Legacy_entry_without_device_migrates_from_the_first_device_that_has_the_game()
+    {
+        var installed = new[] { new DetectedGame { Store = "steam", StoreId = "1", Name = "One" } };
+        var reqs = new[] { Legacy("1"), Legacy("2") };
+
+        Assert.Equal(["1"], RequestsMigration.ToSendFromHere(reqs, "ally-x", installed).Select(r => r.StoreId));
+        Assert.Empty(RequestsMigration.ToSendFromHere(reqs, "ally-x", []));
+    }
+
+    [Fact]
+    public void RemoveFiled_for_a_legacy_entry_leaves_other_devices_entries()
+    {
+        using var tmp = new TempDir();
+        var root = tmp.Dir("config");
+        File.WriteAllText(Path.Combine(root, "requests.yaml"),
+            "requests:\n- store: steam\n  storeId: '1'\n  name: One\n- store: steam\n  storeId: '1'\n  name: One\n  device: ally-x\n");
+        var store = new ConfigStore(new AppPaths { ConfigRoot = root, DataDir = tmp.Dir("data") });
+
+        Assert.True(RequestsMigration.RemoveFiled(store, Legacy("1")));
+        Assert.Equal(["ally-x"], LibraryService.LoadRequests(store).Requests.Select(r => r.Device));
+    }
+
+    [Fact]
+    public void Summary_counts_a_legacy_entry_installed_here_as_mine_and_otherwise_as_another_device()
+    {
+        var installed = new[] { new DetectedGame { Store = "steam", StoreId = "1", Name = "One" } };
+        Assert.True(QueueSummary.Build(null, [], [Legacy("1")], "desktop", true, installed).IsEmpty);
+        Assert.Equal("1 waiting on another device", QueueSummary.Build(null, [], [Legacy("2")], "desktop", true, installed).Text);
+        Assert.Equal("1 waiting on another device", QueueSummary.Build(null, [], [Legacy("1")], "desktop", true).Text);
     }
 }

@@ -14,15 +14,17 @@ namespace OptimusVibe.GameLab;
 public sealed record QueueSummary(int Lab, int WaitingToSend, IReadOnlyList<KeyValuePair<string, int>> WaitingOnOtherDevices, int LocalOnly, bool LabReady)
 {
     public static QueueSummary Build(IEnumerable<LabIssue>? openLabIssues, IEnumerable<OutboxItem> outbox, IEnumerable<GameRequest> requests,
-        string thisDevice, bool labReady)
+        string thisDevice, bool labReady, IEnumerable<Library.DetectedGame>? installedHere = null)
     {
         var lab = openLabIssues?.Count(i => i.IsOpen && i.Status is LabStatus.Queued or LabStatus.Researching or LabStatus.NeedsEvidence) ?? 0;
         var waiting = outbox.Count(i => i.Kind == OutboxKind.LabRequest);
         var list = requests.ToList();
         if (!labReady) return new QueueSummary(lab, waiting, [], list.Count, false);
 
+        // Legacy entries without a device that are installed here will be moved by this PC (see RequestsMigration), so they are not "waiting on another device".
+        var here = (installedHere ?? []).Select(d => $"{d.Store}:{d.StoreId}").ToHashSet(StringComparer.OrdinalIgnoreCase);
         var others = list
-            .Where(r => !string.Equals(r.Device, thisDevice, StringComparison.OrdinalIgnoreCase))
+            .Where(r => !string.Equals(r.Device, thisDevice, StringComparison.OrdinalIgnoreCase) && !(string.IsNullOrWhiteSpace(r.Device) && here.Contains($"{r.Store}:{r.StoreId}")))
             .GroupBy(r => string.IsNullOrWhiteSpace(r.Device) ? "another device" : r.Device!, StringComparer.OrdinalIgnoreCase)
             .Select(g => new KeyValuePair<string, int>(g.Key, g.Count()))
             .OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)

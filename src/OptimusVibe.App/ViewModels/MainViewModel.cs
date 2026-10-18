@@ -111,11 +111,17 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Library = new LibraryViewModel(this);
         Updates = new UpdatesViewModel(this);
         Report = new ReportViewModel(this);
+        Outbox = new OutboxViewModel(this, Account);
         SteamReview = new SteamReviewViewModel(this);
         Report.PropertyChanged += OnOverlayChanged;
+        Outbox.PropertyChanged += OnOverlayChanged;
         SteamReview.PropertyChanged += OnOverlayChanged;
         Lab = new GameLabViewModel(this, Account);
         Settings = new SettingsViewModel(this, Account);
+        // The library note ("1 in the game lab · 1 waiting to send ...") follows the lab, the outbox and the lab being set up.
+        Outbox.Service.Changed += Library.RefreshQueueNote;
+        Lab.IssuesChanged += Library.RefreshQueueNote;
+        Lab.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(GameLabViewModel.IsReady)) Library.RefreshQueueNote(); };
     }
 
     public LibraryViewModel Library { get; }
@@ -124,10 +130,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public GameLabViewModel Lab { get; }
     public UpdatesViewModel Updates { get; }
     public ReportViewModel Report { get; }
+    public OutboxViewModel Outbox { get; }
     public SteamReviewViewModel SteamReview { get; }
 
     /// <summary>A modal panel (report / Steam review) covers the page: the page underneath is not interactive.</summary>
-    public bool IsModalOpen => Report.IsOpen || SteamReview.IsOpen;
+    public bool IsModalOpen => Report.IsOpen || SteamReview.IsOpen || Outbox.IsOpen;
 
     private void OnOverlayChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -464,6 +471,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
             SteamReview.Close();
             return true;
         }
+        if (Outbox.IsOpen)
+        {
+            Outbox.Close();
+            return true;
+        }
         if (Report.IsOpen)
         {
             Report.Close();
@@ -608,6 +620,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
         await Lab.InitializeAsync();
         StartAutoPull();
+        Outbox.Start();
         _ = Library.ScanAsync(rescanLaunchers: rescan || Library.Detected.Count == 0);
     }
 

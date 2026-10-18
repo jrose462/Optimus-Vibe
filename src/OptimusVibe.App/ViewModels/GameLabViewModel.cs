@@ -8,6 +8,7 @@ using OptimusVibe.Config;
 using OptimusVibe.GameLab;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
+using OptimusVibe.Outbox;
 using OptimusVibe.Sync;
 
 namespace OptimusVibe.App.ViewModels;
@@ -529,7 +530,7 @@ public sealed class GameLabViewModel : ObservableObject
         return Task.Run(() => GameLabService.Preview(session, target));
     }
 
-    public async Task<FiledRequest?> FileRequestAsync(LabKind kind, LabTarget target)
+    public async Task<LabRequestOutcome?> FileRequestAsync(LabKind kind, LabTarget target)
     {
         var s = await SettingsStore.LoadAsync();
         var session = _main.Session;
@@ -540,13 +541,14 @@ public sealed class GameLabViewModel : ObservableObject
             _main.Notify("Sign in to GitHub first.", error: true);
             return null;
         }
-        FiledRequest? filed = null;
+        LabRequestOutcome? outcome = null;
         var ok = await _main.RunAsync($"Sending {target.Name} to your config repo", async () =>
-            filed = await Task.Run(() => _service.FileRequestAsync(conn, session, kind, target)));
-        if (!ok || filed is null) return null;
+            outcome = await Task.Run(() => _service.FileOrQueueAsync(conn, session, _main.Outbox.Store, kind, target)));
+        if (!ok || outcome is null) return null;
         new LabStateStore(session.Paths.DataDir).Update(st => st.Requested[target.Key] = DateTime.UtcNow);
-        _ = RefreshIssuesAsync(conn);
-        return filed;
+        if (outcome.WasQueued) _main.Outbox.Service.NotifyQueued();
+        else _ = RefreshIssuesAsync(conn);
+        return outcome;
     }
 
     private async Task RefreshIssuesAsync(GameLabService.Connection conn)
@@ -557,6 +559,80 @@ public sealed class GameLabViewModel : ObservableObject
 
     // ---------------------------------------------------------------- automatic behaviour
 
+    /// <summary>After a library scan with the lab ready: move this device's old requests.yaml entries into the lab, then request the rest.</summary>
+    public async Task AfterScanAsync(IReadOnlyList<LibraryEntry> entries, IReadOnlyList<DetectedGame> detected)
+    {
+        await MigrateRequestsAsync(entries, detected);
+        await AutoRequestAsync(entries.Where(e => e.Status == LibraryStatus.NeedsPresets && !e.OptedOut && e.Detected is not null).ToList());
+    }
+
+    /// <summary>
+    /// Entries of config/requests.yaml queued by THIS device (or by an old version without a device) whose game is installed here are
+    /// filed in the lab (or the offline outbox) as new-game requests and removed from the file; then the file is synced when auto-sync is
+    /// on. Opted-out games are left alone; entries for games that have presets by now are just dropped.
+    /// </summary>
+    public async Task MigrateRequestsAsync(IReadOnlyList<LibraryEntry> entries, IReadOnlyList<DetectedGame> detected)
+    {
+        var session = _main.Session;
+        if (session is null || !IsReady) return;
+        try
+        {
+            var s = await SettingsStore.LoadAsync();
+            var store = _main.Outbox.Store;
+            var optedOut = entries.Where(e => e.OptedOut).Select(e => e.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var tuned = entries.Where(e => e.Status != LibraryStatus.NeedsPresets && !e.OptedOut).Select(e => e.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var (moved, queued, dropped) = await Task.Run(async () =>
+            {
+                var pairs = RequestsMigration.ToSendFromHereWithInstalls(LibraryService.LoadRequests(session.Store).Requests, session.Device.Name, detected)
+                    .Where(p => !optedOut.Contains($"{p.Request.Store}:{p.Request.StoreId}")).ToList();
+                if (pairs.Count == 0) return (0, 0, 0);
+                var conn = _service.Connect(s, session.Paths, out _);
+                var state = new LabStateStore(session.Paths.DataDir);
+                int movedN = 0, queuedN = 0, droppedN = 0;
+                foreach (var (req, install) in pairs)
+                {
+                    if (tuned.Contains($"{req.Store}:{req.StoreId}"))
+                    {
+                        if (RequestsMigration.RemoveFiled(session.Store, req)) droppedN++;
+                        continue;
+                    }
+                    if (conn is null) continue; // signed out: they stay in the file for next time
+                    try
+                    {
+                        var target = RequestsMigration.ToTarget(req, install);
+                        var outcome = await _service.FileOrQueueAsync(conn, session, store, LabKind.New, target).ConfigureAwait(false);
+                        state.Update(st => st.Requested[target.Key] = DateTime.UtcNow);
+                        RequestsMigration.RemoveFiled(session.Store, req);
+                        movedN++;
+                        if (outcome.WasQueued) queuedN++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"game lab: moving the queued request for {req.Name} failed (kept in requests.yaml): {ex.Message}");
+                    }
+                }
+                return (movedN, queuedN, droppedN);
+            });
+            if (queued > 0) _main.Outbox.Service.NotifyQueued();
+            if (moved + dropped > 0)
+            {
+                Log.Info($"game lab: moved {moved} queued game(s) from requests.yaml ({queued} waiting offline), dropped {dropped}");
+                _main.Library.RefreshQueueNote();
+            }
+            if (moved > 0)
+            {
+                _main.Notify(moved == 1 ? "Moved 1 queued game to the game lab." : $"Moved {moved} queued games to the game lab.");
+                TriggerCycle(force: true);
+            }
+            if (moved + dropped > 0 && s.AutoSync)
+                await _main.SyncFilesQuietlyAsync($"chore(requests): move {moved + dropped} game(s) to the game lab", session.Paths.RequestsFile);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Moving queued requests to the game lab failed", ex);
+        }
+    }
+
     /// <summary>New library games that need presets: lab requests when the lab is set up, else the local requests.yaml queue.</summary>
     public async Task AutoRequestAsync(IReadOnlyList<LibraryEntry> needs)
     {
@@ -565,13 +641,29 @@ public sealed class GameLabViewModel : ObservableObject
         try
         {
             var s = await SettingsStore.LoadAsync();
+            var store = _main.Outbox.Store;
+            var queuedOffline = 0;
             var result = await Task.Run(async () =>
             {
                 var conn = RoutesToLab ? _service.Connect(s, session.Paths, out _) : null;
                 return await LabRouter.RouteAsync(needs, conn is not null, s.GameLabAutoRequest,
-                    (e, ct) => _service.FileRequestAsync(conn!, session, LabRouter.KindFor(e), LabTarget.From(e), ct),
+                    async (e, ct) =>
+                    {
+                        var outcome = await _service.FileOrQueueAsync(conn!, session, store, LabRouter.KindFor(e), LabTarget.From(e), ct).ConfigureAwait(false);
+                        if (outcome.Filed is { } filed) return filed;
+                        Interlocked.Increment(ref queuedOffline);
+                        // Waiting in the outbox: counts as handled (remembered, not queued in requests.yaml), not as "filed".
+                        return new FiledRequest(0, "", true, 0, "Saved to send when back online.");
+                    },
                     e => GameLabService.QueueLocally(session, e), new LabStateStore(session.Paths.DataDir));
             });
+            if (queuedOffline > 0)
+            {
+                _main.Outbox.Service.NotifyQueued();
+                _main.Notify(queuedOffline == 1
+                    ? "Saved - it will be sent to the game lab when you're back online."
+                    : $"Saved {queuedOffline} requests - they will be sent to the game lab when you're back online.");
+            }
             if (result.Filed > 0)
                 _main.Notify(result.Filed == 1 ? "Asked the game lab for presets for 1 new game." : $"Asked the game lab for presets for {result.Filed} new games.");
             if (result.QueuedLocally > 0 && s.AutoSync)
