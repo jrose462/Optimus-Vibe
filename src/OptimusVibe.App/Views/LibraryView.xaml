@@ -4,6 +4,7 @@
              xmlns:vm="clr-namespace:OptimusVibe.App.ViewModels"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
              xmlns:svc="clr-namespace:OptimusVibe.App.Services"
+             xmlns:input="clr-namespace:OptimusVibe.App.Input"
              x:Name="Root">
     <!-- DataContext: LibraryViewModel. Page title, a "This device" summary, filters, then the cover grid.
          Compact (about 1280x720 DIPs): the title and one slim summary strip share a row, both filter rows become one scrolling row,
@@ -92,7 +93,7 @@
                             </Style>
                         </Border.Style>
                     </Border>
-                    <!-- mouse: context buttons on hover (the controller uses A / X) -->
+                    <!-- mouse: context buttons on hover; controller: on the focused tile (A / X) -->
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
@@ -101,19 +102,30 @@
                                     <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                                         <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsKeyboardFocusWithin, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                                            <Condition Binding="{Binding (input:FocusCue.Show), RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
                         <Button Style="{StaticResource Button.Primary}" Focusable="False" Command="{Binding PlayCommand}" MinWidth="120"
                                 ToolTip="{Binding PlayHint}" AutomationProperties.Name="Play">
                             <StackPanel Orientation="Horizontal">
+                                <views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" />
                                 <TextBlock Text="&#xE768;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
                                 <TextBlock Text="Play" />
                             </StackPanel>
                         </Button>
-                        <Button Focusable="False" Command="{Binding OpenCommand}" MinWidth="120" Margin="0,10,0,0" AutomationProperties.Name="Presets"
+                        <Button Focusable="False" Command="{Binding OpenCommand}" MinWidth="120" Margin="0,10,0,0" AutomationProperties.Name="Details"
                                 Background="{DynamicResource TileHoverButtonBrush}">
-                            <TextBlock Text="Details" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <views:ButtonGlyph Kind="X" Size="Small" Margin="0,0,8,0" />
+                                <TextBlock Text="Details" />
+                            </StackPanel>
                         </Button>
                     </StackPanel>
                 </Grid>
@@ -221,7 +233,10 @@
                         Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
-                        <TextBlock DockPanel.Dock="Top" Text="{Binding QueuedNote}" FontSize="14" Foreground="{DynamicResource OnFeatureDimBrush}" Margin="0,2,0,0" />
+                        <Button DockPanel.Dock="Top" Style="{StaticResource Button.Quiet}" Command="{Binding OpenQueueCommand}" Padding="0" HorizontalAlignment="Left" Margin="0,2,0,0"
+                                ToolTip="See the requests on your game lab board" AutomationProperties.Name="Queued games">
+                            <TextBlock Text="{Binding QueuedNote}" FontSize="14" Foreground="{DynamicResource OnFeatureDimBrush}" />
+                        </Button>
                         <TextBlock Text="Ask Claude to “process Optimus-Vibe requests” and they will get presets. Until then they start normally."
                                    Style="{StaticResource Text.Body}" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Bottom" Margin="0,18,0,0" />
                     </DockPanel>
@@ -243,14 +258,16 @@
                             <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" Margin="0,0,20,0" />
                             <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" Margin="0,0,20,0" />
                             <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" Margin="0,0,20,0" />
-                            <Border Background="{DynamicResource FeatureBrush}" CornerRadius="14" Padding="12,3,12,4" VerticalAlignment="Center"
-                                    ToolTip="Ask Claude to “process Optimus-Vibe requests” and they will get presets. Until then they start normally."
+                            <Button Style="{StaticResource Button.Quiet}" Command="{Binding OpenQueueCommand}" Padding="0" VerticalAlignment="Center"
+                                    ToolTip="See the requests on your game lab board" AutomationProperties.Name="Queued games"
                                     Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE916;" FontFamily="{StaticResource IconFont}" FontSize="14" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Center" Margin="0,1,8,0" />
-                                    <TextBlock Text="{Binding QueuedNote}" FontSize="{DynamicResource CaptionSize}" FontWeight="SemiBold" Foreground="{DynamicResource FeatureTextBrush}" TextWrapping="NoWrap" />
-                                </StackPanel>
-                            </Border>
+                                <Border Background="{DynamicResource FeatureBrush}" CornerRadius="14" Padding="12,3,12,4">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE916;" FontFamily="{StaticResource IconFont}" FontSize="14" Foreground="{DynamicResource FeatureTextBrush}" VerticalAlignment="Center" Margin="0,1,8,0" />
+                                        <TextBlock Text="{Binding QueuedNote}" FontSize="{DynamicResource CaptionSize}" FontWeight="SemiBold" Foreground="{DynamicResource FeatureTextBrush}" TextWrapping="NoWrap" />
+                                    </StackPanel>
+                                </Border>
+                            </Button>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>

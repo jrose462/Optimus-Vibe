@@ -134,7 +134,6 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         if (e.PropertyName == nameof(ReportViewModel.IsOpen))
         {
             OnPropertyChanged(nameof(IsModalOpen));
-            OnPropertyChanged(nameof(ControllerHints));
         }
     }
 
@@ -177,7 +176,6 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         OnPropertyChanged(nameof(IsDetailPage));
         OnPropertyChanged(nameof(IsSettingsPage));
         OnPropertyChanged(nameof(IsLibraryMode));
-        OnPropertyChanged(nameof(ControllerHints));
         OnPropertyChanged(nameof(ShowConfigLine));
         RaiseNav();
         CommandManager.InvalidateRequerySuggested();
@@ -194,25 +192,12 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>The config path line under the title: useful in Manage, noise on the handheld library.</summary>
     public bool ShowConfigLine => !IsReady || Page == AppPage.Manage;
 
-    /// <summary>True while a gamepad is connected; the quiet hint line at the bottom only shows then.</summary>
+    /// <summary>True while a gamepad is connected; controller glyphs (ButtonGlyph) only show then.</summary>
     public bool IsGamepadConnected
     {
         get => _gamepad;
-        set { if (Set(ref _gamepad, value)) OnPropertyChanged(nameof(ControllerHints)); }
+        set => Set(ref _gamepad, value);
     }
-
-    /// <summary>The hints the footer / header shows while a gamepad is connected (buttons are drawn as glyphs).</summary>
-    public IReadOnlyList<PadHint> ControllerHints => IsModalOpen
-        ? [new(PadButton.A, "Select"), new(PadButton.B, "Close")]
-        : !IsReady
-        ? [new(PadButton.A, "Select"), new(PadButton.B, "Back")]
-        : Page switch
-        {
-            AppPage.Library => [new(PadButton.A, "Play"), new(PadButton.X, "Presets"), new(PadButton.LB, PadButton.RB, "Filter"), new(PadButton.Y, "Sync"), new(PadButton.Menu, "Settings")],
-            AppPage.Detail => [new(PadButton.A, "Select"), new(PadButton.B, "Back"), new(PadButton.X, "Play"), new(PadButton.LB, PadButton.RB, "Tabs")],
-            AppPage.Settings => [new(PadButton.A, "Select"), new(PadButton.B, "Back"), new(PadButton.LB, PadButton.RB, "Sections")],
-            _ => [new(PadButton.A, "Select"), new(PadButton.B, "Back"), new(PadButton.X, "Launch"), new(PadButton.LB, PadButton.RB, "Tabs")],
-        };
 
     // ---------------------------------------------------------------- bottom navigation
 
