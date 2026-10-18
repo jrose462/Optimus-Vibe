@@ -159,6 +159,13 @@ public sealed class GameLabSetup
     private Task<GitHubResponse> Send(HttpMethod m, string path, JsonNode? body, CancellationToken ct) =>
         _api.RequestAsync(m, $"repos/{R}/{path}", body, R, true, ct);
 
+    /// <summary>
+    /// A Claude subscription (OAuth) token from <c>claude setup-token</c>: "sk-ant-oat…". Rejects API keys (billed per use,
+    /// not what the workflow expects) and anything else that was on the clipboard, such as a GitHub token.
+    /// </summary>
+    public static bool LooksLikeClaudeToken(string? token) =>
+        token is { Length: >= 20 } t && t.StartsWith("sk-ant-oat", StringComparison.Ordinal) && !t.Any(char.IsWhiteSpace);
+
     // ------------------------------------------------------------ embedded files
 
     private const string SeedPrefix = "seed/config-repo/";
@@ -325,6 +332,9 @@ public sealed class GameLabSetup
                     ? new SetupResult(true, "Secret already set (no new token given).")
                     : new SetupResult(false, "No Claude token given. Run `claude setup-token` and pass the result (--claude-token or CLAUDE_CODE_OAUTH_TOKEN).");
             }
+            if (!LooksLikeClaudeToken(token))
+                return new SetupResult(false, "That isn't a Claude subscription token. Run `claude setup-token` and paste the sk-ant-oat01-... "
+                    + "value it prints (the same kind the Optimus-Vibe repo uses; not an API key or a GitHub token).");
 
             var key = await s.Get("actions/secrets/public-key", ct).ConfigureAwait(false);
             if (!key.Ok) throw LabHttp.Error(key, s.R);

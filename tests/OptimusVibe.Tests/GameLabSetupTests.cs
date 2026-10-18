@@ -182,7 +182,7 @@ public class GameLabSetupTests
     public async Task Status_summarizes_steps_and_open_requests()
     {
         var fake = new FakeLabGitHub { Scopes = "repo, workflow" };
-        var setup = Setup(fake, new GameLabSetupOptions { ClaudeToken = "t" });
+        var setup = Setup(fake, new GameLabSetupOptions { ClaudeToken = "sk-ant-oat01-test-token-value" });
         var before = await setup.GetStatusAsync(new GameLabClient(fake.Api(), FakeLabGitHub.Repo));
         Assert.False(before.Ready);
         Assert.Contains("incomplete", before.Summary);
@@ -211,11 +211,33 @@ public class GameLabSetupTests
         Assert.Equal("repo workflow project", GitHubAuth.Scopes);
     }
 
+    [Theory]
+    [InlineData("sk-ant-oat01-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", true)]
+    [InlineData("gho_0123456789abcdefghijklmnopqrstuvwxyzAB", false)] // GitHub token (40 chars)
+    [InlineData("sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", false)] // API key
+    [InlineData("sk-ant-oat01-", false)]
+    [InlineData(null, false)]
+    public void Only_subscription_tokens_are_accepted(string? token, bool ok) =>
+        Assert.Equal(ok, GameLabSetup.LooksLikeClaudeToken(token));
+
+    [Fact]
+    public async Task Secret_step_refuses_a_github_token_and_sends_nothing()
+    {
+        var fake = new FakeLabGitHub { Scopes = "repo, workflow" };
+        var setup = Setup(fake, new GameLabSetupOptions { ClaudeToken = "gho_0123456789abcdefghijklmnopqrstuvwxyzAB" });
+
+        var r = await setup.RunStepAsync(setup.Step("secret")!);
+
+        Assert.False(r.Ok);
+        Assert.Contains("claude setup-token", r.Message);
+        Assert.Empty(fake.Secrets);
+    }
+
     [Fact]
     public async Task Settings_step_passes_on_a_free_private_repo_that_refuses_auto_merge()
     {
         var fake = new FakeLabGitHub { Scopes = "repo, workflow", AutoMergeUnavailable = true };
-        var setup = Setup(fake, new GameLabSetupOptions { ClaudeToken = "sk-ant-oat01-x" });
+        var setup = Setup(fake, new GameLabSetupOptions { ClaudeToken = "sk-ant-oat01-test-token-value" });
 
         var results = await setup.RunAllAsync();
 

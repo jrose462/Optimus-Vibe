@@ -259,6 +259,24 @@ public class GameLabClientTests
     }
 
     [Fact]
+    public async Task Run_now_retries_the_oldest_failed_request_but_the_background_drain_does_not()
+    {
+        var (fake, client) = Make();
+        string Req(string id) => GameLabContract.RequestBody(new GameLabContract.RequestInfo(LabKind.New, "", id, "steam", id, "d", "1"));
+        fake.Add("a", Req("1"), "game-lab", "lab:failed");
+        fake.Add("b", Req("2"), "game-lab", "lab:failed");
+
+        var background = await client.DrainQueueAsync();
+        Assert.Null(background.Dispatched);
+        Assert.Contains("Nothing", background.Message);
+
+        var res = await client.DrainQueueAsync(retryFailed: true);
+        Assert.Equal(1, res.Dispatched);
+        Assert.Contains("Retrying #1", res.Message);
+        Assert.Empty(fake.Dispatched); // the lab:queued label starts the workflow; no second dispatch
+    }
+
+    [Fact]
     public async Task GetResult_returns_the_latest_result_comment()
     {
         var (fake, client) = Make();

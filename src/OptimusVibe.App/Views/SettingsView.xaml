@@ -363,10 +363,10 @@
                                                         <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap">
                                                             <Run Text="Run" />
                                                             <Run Text="claude setup-token" FontFamily="{StaticResource MonoFont}" FontWeight="SemiBold" />
-                                                            <Run Text="in a terminal and paste the token here." />
+                                                            <Run Text="in a terminal and paste the token it prints (starts with sk-ant-oat01-)." />
                                                         </TextBlock>
                                                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0"
-                                                                   Text="It goes straight to GitHub, encrypted, as a secret of your config repo. It is not kept on this PC." />
+                                                                   Text="This is your Claude subscription token, not an API key: the lab runs on your Claude plan with no per-use billing, like the Optimus-Vibe repo. It goes straight to GitHub, encrypted, as a secret of your config repo, and is not kept on this PC." />
                                                         <Grid Margin="0,10,0,0" MaxWidth="640" HorizontalAlignment="Left">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
@@ -431,7 +431,7 @@
                                 <TextBlock Text="{Binding CountsText}" FontSize="14.5" Foreground="{DynamicResource OnFeatureDimBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                 <WrapPanel Margin="0,14,0,0">
                                     <Button Command="{Binding RunNowCommand}" Content="Run now" Margin="0,0,8,0" Background="{DynamicResource FeatureButtonBrush}"
-                                            Foreground="{DynamicResource FeatureButtonTextBrush}" ToolTip="Start the oldest waiting request now" AutomationProperties.Name="Run now" />
+                                            Foreground="{DynamicResource FeatureButtonTextBrush}" ToolTip="Start the oldest waiting request now, or retry the oldest failed one" AutomationProperties.Name="Run now" />
                                     <Button Command="{Binding OpenBoardCommand}" Content="Open board" Margin="0,0,8,0" AutomationProperties.Name="Open the board" />
                                     <Button Command="{Binding OpenRepoCommand}" Content="Open repo" AutomationProperties.Name="Open the config repo" />
                                 </WrapPanel>

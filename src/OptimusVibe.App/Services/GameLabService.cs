@@ -116,7 +116,7 @@ public sealed class GameLabService
         IsDemo ? DemoIssues() : await ClientFor(c).ListAsync(includeClosed: true, ct).ConfigureAwait(false);
 
     public async Task<string> RunNowAsync(Connection c, CancellationToken ct = default) =>
-        IsDemo ? "Demo: nothing is queued." : (await ClientFor(c).DrainQueueAsync(ct).ConfigureAwait(false)).Message;
+        IsDemo ? "Demo: nothing is queued." : (await ClientFor(c).DrainQueueAsync(ct, retryFailed: true).ConfigureAwait(false)).Message;
 
     /// <summary>The project board's web address, or null when there is none (or the sign-in has no project scope).</summary>
     public async Task<string?> BoardUrlAsync(Connection c, CancellationToken ct = default)

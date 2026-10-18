@@ -200,12 +200,22 @@ public sealed class GameLabClient
     /// <summary>
     /// When there are lab:queued requests and nothing is running (no lab:researching issue, no queued/in-progress workflow run),
     /// starts the workflow for the oldest one (workflow_dispatch game-lab.yml, input <c>issue</c>).
+    /// With <paramref name="retryFailed"/> (an explicit Run now, never the background cycle, so a broken setup can't loop)
+    /// and nothing queued, requeues the oldest failed request instead: adding lab:queued starts the workflow by itself.
     /// </summary>
-    public async Task<DrainResult> DrainQueueAsync(CancellationToken ct = default)
+    public async Task<DrainResult> DrainQueueAsync(CancellationToken ct = default, bool retryFailed = false)
     {
         var open = await ListAsync(false, ct).ConfigureAwait(false);
         var queued = open.Where(i => i.Status == LabStatus.Queued).OrderBy(i => i.Number).ToList();
-        if (queued.Count == 0) return new DrainResult(null, "Nothing is queued.");
+        if (queued.Count == 0)
+        {
+            var failed = retryFailed ? open.Where(i => i.Status == LabStatus.Failed).MinBy(i => i.Number) : null;
+            if (failed is null || open.Any(i => i.Status == LabStatus.Researching)) return new DrainResult(null, "Nothing is queued.");
+            await AddLabelsAsync(failed.Number, [GameLabContract.LabelQueued], ct).ConfigureAwait(false);
+            _lastDispatch = (failed.Number, _now());
+            Log.Info($"game lab: requeued failed request #{failed.Number}");
+            return new DrainResult(failed.Number, $"Retrying #{failed.Number} ({failed.Name}), which failed last time.");
+        }
         if (open.Any(i => i.Status == LabStatus.Researching))
             return new DrainResult(null, $"Busy: #{open.First(i => i.Status == LabStatus.Researching).Number} is being researched; {queued.Count} request(s) wait.");
         if (_lastDispatch is { } last && (_now() - last.At) < TimeSpan.FromMinutes(2) && queued.Any(q => q.Number == last.Issue))
