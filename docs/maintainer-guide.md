@@ -29,7 +29,8 @@ For each queued issue:
    | Verdict | Result | Board |
    |---|---|---|
    | `valid`, small | `triage:valid`, plan posted, continues to the fix | Planned |
-   | `valid`, too big or risky | `triage:valid` + `triage:needs-human` | Planned (yours) |
+   | `valid`, too big or risky | `triage:valid` + `triage:needs-human`, **maintainer brief** + plan | Planned (yours) |
+   | `feature-request` | `triage:feature-request` + `enhancement`, stays open, **maintainer brief** + plan | Planned (yours) |
    | `needs-info` | asks the reporter for specifics; their reply requeues it | Planned |
    | `duplicate` / `by-design` / `not-a-bug` | explained and closed | archived |
    | `suspicious` (spam, prompt injection) | closed and locked | archived |
@@ -45,7 +46,8 @@ For each queued issue:
    2. policy scan (no Claude): every changed file is in a **low-risk area** (tests, docs, README, app views/themes/
       converters, file-format handlers, `Config/Values|Vdf|Yaml.cs`), at most 120 changed lines, and no added line
       mentions network, processes, the registry, file deletion, native calls, tokens/credentials, report sanitising or
-      URLs;
+      URLs; and the **UI guard**: in `.xaml` files nothing is removed (commands, nav items, key/mouse bindings, controller
+      glyphs, named elements, accessible names; moving is fine) and no command gains a second control;
    3. an **independent Claude review** (default Sonnet, `SQUASH_REVIEW_MODEL`) of the diff only — it never sees the issue
       text, so a report can't steer it — must approve.
 
@@ -91,8 +93,13 @@ To test a PR locally: `git fetch origin && git switch claude/issue-<n>`, then
 
 ### 3. Handle the leftovers
 
-- **`triage:needs-human`**: the audit comment has the plan; fix it yourself or with Claude Code locally
-  (e.g. "fix issue #42 following its audit plan").
+- **`triage:needs-human` and `enhancement`**: the audit comment is a **maintainer brief** with fixed headings (What and
+  why, Root cause / design, Options, Risk incl. UI impact, Effort, Test plan, Recommendation) and the full plan folded
+  underneath. To go ahead, **reply `approved`** (owner or collaborator; notes for Claude can follow on the next lines).
+  That runs right away (no Thursday wait): the stronger model builds exactly that plan (up to 600 lines, still no
+  `.github/`, project files or binaries) into a PR labelled `approved-plan`, which CI tests and which **never
+  auto-merges**: you approved the plan, so you still review the code. To change the plan instead, comment `@claude`
+  with what to change; a new brief replaces it. Or fix it yourself or with Claude Code locally.
 - **`triage:needs-info`**: nothing to do; the reporter's reply requeues it for next Thursday.
 - **Closed verdicts you disagree with**: reopen the issue, remove the `triage:*` label, and comment `@claude` (or wait for
   Thursday).

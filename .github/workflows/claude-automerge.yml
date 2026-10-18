@@ -41,6 +41,11 @@ jobs:
       eligible: ${{ steps.scan.outputs.eligible }}
       reason: ${{ steps.scan.outputs.reason }}
     steps:
+      - name: Checkout main (no credentials; for the UI duplicate check)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
       - name: Wait for CI and scan
         id: scan
         env:
@@ -58,6 +63,7 @@ jobs:
           author=$(jq -r .author.login <<<"$pr")
           [[ "$author" == "app/github-actions" || "$author" == "github-actions" || "$author" == "github-actions[bot]" ]] || out false "PR was not opened by the bug-squash workflow (author: $author)."
           jq -e '[.labels[].name] | index("claude-fix")' <<<"$pr" >/dev/null || out false "PR lacks the claude-fix label."
+          ! jq -e '[.labels[].name] | index("approved-plan")' <<<"$pr" >/dev/null || out false "Built from an approved plan: always reviewed by the maintainer."
           sha=$(jq -r .headRefOid <<<"$pr")
 
           # Wait (up to ~45 min) for the required CI check on the head commit.
@@ -83,6 +89,25 @@ jobs:
           [ "$total" -le "$MAX_LINES" ] || out false "Changes $total lines (auto-merge limit $MAX_LINES)."
           hits=$(gh pr diff "$PR" | grep -E '^\+[^+]' | grep -oE "$RISKY_ADDED" | sort -u | tr '\n' ' ' || true)
           [ -z "$hits" ] || out false "Added lines mention sensitive APIs or keywords: $hits"
+
+          # UI guard (the owner's rule: no control, nav item or binding silently removed, nothing duplicated).
+          # In .xaml files: a command, nav item, key/mouse binding, controller glyph, named element or accessible name that
+          # the diff removes and doesn't add back holds the PR; so does a newly added command binding that main's views
+          # already bind somewhere (a likely second control for the same action).
+          diff=$(gh pr diff "$PR")
+          tok='Command="[^"]*"|Button\.NavItem|KeyBinding|MouseBinding|ButtonGlyph Kind="[^"]*"|x:Name="[^"]*"|AutomationProperties\.Name="[^"]*"'
+          xaml_side() { awk -v s="$1" '/^diff --git /{x = ($0 ~ /\.xaml$/); next} x && substr($0,1,1) == s && substr($0,1,3) != s s s' <<<"$diff"; }
+          rem=$(xaml_side - | grep -oE "$tok" | sort -u || true)
+          add=$(xaml_side + | grep -oE "$tok" | sort -u || true)
+          gone=$(comm -23 <(printf '%s\n' "$rem") <(printf '%s\n' "$add") | grep -v '^$' | tr '\n' ' ' || true)
+          [ -z "$gone" ] || out false "UI guard: removes controls or bindings: $gone"
+          dupes=""
+          while IFS= read -r c; do
+            [ -z "$c" ] && continue
+            grep -rqF -- "$c" src/OptimusVibe.App/Views 2>/dev/null && dupes="$dupes $c"
+          done < <(comm -13 <(printf '%s\n' "$rem") <(printf '%s\n' "$add") | grep -E '^Command=' || true)
+          [ -z "$dupes" ] || out false "UI guard: adds a control for a command the app already binds:$dupes"
+
           out true "Low-risk: $total changed lines in low-risk areas; CI passed."
 
   review:
