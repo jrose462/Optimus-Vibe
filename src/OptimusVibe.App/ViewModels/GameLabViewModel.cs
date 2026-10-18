@@ -90,6 +90,8 @@ public sealed class GameLabViewModel : ObservableObject
         "on your private repo (a monthly allowance is included; Windows minutes count double).";
 
     private static readonly TimeSpan CycleInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PendingInterval = TimeSpan.FromMinutes(2);
+    private readonly System.Windows.Threading.DispatcherTimer _pendingTimer;
 
     private readonly MainViewModel _main;
     private readonly GameLabService _service = new();
@@ -155,6 +157,16 @@ public sealed class GameLabViewModel : ObservableObject
         };
         // Signing in again as the same user doesn't flip IsSignedIn, so the wizard listens for every completed sign-in too.
         account.SignedIn += (_, _) => { if (_main.IsSettingsPage) _ = RefreshAsync(network: true, force: true); };
+
+        // While a request is in flight, check every two minutes so a merged result is pulled and announced soon after the
+        // workflow finishes (otherwise the pass only runs at start-up and after each automatic sync).
+        _pendingTimer = new System.Windows.Threading.DispatcherTimer { Interval = PendingInterval };
+        _pendingTimer.Tick += (_, _) =>
+        {
+            if (_issues.Any(i => i.IsOpen && i.Status is LabStatus.Queued or LabStatus.Researching or LabStatus.NeedsEvidence))
+                TriggerCycle(force: true);
+        };
+        _pendingTimer.Start();
     }
 
     public GitHubAccountViewModel Account { get; }

@@ -145,6 +145,15 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
         var publisher = t.Publisher ?? DetectPublisher(install, t.Exes);
         bundle.Sections.Add(InstallSection(t, install, engine, publisher, folders));
 
+        // --- the stores the current config already maps (files, registry keys): always read, before any guessing, so a
+        // refresh can confirm the keys and values it has. Same policy checks as a needs-evidence follow-up.
+        if (MappedStores(t) is { IsEmpty: false } mapped)
+        {
+            var known = CollectRequested(mapped, t);
+            bundle.Sections.AddRange(known.Sections);
+            bundle.Notes.AddRange(known.Notes.Select(n => $"Mapped store: {n}"));
+        }
+
         // --- candidate settings stores
         var keys = NameKeys(t, engine);
         var pubKeys = PublisherKeys(publisher);
@@ -169,6 +178,7 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
             }
             var section = ReadFileSection(f.Path, folders, bundle);
             if (section is null) continue;
+            if (bundle.Sections.Any(x => x.Kind == EvidenceKind.File && x.Title == section.Title)) continue; // already read as a mapped store
             chars += section.Body.Length;
             bundle.Sections.Add(section);
         }
@@ -194,6 +204,27 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
             if (!string.IsNullOrWhiteSpace(yaml))
                 bundle.Sections.Add(new EvidenceSection(EvidenceKind.CurrentConfig, "", Clean(yaml, folders)));
         });
+    }
+
+    /// <summary>The files and registry keys listed under <c>files:</c> in the game's current config; null when there is none.</summary>
+    private NeedsEvidence? MappedStores(LabTarget t)
+    {
+        try
+        {
+            var yaml = _o.CurrentConfig?.Invoke(t);
+            if (string.IsNullOrWhiteSpace(yaml)) return null;
+            var def = Yaml.Parse<GameDef>(yaml);
+            var files = def.Files.Where(f => !f.Handler.Equals("registry", StringComparison.OrdinalIgnoreCase) && f.Path.Length > 0)
+                .Select(f => f.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var keys = def.Files.Where(f => f.Handler.Equals("registry", StringComparison.OrdinalIgnoreCase) && f.Path.Length > 0)
+                .Select(f => f.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return new NeedsEvidence(files, keys, []);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"game lab: could not read the mapped stores of {t.Name}: {ex.Message}");
+            return null;
+        }
     }
 
     // ------------------------------------------------------------ follow-ups (needs-evidence)

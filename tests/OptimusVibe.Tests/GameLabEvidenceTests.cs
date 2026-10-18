@@ -339,4 +339,30 @@ public class GameLabEvidenceTests
         var bundle = new EvidenceCollector(p.Options()).CollectRequested(new NeedsEvidence([@"{AppData}\*\**\*"], [], []));
         Assert.DoesNotContain("token", bundle.Render());
     }
+
+    [Fact]
+    public void Collect_always_reads_the_stores_the_current_config_maps()
+    {
+        // Settings in folders whose names give no hint of the game: the name-based search alone would miss them.
+        using var p = new LabProfile();
+        p.Write(p.LocalAppData, @"Studio Q\Engine7\graphicSettings.lsx", "<save><node id=\"ConfigEntry\"/></save>\n");
+        p.Registry.Add(@"HKCU\Software\Studio Q\Engine7", ("Quality", "2"));
+        const string yaml = """
+            id: borderlands-4
+            name: Borderlands 4
+            files:
+              - id: gfx
+                handler: xml
+                path: "{LocalAppData}/Studio Q/Engine7/graphicSettings.lsx"
+              - id: reg
+                handler: registry
+                path: 'HKCU\Software\Studio Q\Engine7'
+            """;
+
+        var bundle = new EvidenceCollector(p.Options(config: _ => yaml)).Collect(p.Target());
+
+        Assert.Contains("ConfigEntry", Section(bundle, EvidenceKind.File, "graphicSettings.lsx"));
+        Assert.Contains("Quality", Section(bundle, EvidenceKind.Registry, @"Studio Q\Engine7"));
+        Assert.Single(bundle.Sections, s => s.Kind == EvidenceKind.File && s.Title.Contains("graphicSettings.lsx"));
+    }
 }
