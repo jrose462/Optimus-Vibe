@@ -133,7 +133,7 @@ jobs:
           case "$labels" in *,lab:done,*) stop "#$ISSUE is already done." ;; esac
           case "$labels" in *,game-lab,*) ;; *) stop "#$ISSUE has no game-lab label." ;; esac
           body=$(jq -r .body <<<"$json" | tr -d '\r')
-          printf '%s' "$body" | grep -qF '<!-- optimus-vibe:game-lab v1 -->' || stop "#$ISSUE has no game-lab marker."
+          grep -qF '<!-- optimus-vibe:game-lab v1 -->' <<<"$body" || stop "#$ISSUE has no game-lab marker."
 
           # ---- the machine line
           req=$(printf '%s\n' "$body" | grep -o '<!-- lab-request {.*} -->' | head -1 | sed -e 's/^<!-- lab-request //' -e 's/ -->$//')
@@ -170,10 +170,10 @@ jobs:
             [ "$rid" = "$GITHUB_RUN_ID" ] && continue
             rjobs=$(gh api "repos/$GH_REPO/actions/runs/$rid/jobs" --jq '.jobs[] | "\(.name)|\(.status)"' 2>/dev/null || true)
             same=0; [ "$rtitle" = "$MY_TITLE" ] && [ "$MY_TITLE" != "game-lab #" ] && same=1
-            if printf '%s\n' "$rjobs" | grep -qE '^(Research|Publish)\|(queued|in_progress|waiting|pending)'; then
+            if grep -qE '^(Research|Publish)\|(queued|in_progress|waiting|pending)' <<<"$rjobs"; then
               # Another request is being worked on. If it is THIS request (double event), it is a duplicate.
               if [ "$same" = "1" ]; then case "$labels" in *,lab:researching,*) dupe=1 ;; *) busy=1 ;; esac; else busy=1; fi
-            elif printf '%s\n' "$rjobs" | grep -qE '^Gate\|(queued|in_progress|waiting|pending)'; then
+            elif grep -qE '^Gate\|(queued|in_progress|waiting|pending)' <<<"$rjobs"; then
               [ "$same" = "1" ] && [ "$rid" -lt "$GITHUB_RUN_ID" ] && dupe=1
             fi
           done < "$RUNNER_TEMP/others.txt"
@@ -195,7 +195,9 @@ jobs:
           echo "Research runs today (UTC $today): $ran of $DAILY_MAX"
           if [ "$ran" -ge "$DAILY_MAX" ]; then
             addl lab:queued
-            if ! gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq '.[].body' | grep -qF '<!-- optimus-vibe:lab-queued v1 -->'; then
+            # Capture first: `cmd | grep -q` under pipefail fails with SIGPIPE when grep exits early on a long input.
+            prev=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq '.[].body' 2>/dev/null || true)
+            if ! grep -qF '<!-- optimus-vibe:lab-queued v1 -->' <<<"$prev"; then
               say "<!-- optimus-vibe:lab-queued v1 -->
           Daily limit reached ($DAILY_MAX game-lab runs per UTC day); it will run when you open the app tomorrow or press Run now."
             fi
@@ -317,7 +319,7 @@ jobs:
           git diff --cached --name-status --no-renames > ../.claude-out/changes.txt || true
           while IFS=$'\t' read -r st path; do
             case "$st" in A|M) ;; *) continue ;; esac
-            printf '%s' "$path" | grep -qE '^config/games/[a-z0-9][a-z0-9-]*\.yaml$' || continue
+            grep -qE '^config/games/[a-z0-9][a-z0-9-]*\.yaml$' <<<"$path" || continue
             mkdir -p "../.claude-out/changes/$(dirname "$path")"
             cp "$path" "../.claude-out/changes/$path"
           done < ../.claude-out/changes.txt

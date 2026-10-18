@@ -181,9 +181,22 @@ public sealed class GameLabSetup
             using var s = asm.GetManifestResourceStream(name)!;
             using var ms = new MemoryStream();
             s.CopyTo(ms);
-            files[name[SeedPrefix.Length..]] = ms.ToArray();
+            files[name[SeedPrefix.Length..]] = ToLf(ms.ToArray());
         }
         return files;
+    }
+
+    /// <summary>
+    /// CRLF → LF, so every build installs byte-identical files (a Windows checkout with autocrlf embeds CRLF) and the
+    /// "installed and current" check, which compares git blob hashes, doesn't flag line endings as outdated.
+    /// </summary>
+    internal static byte[] ToLf(byte[] bytes)
+    {
+        if (Array.IndexOf(bytes, (byte)'\r') < 0) return bytes;
+        var output = new List<byte>(bytes.Length);
+        for (var i = 0; i < bytes.Length; i++)
+            if (!(bytes[i] == '\r' && i + 1 < bytes.Length && bytes[i + 1] == '\n')) output.Add(bytes[i]);
+        return output.ToArray();
     }
 
     /// <summary>Files to put into the config repo: the embedded set (overridable for tests).</summary>

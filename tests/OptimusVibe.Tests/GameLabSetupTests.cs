@@ -265,5 +265,8 @@ public class GameLabEmbeddedFilesTests
         Assert.Contains("issue", yml);
         Assert.Contains("CLAUDE_CODE_OAUTH_TOKEN", yml);
         Assert.All(files.Keys, k => Assert.StartsWith(".github/", k)); // repo-relative paths, '/' separators
+        Assert.All(files.Values, v => Assert.DoesNotContain((byte)'\r', v)); // LF only, whatever the checkout used
+        // the gate must not pipe a large body into `grep -q` (SIGPIPE under pipefail made big requests look markerless)
+        Assert.DoesNotContain("\"$body\" | grep -q", yml);
     }
 }
