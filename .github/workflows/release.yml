@@ -65,6 +65,33 @@ jobs:
           if ($LASTEXITCODE -eq 0) { Write-Output "::error::Release $env:TAG already exists."; exit 1 }
           $global:LASTEXITCODE = 0
 
+      - name: Only release what is on main and passed CI
+        # Changes reach main only through PRs (rulesets); this closes the other door: a tag on a side branch or on a
+        # commit whose CI failed. Waits up to 20 min for CI that is still running on the merge commit.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch -q origin main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$TAG points at ${SHA:0:7}, which is not on main. Merge the change through a pull request, then tag main."
+            exit 1
+          fi
+          for i in $(seq 1 40); do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=20" \
+                   --jq '[.workflow_runs[] | {status, conclusion}]')
+            if jq -e 'any(.[]; .conclusion == "success")' <<<"$runs" >/dev/null; then echo "CI passed on ${SHA:0:7}."; exit 0; fi
+            if ! jq -e 'any(.[]; .status != "completed")' <<<"$runs" >/dev/null; then
+              echo "::error::CI has not passed on ${SHA:0:7} (runs: $(jq -c . <<<"$runs")). Fix main first."
+              exit 1
+            fi
+            echo "CI still running on ${SHA:0:7}; waiting ($i/40)..."; sleep 30
+          done
+          echo "::error::Timed out waiting for CI on ${SHA:0:7}."; exit 1
+
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:

@@ -137,6 +137,20 @@ a game file would break a save (renamed file id, removed key), tell the user and
   `feat(handlers): ...`, `test: ...`. Manual-save commits made by the app use `chore(saves): ...`.
 - Do not commit anything from `%LOCALAPPDATA%\OptimusVibe` (backups, logs, state, selections, settings.json).
 
+## Branches, PRs and releases (enforced by GitHub, not just this file)
+
+- **Never push to `main`.** Work on a short-lived branch (`fix/<topic>`, `feat/<topic>`, `docs/<topic>`, `ci/<topic>`;
+  the bug squash uses `claude/issue-<n>`), open a PR with a Conventional Commits title, wait for CI, squash-merge.
+  No long-lived `dev` branch: `main` is always releasable.
+- The ruleset **main: PRs and CI** (no bypass for anyone) requires a PR, both checks (`Build and test (windows)`,
+  `Protect .github`) green on an up-to-date branch, squash merges only, no force-push or deletion. The ruleset
+  **main: code-owner review** requires the code owner's approval for `CODEOWNERS` paths; repo admins may bypass it
+  only when merging a PR (so the owner can merge their own changes). Classic branch protection is still on as a
+  redundant layer.
+- Releases are tags on `main` (`git tag vX.Y.Z && git push origin vX.Y.Z`, after bumping `Version` in
+  `Directory.Build.props` through a PR). The release workflow refuses a commit that is not on `main` or whose CI did
+  not pass.
+
 ## Public repo rules
 
 This repo is PUBLIC (MIT). Never commit personal data (emails, user paths, Steam ids, machine names), tokens, game art/logos,
