@@ -43,11 +43,6 @@
                 <TextBlock Text="Optimus-Vibe" FontFamily="{StaticResource DisplayFont}" FontSize="{DynamicResource HeaderTitleSize}" FontWeight="SemiBold"
                            VerticalAlignment="Center" />
 
-                <!-- compact: the controller hints live in the header (comfortable: a quiet line above the navigation) -->
-                <Grid Grid.Column="1" Style="{StaticResource Only.Compact}" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <views:ControllerHints Visibility="{Binding IsGamepadConnected, Converter={StaticResource VisibleWhen}}" />
-                </Grid>
-
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- non-modal: a newer release exists (silent daily check) -->
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Update available" Command="{Binding Updates.ShowCommand}"
@@ -59,14 +54,12 @@
                         </Grid>
                     </Button>
                     <views:ButtonGlyph Kind="Y" Size="Small" Margin="6,0,0,0" />
-                    <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Sync" Command="{Binding SyncCommand}"
+                    <Button Style="{StaticResource Button.Quiet}" AutomationProperties.Name="Sync saves" Command="{Binding SyncCommand}"
                             ToolTip="Sync your saves and library with the config repo (Y)">
-                        <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFont}" />
-                    </Button>
-                    <views:ButtonGlyph Kind="View" Size="Small" Margin="6,0,0,0" />
-                    <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Refresh" Command="{Binding RefreshCommand}"
-                            ToolTip="Reload everything and look for games again (View)">
-                        <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" />
+                            <TextBlock Text="Sync saves" Margin="6,0,0,0" FontSize="{DynamicResource CaptionSize}" VerticalAlignment="Center" />
+                        </StackPanel>
                     </Button>
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Report a problem" Command="{Binding OpenReportCommand}"
                             ToolTip="Report a problem" Margin="6,0,0,0"
@@ -328,11 +321,6 @@
                 </Border>
             </Grid>
 
-            <!-- ============================================================ quiet controller hints (only while a gamepad is connected; compact: in the header) -->
-            <Grid Grid.Row="4" Style="{StaticResource Only.Comfortable}" HorizontalAlignment="Center" Margin="0,2,0,2">
-                <views:ControllerHints Visibility="{Binding IsGamepadConnected, Converter={StaticResource VisibleWhen}}" />
-            </Grid>
-
             <!-- ============================================================ floating navigation + action button -->
             <Grid Grid.Row="5" Margin="{DynamicResource NavRowMargin}" Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}">
                 <Grid.ColumnDefinitions>
@@ -354,7 +342,12 @@
                                 AutomationProperties.Name="Presets" ToolTip="Games and their presets side by side">
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="&#xE9E9;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource NavGlyphSize}" HorizontalAlignment="Center" />
-                                <TextBlock Text="Presets" Margin="{DynamicResource NavLabelMargin}" HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="Presets" Margin="{DynamicResource NavLabelMargin}" />
+                                    <!-- on the Library page the controller's X opens a game's presets -->
+                                    <views:ButtonGlyph Kind="X" Size="Small" Margin="4,0,0,0" VerticalAlignment="Bottom"
+                                                       Visibility="{Binding IsLibraryPage, Converter={StaticResource VisibleWhen}}" />
+                                </StackPanel>
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource Button.NavItem}" Tag="{Binding NavSaves}" Command="{Binding ShowSavesCommand}"
@@ -368,7 +361,10 @@
                                 AutomationProperties.Name="Settings" ToolTip="Sync, launchers and device (Ctrl+,)">
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource NavGlyphSize}" HorizontalAlignment="Center" />
-                                <TextBlock Text="Settings" Margin="{DynamicResource NavLabelMargin}" HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="Settings" Margin="{DynamicResource NavLabelMargin}" />
+                                    <views:ButtonGlyph Kind="Menu" Size="Small" Margin="4,0,0,0" VerticalAlignment="Bottom" />
+                                </StackPanel>
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -380,8 +376,8 @@
                     <views:ButtonGlyph Kind="X" Margin="0,0,8,0" Visibility="{Binding IsDetailPage, Converter={StaticResource VisibleWhen}}" />
                     <views:ButtonGlyph Kind="X" Margin="0,0,8,0" Visibility="{Binding IsManagePage, Converter={StaticResource VisibleWhen}}" />
                     <Grid>
-                        <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding Library.RescanCommand}" AutomationProperties.Name="Rescan games"
-                                ToolTip="Look for installed games again"
+                        <Button Style="{StaticResource Button.Fab.Primary}" Command="{Binding RefreshCommand}" AutomationProperties.Name="Reload"
+                                ToolTip="Reload settings and look for games again (View)"
                                 Visibility="{Binding IsLibraryPage, Converter={StaticResource VisibleWhen}}">
                             <TextBlock Text="&#xE72C;" />
                         </Button>

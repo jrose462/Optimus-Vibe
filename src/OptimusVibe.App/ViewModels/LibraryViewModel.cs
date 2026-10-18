@@ -89,6 +89,7 @@ public sealed class LibraryViewModel : ObservableObject
         SetSyncFilterCommand = new RelayCommand(p => { if (p is SyncPillViewModel f) SetSyncFilter(f.Filter); });
         SetFilterCommand = new RelayCommand(p => { if (p is FilterPillViewModel f) SetFilter(f.Filter); });
         RescanCommand = new AsyncRelayCommand(() => ScanAsync(rescanLaunchers: true), () => !IsScanning && main.Session is not null);
+        OpenQueueCommand = new RelayCommand(() => { if (main.Lab.IsReady) _ = main.Lab.OpenQueueAsync(); else main.OpenSettings("gamelab"); });
     }
 
     public IAppShell Shell => _main;
@@ -169,6 +170,8 @@ public sealed class LibraryViewModel : ObservableObject
     public ICommand SetFilterCommand { get; }
     public ICommand SetSyncFilterCommand { get; }
     public ICommand RescanCommand { get; }
+    /// <summary>The "N games queued" note: opens the game lab board (or Settings when the lab is not set up).</summary>
+    public ICommand OpenQueueCommand { get; }
 
     // ---------------------------------------------------------------- filter
 
