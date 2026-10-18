@@ -37,6 +37,10 @@
     <Thickness x:Key="CardMargin">0,0,0,8</Thickness>
     <Thickness x:Key="BannerPadding">16,6</Thickness>
 
+    <!-- window caption buttons -->
+    <sys:Double x:Key="CaptionBtnWidth">40</sys:Double>
+    <sys:Double x:Key="CaptionBtnHeight">28</sys:Double>
+
     <!-- page frames -->
     <Thickness x:Key="HeaderMargin">20,6,16,0</Thickness>
     <Thickness x:Key="BannerMargin">20,4,20,2</Thickness>
