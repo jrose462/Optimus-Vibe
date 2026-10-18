@@ -213,16 +213,17 @@ public sealed class LibraryViewModel : ObservableObject
         _ => true,
     };
 
-    private bool Matches(LibraryTileViewModel t) => MatchesStatus(_filter, t) && MatchesSync(_syncFilter, t.SyncBucket);
+    /// <summary>The library lists only games installed on this device; configs for other devices stay in the config repo.</summary>
+    private IEnumerable<LibraryTileViewModel> Installed => _byKey.Values.Where(t => t.IsInstalled);
 
-    private static int Order(LibraryTileViewModel t) => t.IsInstalled ? 0 : 1; // not-installed configs go last
+    private bool Matches(LibraryTileViewModel t) => t.IsInstalled && MatchesStatus(_filter, t) && MatchesSync(_syncFilter, t.SyncBucket);
 
     /// <summary>Rebuild the visible list in place (keeps containers, and therefore focus, where possible).</summary>
     private void ApplyFilter()
     {
         var keep = SelectedTile;
-        var want = _byKey.Values.Where(Matches)
-            .OrderBy(Order).ThenBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        var want = Installed.Where(Matches)
+            .OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         for (int i = Tiles.Count - 1; i >= 0; i--)
             if (!want.Contains(Tiles[i])) Tiles.RemoveAt(i);
         for (int i = 0; i < want.Count; i++)
@@ -232,8 +233,9 @@ public sealed class LibraryViewModel : ObservableObject
             else if (at != i) Tiles.Move(at, i);
         }
         // Status pills count independent of the sync row (they feed the "This device" numbers); sync pills count within the status filter.
-        foreach (var f in Filters) f.Count = _byKey.Values.Count(t => MatchesStatus(f.Filter, t));
-        foreach (var f in SyncFilters) f.Count = _byKey.Values.Count(t => MatchesStatus(_filter, t) && MatchesSync(f.Filter, t.SyncBucket));
+        // Counts cover installed games only, the same set the list shows.
+        foreach (var f in Filters) f.Count = Installed.Count(t => MatchesStatus(f.Filter, t));
+        foreach (var f in SyncFilters) f.Count = Installed.Count(t => MatchesStatus(_filter, t) && MatchesSync(f.Filter, t.SyncBucket));
         RaiseSummary();
         SelectedTile = keep is not null && Tiles.Contains(keep) ? keep : Tiles.FirstOrDefault();
         OnPropertyChanged(nameof(ShowEmpty));

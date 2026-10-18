@@ -1,0 +1,11 @@
+# Keeps the commit-pinned GitHub Actions current: a weekly PR bumps each pin (and its "# vN" comment) when the action
+# releases. These PRs touch .github/, so CODEOWNERS sends them to the maintainer; review the action's changelog first.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels: [dependencies]
