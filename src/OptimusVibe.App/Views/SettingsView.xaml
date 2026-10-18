@@ -332,28 +332,10 @@
                                                 <!-- the open step: its action -->
                                                 <StackPanel Margin="0,12,0,0" Visibility="{Binding ShowBody, Converter={StaticResource VisibleWhen}}">
 
-                                                    <!-- sign in again: the device code appears here -->
+                                                    <!-- the one GitHub sign-in lives in the GitHub account card; this step only sends you there -->
                                                     <StackPanel Visibility="{Binding IsScopes, Converter={StaticResource VisibleWhen}}">
-                                                        <Border Style="{StaticResource Card.Inset}" Background="{DynamicResource InsetDeepBrush}" Margin="0,0,0,10"
-                                                                Visibility="{Binding DataContext.Account.HasDeviceCode, ElementName=LabCard, Converter={StaticResource VisibleWhen}}">
-                                                            <StackPanel>
-                                                                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap">
-                                                                    <Run Text="Go to" />
-                                                                    <Run Text="{Binding DataContext.Account.VerificationUri, ElementName=LabCard, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
-                                                                    <Run Text="and enter:" />
-                                                                </TextBlock>
-                                                                <TextBlock Text="{Binding DataContext.Account.UserCode, ElementName=LabCard}" FontFamily="{StaticResource MonoFont}" FontSize="40" FontWeight="Bold" Margin="0,6" />
-                                                                <WrapPanel>
-                                                                    <Button Style="{StaticResource Button.Primary}" Command="{Binding DataContext.Account.OpenVerificationCommand, ElementName=LabCard}" Content="Open GitHub" Margin="0,0,8,0" />
-                                                                    <Button Command="{Binding DataContext.Account.CopyCodeCommand, ElementName=LabCard}" Content="Copy code" Margin="0,0,8,0" />
-                                                                    <Button Style="{StaticResource Button.Quiet}" Command="{Binding DataContext.Account.CancelSignInCommand, ElementName=LabCard}" AutomationProperties.Name="Cancel">
-                                                                        <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
-                                                                    </Button>
-                                                                </WrapPanel>
-                                                            </StackPanel>
-                                                        </Border>
                                                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,8"
-                                                                   Text="Signing in again asks for repo, workflow and project. Using a personal access token instead? Make a classic token with those three scopes, or a fine-grained one on your config repo with Contents, Issues, Actions, Secrets, Variables, Workflows and Administration (read and write)." />
+                                                                   Text="This uses your one GitHub sign-in, the same one as the config repo and bug reports. Sign in again opens it in the GitHub account card above and asks for repo, workflow and project. Using a personal access token instead? Make a classic token with those three scopes, or a fine-grained one on your config repo with Contents, Issues, Actions, Secrets, Variables, Workflows and Administration (read and write)." />
                                                         <Button Style="{StaticResource Button.Quiet}" HorizontalAlignment="Left" Margin="0,0,0,8" Command="{Binding DataContext.OpenTokenCommand, ElementName=LabCard}"
                                                                 Content="Create a token on github.com" />
                                                     </StackPanel>

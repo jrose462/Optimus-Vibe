@@ -88,6 +88,9 @@ public sealed class GitHubAccountViewModel : ObservableObject
     }
 
     public bool IsSignedIn => Login is not null;
+
+    /// <summary>A sign-in finished (also when it replaced a sign-in for the same login, so IsSignedIn did not change).</summary>
+    public event EventHandler? SignedIn;
     public string AccountText => Login is { } l ? $"Signed in as {l}" : "Not signed in";
 
     public string ClientId { get => _clientId; set { if (Set(ref _clientId, value)) CommandManager.InvalidateRequerySuggested(); } }
@@ -342,6 +345,7 @@ public sealed class GitHubAccountViewModel : ObservableObject
         SignInError = null;
         Log.Info($"GitHub: signed in as {login} ({how})");
         _main.Notify($"Signed in to GitHub as {login}.");
+        SignedIn?.Invoke(this, EventArgs.Empty);
         await LoadReposAsync();
     }
 
@@ -381,6 +385,8 @@ public sealed class GitHubAccountViewModel : ObservableObject
         {
             Log.Error("Listing GitHub repos failed", ex);
             _main.Notify($"Couldn't list your GitHub repos: {Friendly(ex)}", error: true);
+            // A revoked or expired token: show it as signed out so the account card offers Sign in instead of looking fine.
+            if (ex is GitHubApiException { Status: System.Net.HttpStatusCode.Unauthorized }) Login = null;
         }
         finally
         {

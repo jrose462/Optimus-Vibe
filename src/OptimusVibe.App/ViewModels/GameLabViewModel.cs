@@ -153,6 +153,8 @@ public sealed class GameLabViewModel : ObservableObject
         {
             if (e.PropertyName == nameof(GitHubAccountViewModel.IsSignedIn) && _main.IsSettingsPage) _ = RefreshAsync(network: true, force: true);
         };
+        // Signing in again as the same user doesn't flip IsSignedIn, so the wizard listens for every completed sign-in too.
+        account.SignedIn += (_, _) => { if (_main.IsSettingsPage) _ = RefreshAsync(network: true, force: true); };
     }
 
     public GitHubAccountViewModel Account { get; }
@@ -384,6 +386,8 @@ public sealed class GameLabViewModel : ObservableObject
                 GoToRepoCommand.Execute(null);
                 return;
             case "scopes":
+                // One sign-in for the whole app: scroll to the GitHub account card, where the code appears.
+                _main.Settings.RequestSection("account");
                 if (Account.SignInCommand.CanExecute(null)) Account.SignInCommand.Execute(null);
                 else _main.Notify("Set up the GitHub sign-in in the GitHub account section first.", error: true);
                 return;

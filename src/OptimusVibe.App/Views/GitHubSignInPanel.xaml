@@ -18,7 +18,7 @@
             </Border>
             <StackPanel Grid.Column="1" Margin="16,0" VerticalAlignment="Center">
                 <TextBlock Text="{Binding AccountText}" Style="{StaticResource Text.H3}" />
-                <TextBlock Text="Your sign-in is kept safely in Windows Credential Manager." Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                <TextBlock Text="One sign-in for your config repo, the game lab and bug reports. Kept in Windows Credential Manager." Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
             </StackPanel>
             <Button Grid.Column="2" Content="Sign out" Command="{Binding SignOutCommand}" VerticalAlignment="Center" />
         </Grid>
