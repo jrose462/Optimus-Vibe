@@ -197,8 +197,9 @@ jobs:
             addl lab:queued
             # Capture first: `cmd | grep -q` under pipefail fails with SIGPIPE when grep exits early on a long input.
             prev=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq '.[].body' 2>/dev/null || true)
-            if ! grep -qF '<!-- optimus-vibe:lab-queued v1 -->' <<<"$prev"; then
-              say "<!-- optimus-vibe:lab-queued v1 -->
+            # Dated marker, once per UTC day: the app reads it and stops starting this request again until tomorrow.
+            if ! grep -qF "<!-- optimus-vibe:lab-queued v1 $today -->" <<<"$prev"; then
+              say "<!-- optimus-vibe:lab-queued v1 $today -->
           Daily limit reached ($DAILY_MAX game-lab runs per UTC day); it will run when you open the app tomorrow or press Run now."
             fi
             stop "Daily limit reached; #$ISSUE stays queued."

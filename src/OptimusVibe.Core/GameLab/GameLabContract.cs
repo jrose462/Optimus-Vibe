@@ -29,6 +29,9 @@ public static class GameLabContract
 {
     public const string WorkflowFile = "game-lab.yml";
     public const string SecretName = "CLAUDE_CODE_OAUTH_TOKEN";
+
+    /// <summary>The gate's daily-limit note: "&lt;!-- optimus-vibe:lab-queued v1 yyyy-MM-dd --&gt;" (UTC day), once per day.</summary>
+    public const string QueuedMarkerPrefix = "<!-- optimus-vibe:lab-queued v1";
     public const string DailyMaxVariable = "GAME_LAB_DAILY_MAX";
     public const string ModelVariable = "GAME_LAB_MODEL";
     public const int DefaultDailyMax = 5;

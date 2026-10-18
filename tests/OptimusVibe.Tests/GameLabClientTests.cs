@@ -259,6 +259,26 @@ public class GameLabClientTests
     }
 
     [Fact]
+    public async Task Drain_does_not_restart_a_request_the_gate_capped_today()
+    {
+        var fake = new FakeLabGitHub();
+        var day = new DateTime(2026, 10, 18, 18, 0, 0, DateTimeKind.Utc);
+        var now = day;
+        var client = new GameLabClient(fake.Api(), FakeLabGitHub.Repo, now: () => now);
+        var body = GameLabContract.RequestBody(new GameLabContract.RequestInfo(LabKind.Refresh, "", "x", "steam", "1", "d", "1"));
+        var issue = fake.Add("q", body, "game-lab", "lab:queued");
+        issue.Comments.Add("<!-- optimus-vibe:lab-queued v1 2026-10-18 -->\nDaily limit reached");
+
+        var capped = await client.DrainQueueAsync();
+        Assert.Null(capped.Dispatched);
+        Assert.Contains("Daily limit", capped.Message);
+        Assert.Empty(fake.Dispatched);
+
+        now = day.AddDays(1); // a new UTC day: try again
+        Assert.Equal(issue.Number, (await client.DrainQueueAsync()).Dispatched);
+    }
+
+    [Fact]
     public async Task Run_now_retries_the_oldest_failed_request_but_the_background_drain_does_not()
     {
         var (fake, client) = Make();

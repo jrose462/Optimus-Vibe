@@ -224,6 +224,9 @@ public sealed class GameLabClient
             return new DrainResult(null, $"Busy: the game-lab workflow is running; {queued.Count} request(s) wait.");
 
         var next = queued[0];
+        // The gate already turned it away today for the daily cap: starting it again would only burn Actions minutes.
+        if (await DailyCapHitTodayAsync(next.Number, ct).ConfigureAwait(false))
+            return new DrainResult(null, $"Daily limit reached; #{next.Number} ({next.Name}) starts after 00:00 UTC.");
         var branch = _branch;
         try { branch = (await _api.GetRepoAsync(_repo, ct).ConfigureAwait(false)).DefaultBranch; }
         catch (GitHubException) { }
@@ -281,6 +284,23 @@ public sealed class GameLabClient
     }
 
     // ------------------------------------------------------------ plumbing
+
+    /// <summary>
+    /// True when the gate posted its daily-limit note on this issue today (UTC): the dated marker
+    /// <c>&lt;!-- optimus-vibe:lab-queued v1 yyyy-MM-dd --&gt;</c>, or the older undated one with today's created_at.
+    /// </summary>
+    private async Task<bool> DailyCapHitTodayAsync(int issue, CancellationToken ct)
+    {
+        var today = _now().ToUniversalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var c in await CommentsAsync(issue, ct).ConfigureAwait(false))
+        {
+            var body = c["body"]?.GetValue<string>() ?? "";
+            if (body.Contains($"{GameLabContract.QueuedMarkerPrefix} {today} -->", StringComparison.Ordinal)) return true;
+            if (body.Contains($"{GameLabContract.QueuedMarkerPrefix} -->", StringComparison.Ordinal)
+                && (c["created_at"]?.GetValue<string>() ?? "").StartsWith(today, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
 
     private async Task<List<JsonNode>> CommentsAsync(int issue, CancellationToken ct) =>
         await _api.GetAllAsync($"repos/{_repo}/issues/{issue}/comments?per_page=100", _repo, null, 20, ct).ConfigureAwait(false);
