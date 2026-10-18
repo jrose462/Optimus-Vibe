@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>optimus-vibe</AssemblyName>
     <RootNamespace>OptimusVibe</RootNamespace>
+    <ApplicationIcon>..\OptimusVibe.App\Assets\app.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

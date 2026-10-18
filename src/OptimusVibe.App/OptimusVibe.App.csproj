@@ -10,6 +10,8 @@
     <AssemblyName>OptimusVibe</AssemblyName>
     <RootNamespace>OptimusVibe.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Save-crystal icon (taskbar, Start, Explorer); regenerate with tools/IconGen. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -18,6 +20,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OptimusVibe.Core\OptimusVibe.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The window icon and the header logo load these as WPF resources (pack://application:,,,/Assets/...). -->
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\app-64.png" />
   </ItemGroup>
 
   <ItemGroup>
