@@ -91,7 +91,7 @@ assumption on ally-x), `targetFps`.
   `big-picture`; leave the other presets' HUD alone), and turn on large/background subtitles if offered.
 - **HDR on** when the game supports it natively (Moonlight/Apollo stream HDR to the TV). Do not set peak/paper
   white brightness: those depend on the TV; tell the user in `notes:` to run the game's HDR calibration once on the
-  TV. Turn HDR **off** in the other presets explicitly if the game stores it in the same file (Steam Cloud).
+  TV. Set the switch in the other presets too (see Shared rules: on for the desktop's own presets, off on the handheld).
 - Cap **120** with `nvidia.FrameRateLimiter: 120` (the stream runs at 120 fps; VRR doesn't cross the stream, so an
   even 120 or 60 matters). Heavy games that can't hold ~110: cap **60** and say so in `description`. With frame gen
   on, leave the in-game limiter off (see "Frame caps").
@@ -122,8 +122,10 @@ assumption on ally-x), `targetFps`.
 - Never change: FOV, gameplay/difficulty, controls/keybinds/sensitivity, HUD/subtitles/accessibility,
   colour-blind modes, audio, language, brightness/gamma/HDR calibration, account/online/crossplay settings.
   Exception, `big-picture` only: HUD/UI scale, subtitle size/background and the HDR on/off switch (never the HDR
-  calibration values). Every other preset must then set HDR off and leave HUD scale and subtitle size at the
-  game's default (put those defaults in `profiles.base`) so switching back from the TV restores them.
+  calibration values). Every other preset must then set HUD scale and subtitle size back to the game's default (put
+  those defaults in `profiles.base`) and set the HDR switch explicitly so switching back from the TV restores it:
+  `profiles.base` HDR **off** (the handheld panel is SDR), and the desktop's own presets HDR **on** (the owner plays
+  in HDR on the desk monitor; check `devices.yaml`'s description, and ask if another user's desktop is SDR).
 - Frame caps: see the section below.
 - If the game has a quick-preset key that overrides individual keys (e.g. writes "Custom"), set the preset
   value only if the game honours individual keys afterwards; otherwise set the individual keys and the preset
