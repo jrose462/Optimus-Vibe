@@ -102,8 +102,36 @@ jobs:
             exit 0
           fi
           gh issue edit "$ISSUE" --add-label bug-report || true
+
           n=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate \
                 --jq "[.[] | select(.body | contains(\"$QUEUED_MARKER\"))] | length" | awk '{s+=$1} END {print s+0}')
+
+          # ---- screen (no Claude): malformed or exact-duplicate reports never take a weekly squash slot.
+          # The queue skips any issue with a triage:* label, so closing them here costs no Claude usage.
+          # Only reports not yet accepted (no queued comment) are screened, so editing an accepted report never closes it.
+          if [ "$n" -eq 0 ]; then
+            gh label create "triage:malformed" --color cfd3d7 --description "Screen: not a usable app report" 2>/dev/null || true
+            body=$(gh issue view "$ISSUE" --json body --jq .body | tr -d '\r')
+            # "What happened" section, lower-cased, letters/digits/spaces only, whitespace collapsed (same in jq below).
+            norm_jq='(split("## What happened")[1] // "") | split("\n## ")[0] | ascii_downcase | gsub("[^a-z0-9]+"; " ") | ltrimstr(" ") | rtrimstr(" ")'
+            what=$(jq -Rrs "$norm_jq" <<<"$body")
+            if ! grep -q '^## Environment' <<<"$body" || ! grep -q 'App version' <<<"$body" || [ "${#what}" -lt 15 ]; then
+              gh issue edit "$ISSUE" --add-label triage:malformed
+              gh issue close "$ISSUE" --reason "not planned" --comment "Thanks for reporting! This report is missing the details the app adds (what happened, at least a sentence, and the environment), so it can't be looked at. Please send it again from **Report a problem** in the app and describe what you saw."
+              exit 0
+            fi
+            since=$(date -u -d '30 days ago' +%F)
+            dup=$(gh issue list --state all --label bug-report --search "created:>=$since" --limit 200 --json number,body 2>/dev/null \
+                  | jq -r --argjson me "$ISSUE" --arg what "$what" \
+                      "[.[] | select(.number < \$me) | select((.body | gsub(\"\\r\"; \"\") | $norm_jq) == \$what) | .number] | min // empty" \
+                  || true)
+            if [ -n "$dup" ]; then
+              gh issue edit "$ISSUE" --add-label triage:duplicate
+              gh issue close "$ISSUE" --reason "not planned" --comment "Thanks! This is the same report as #$dup, so it's tracked there."
+              exit 0
+            fi
+          fi
+
           if [ "$n" -eq 0 ]; then
             gh issue comment "$ISSUE" --body "$QUEUED_MARKER
           Thanks for the report! It's queued for the **weekly bug squash** (Thursdays): Claude audits it, and real bugs get an
@@ -218,7 +246,7 @@ jobs:
 
       - name: Checkout (no credentials)
         if: steps.window.outputs.go == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -255,7 +283,7 @@ jobs:
       - name: Claude - audit (stronger model)
         if: steps.window.outputs.go == 'true'
         id: audit
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1
         with:
           github_token: ${{ github.token }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -285,7 +313,7 @@ jobs:
       - name: Claude - fix (cheaper model)
         if: steps.decide.outputs.fix == 'true'
         id: fix
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1
         with:
           github_token: ${{ github.token }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -309,7 +337,7 @@ jobs:
 
       - name: Upload results
         if: steps.window.outputs.go == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: squash-${{ matrix.issue }}
           path: .claude-out/
@@ -343,7 +371,7 @@ jobs:
       - name: Download results
         id: dl
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: squash-${{ matrix.issue }}
           path: out
@@ -397,7 +425,7 @@ jobs:
 
       - name: Checkout main (for the fix)
         if: steps.audit.outputs.verdict == 'valid' && steps.audit.outputs.fixable == 'true' && hashFiles('out/fix.patch') != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: repo
           persist-credentials: false
