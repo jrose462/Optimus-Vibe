@@ -3,7 +3,8 @@ name: game-settings-recommender
 description: >-
   Adds a game to Optimus-Vibe or refreshes its recommended graphics presets — researches the game's settings
   file and real key names, confirms them on the machine with `optimus-vibe inspect`, then writes
-  config/games/<id>.yaml with per-device presets (desktop quality/performance, ally-x performance/battery),
+  config/games/<id>.yaml with per-device presets (desktop quality/performance, ally-x performance/battery, and
+  big-picture on each device for a 4K TV),
   validates, dry-runs and commits. Use whenever the user says "add <game> to Optimus-Vibe", "generate/recommend
   graphics settings for <game>", "make presets for <game>", "set up <game> for the Ally/desktop",
   "refresh recommendations" / "the game patched, update its presets", or runs /game-settings-recommender <game>.
@@ -74,9 +75,11 @@ presets:
   desktop:
     quality:     { label, description, targetFps, extends: base, display: inherit, nvidia: {...}, <fileId>: {...} }
     performance: { ... }
+    big-picture: { ..., display: { width: 3840, height: 2160, refresh: 120 } }   # streamed to the TV
   ally-x:
     performance: { ..., display: { width: 1920, height: 1080, refresh: 120 } }
     battery:     { ... }
+    big-picture: { ..., display: { width: 3840, height: 2160, refresh: 120 } }   # docked to the TV
 recommendation: { generated: "YYYY-MM-DD", gameVersion: "...", sources: [ "...", ... ] }
 ```
 
@@ -156,11 +159,12 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
 
 Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
 
-- `profiles.base` holds two kinds of keys: (1) keys with the same value on all four presets (motion blur/film
+- `profiles.base` holds two kinds of keys: (1) keys with the same value on all presets (motion blur/film
   grain/CA off, vsync off, window mode — **borderless** unless the game needs exclusive fullscreen) and (2) a
   **safe default for every toggle that some preset turns on** (RT off, frame gen off, Ray Reconstruction off), so
   presets only override. It is not a place for device-specific values.
-- `presets.desktop.quality` and `.performance`; `presets.ally-x.performance` and `.battery`. Each gets
+- `presets.desktop.quality`, `.performance` and `.big-picture`; `presets.ally-x.performance`, `.battery` and
+  `.big-picture` (TV rules, incl. the HUD/subtitle/HDR exception, in `preset-guidelines.md`). Each gets
   `label` (Title case, the preset name unless a better one fits), `description` (1-2 sentences: what it targets
   and what it trades away; a handheld battery preset must say to pair it with the device silent/low-TDP mode (~13 W), since
   Optimus-Vibe cannot set TDP; plus any in-game steps for settings in a binary store), `targetFps` (integer),
