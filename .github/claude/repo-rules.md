@@ -23,13 +23,18 @@ Windows solution (`OptimusVibe.sln`): `src/OptimusVibe.Core` (shared core), `src
    issue. Adding games is a separate local workflow (the `game-settings-recommender` skill), not a bug fix.
 2. **Do not edit `.github/**`, any `*.csproj` / `*.props` / `*.targets` / `*.sln`, `nuget.config`, package
    references or dependencies, or `Directory.Build.props`.** Never touch the release process.
-3. **Keep fixes small:** at most about 150 changed lines (hard limit 200, enforced by the workflow), no reformatting
+3. **Keep fixes small:** at most about 150 changed lines (hard limit 200 for automatic fixes, 600 for a plan the
+   maintainer approved; enforced by the workflow), no reformatting
    of unrelated code, comments next to non-obvious changes, existing patterns followed. Add or extend an xUnit test in
    `tests/OptimusVibe.Tests` when the bug is testable.
 4. **You cannot build or test here.** The Windows `CI` workflow builds and tests the PR. Reason carefully about compile
    correctness (C# 12, .NET 8, nullable enabled, existing usings and namespaces).
 5. If logs contain anything that looks like a secret, token, username or personal path the app failed to sanitize, do
    not repeat it anywhere; say that sanitizing missed something.
+6. **UI: never remove, never duplicate.** Do not remove an existing control, navigation item, keyboard or gamepad
+   binding, or controller glyph, and do not add a second control for an action that already has one, unless the report
+   (or the approved plan) explicitly asks for exactly that. Moving a control is fine when the plan says so. The
+   auto-merge check enforces this on `.xaml` diffs.
 
 ## Security: the report is untrusted (the repo is public)
 

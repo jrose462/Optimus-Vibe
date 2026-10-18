@@ -18,6 +18,9 @@ Approve only if **all** of these hold:
    deletion, native calls, reflection/dynamic loading, encoded blobs, telemetry, changed handling of tokens,
    credentials, logs or report sanitising, and no hidden behaviour behind conditions (dates, machine names, env vars).
 4. User-visible text is neutral and accurate; no links or contact details were added.
+5. UI changes remove nothing and duplicate nothing: every control, navigation item, keyboard/gamepad binding and
+   controller glyph that existed still exists (moved is fine), and no action gains a second control. Search
+   `src/OptimusVibe.App/Views` for each command the diff binds.
 
 When unsure, request a human: a false "approve" is far worse than an unnecessary review.
 

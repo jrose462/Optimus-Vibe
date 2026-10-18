@@ -145,9 +145,11 @@ jobs:
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
-        contains(github.event.comment.body, '@claude') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-        github.event.comment.user.type != 'Bot')
+        github.event.comment.user.type != 'Bot' &&
+        (contains(github.event.comment.body, '@claude') ||
+          (startsWith(github.event.comment.body, 'approved') &&
+            (contains(github.event.issue.labels.*.name, 'triage:needs-human') || contains(github.event.issue.labels.*.name, 'enhancement')))))
     runs-on: ubuntu-latest
     timeout-minutes: 90           # may wait up to ~65 min for 00:01 PT during standard time
     permissions:
@@ -168,6 +170,7 @@ jobs:
           INPUT_ISSUE: ${{ github.event.inputs.issue }}
           INPUT_STAGE: ${{ github.event.inputs.stage }}
           COMMENT_ISSUE: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
           none() { echo "issues=[]" >> "$GITHUB_OUTPUT"; echo "deadline=0" >> "$GITHUB_OUTPUT"; echo "stage=audit" >> "$GITHUB_OUTPUT"; exit 0; }
@@ -207,6 +210,9 @@ jobs:
               ;;
             issue_comment)
               issues="[$COMMENT_ISSUE]"
+              # The owner's one-word sign-off on a maintainer brief: build the posted plan (no new audit).
+              first=$(printf '%s\n' "$COMMENT_BODY" | head -n 1 | tr -d '\r' | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:].!]*$//')
+              [ "$first" = "approved" ] && stage=approved
               ;;
           esac
           echo "Issues: $issues  stage: $stage  deadline: $deadline"
@@ -280,8 +286,26 @@ jobs:
             { echo "$kind<<$delim"; cat .github/claude/repo-rules.md; echo; cat ".github/claude/$kind-prompt.md"; echo; run_info; echo "$delim"; } >> "$GITHUB_OUTPUT"
           done
 
+      - name: Load the approved plan (approved stage; no new audit)
+        if: steps.window.outputs.go == 'true' && env.STAGE == 'approved'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The plan and title come from the workflow's own audit comment (author github-actions), between markers the
+          # workflow wrote; Claude's text inside it had "<!--" neutralised when it was posted, so the markers can't be faked.
+          gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate \
+            --jq "[.[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$AUDIT_MARKER\")) and (.body | contains(\"<!-- ov:plan -->\")))] | last | .body // \"\"" \
+            | tr -d '\r' > .claude-in/audit-comment.md
+          awk '/^<!-- ov:plan -->$/{f=1; next} /^<!-- ov:plan-end -->$/{f=0} f' .claude-in/audit-comment.md > .claude-out/plan.md
+          title=$(sed -n 's/^<!-- ov:title \(.*\) -->$/\1/p' .claude-in/audit-comment.md | head -n 1 | cut -c1-100)
+          if [ ! -s .claude-out/plan.md ]; then echo "::warning::No posted plan found on #$ISSUE."; rm -f .claude-out/plan.md; exit 0; fi
+          jq -n --arg t "$title" '{verdict: "valid", confidence: "high", fixable_by_small_model: true, title: $t, approved: true}' > .claude-out/audit.json
+          echo "Loaded the approved plan ($(wc -l < .claude-out/plan.md) lines): $title"
+
       - name: Claude - audit (stronger model)
-        if: steps.window.outputs.go == 'true'
+        if: steps.window.outputs.go == 'true' && env.STAGE != 'approved'
         id: audit
         uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1
         with:
@@ -305,12 +329,12 @@ jobs:
         run: |
           git reset --hard -q && git clean -fdq        # excluded .claude-in/.claude-out survive
           go=false
-          if [ "$STAGE" = "audit-and-fix" ] && [ -s .claude-out/plan.md ] \
+          if { [ "$STAGE" = "audit-and-fix" ] || [ "$STAGE" = "approved" ]; } && [ -s .claude-out/plan.md ] \
              && jq -e '.verdict == "valid" and .fixable_by_small_model == true' .claude-out/audit.json >/dev/null 2>&1 \
              && { [ "$DEADLINE" = "0" ] || [ "$(date +%s)" -lt "$DEADLINE" ]; }; then go=true; fi
           echo "fix=$go" >> "$GITHUB_OUTPUT"; echo "Fix stage: $go"
 
-      - name: Claude - fix (cheaper model)
+      - name: Claude - fix (cheaper model; the stronger one for an approved plan)
         if: steps.decide.outputs.fix == 'true'
         id: fix
         uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1
@@ -320,7 +344,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ steps.prompts.outputs.fix }}
           claude_args: >-
-            --model ${{ env.FIX_MODEL }} --max-turns 40
+            --model ${{ env.STAGE == 'approved' && env.AUDIT_MODEL || env.FIX_MODEL }} --max-turns ${{ env.STAGE == 'approved' && '80' || '40' }}
             --allowedTools "${{ env.FIX_TOOLS }}" --disallowedTools "${{ env.DENY_TOOLS }}"
 
       - name: Refused tool calls (fix)
@@ -366,7 +390,9 @@ jobs:
       ISSUE: ${{ matrix.issue }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      MAX_LINES: '200'
+      STAGE: ${{ needs.plan.outputs.stage }}
+      # Automatic fixes stay small; a plan the owner approved may be bigger (still no .github/, project files or binaries).
+      MAX_LINES: ${{ needs.plan.outputs.stage == 'approved' && '600' || '200' }}
     steps:
       - name: Download results
         id: dl
@@ -381,14 +407,25 @@ jobs:
         if: steps.dl.outcome == 'success'
         run: |
           set -uo pipefail
-          for spec in "triage:valid|0e8a16" "triage:duplicate|cfd3d7" "triage:by-design|cfd3d7" "triage:needs-info|fbca04" "triage:not-a-bug|cfd3d7" "triage:suspicious|b60205" "triage:needs-human|d93f0b" "claude-fix|0e8a16"; do
+          for spec in "triage:valid|0e8a16" "triage:feature-request|1d76db" "enhancement|a2eeef" "triage:duplicate|cfd3d7" "triage:by-design|cfd3d7" "triage:needs-info|fbca04" "triage:not-a-bug|cfd3d7" "triage:suspicious|b60205" "triage:needs-human|d93f0b" "claude-fix|0e8a16" "approved-plan|5319e7"; do
             gh label create "${spec%%|*}" --color "${spec##*|}" 2>/dev/null || true
           done
-          verdict=$(jq -r 'if (.verdict | IN("valid","duplicate","by-design","needs-info","not-a-bug","suspicious")) then .verdict else "invalid" end' out/audit.json 2>/dev/null || echo invalid)
+          if [ "$STAGE" = "approved" ]; then
+            # Building a plan the owner approved: no new audit comment; hand the plan's title to the PR step.
+            title=$(jq -r '.title // ""' out/audit.json 2>/dev/null | tr -d '\r\n`' | cut -c1-100)
+            if [ -s out/plan.md ]; then
+              echo "verdict=valid" >> "$GITHUB_OUTPUT"; echo "fixable=true" >> "$GITHUB_OUTPUT"
+              printf 'title<<EOF_T\n%s\nEOF_T\n' "$title" >> "$GITHUB_OUTPUT"
+            else
+              gh issue comment "$ISSUE" --body "Approval received, but there is no posted plan on this issue to build. Comment \`@claude\` to audit it again."
+            fi
+            exit 0
+          fi
+          verdict=$(jq -r 'if (.verdict | IN("valid","feature-request","duplicate","by-design","needs-info","not-a-bug","suspicious")) then .verdict else "invalid" end' out/audit.json 2>/dev/null || echo invalid)
           conf=$(jq -r '.confidence // "" | select(IN("high","medium","low")) // "unknown"' out/audit.json 2>/dev/null || echo unknown)
           fixable=$(jq -r '.fixable_by_small_model == true' out/audit.json 2>/dev/null || echo false)
           dup=$(jq -r '.duplicate_of // "" | tostring' out/audit.json 2>/dev/null | grep -E '^[0-9]+$' || true)
-          title=$(jq -r '.title // ""' out/audit.json 2>/dev/null | tr -d '\r\n`' | cut -c1-100)
+          title=$(jq -r '.title // ""' out/audit.json 2>/dev/null | tr -d '\r\n`<>' | cut -c1-100)   # no <> : it goes into a marker
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"; echo "fixable=$fixable" >> "$GITHUB_OUTPUT"
           printf 'title<<EOF_T\n%s\nEOF_T\n' "$title" >> "$GITHUB_OUTPUT"
           # Claude's text: neutralise @mentions and HTML comments (no fake markers), cap the size.
@@ -402,13 +439,36 @@ jobs:
           [ -n "$dup" ] && body="$body
 
           Duplicate of #$dup"
+          # Work that comes to the owner (a bug too big for the small model, or a feature) carries the full plan between
+          # workflow-written markers and a one-word sign-off; replying "approved" builds exactly this plan into a PR.
+          approval=""
+          if { [ "$verdict" = "valid" ] && [ "$fixable" != "true" ]; } || [ "$verdict" = "feature-request" ]; then
+            if [ -s out/plan.md ]; then
+              approval="
+
+          <details><summary>Implementation plan</summary>
+
+          <!-- ov:title $title -->
+          <!-- ov:plan -->
+          $(clean out/plan.md)
+          <!-- ov:plan-end -->
+
+          </details>
+
+          **To build this, reply \`approved\`** (notes for Claude can go on the lines below it). Claude then implements
+          this plan in a pull request, which CI tests and which always waits for your review before merging."
+            fi
+          fi
           gh issue comment "$ISSUE" --body "$AUDIT_MARKER
           **Weekly bug squash - audit:** \`$verdict\` (confidence: $conf)
 
-          $body"
+          $body$approval"
           case "$verdict" in
             valid)      gh issue edit "$ISSUE" --add-label triage:valid
                         [ "$fixable" = "true" ] || gh issue edit "$ISSUE" --add-label triage:needs-human
+                        gh workflow run project-board.yml -f issue="$ISSUE" -f status=planned || true ;;
+            feature-request)
+                        gh issue edit "$ISSUE" --add-label triage:feature-request --add-label enhancement
                         gh workflow run project-board.yml -f issue="$ISSUE" -f status=planned || true ;;
             needs-info) gh issue edit "$ISSUE" --add-label triage:needs-info
                         gh workflow run project-board.yml -f issue="$ISSUE" -f status=planned || true ;;
@@ -459,7 +519,7 @@ jobs:
           git apply --index ../out/fix.patch
           [ -n "$TITLE" ] || TITLE="fix: resolve #$ISSUE"
           git -c user.name="optimus-vibe-bugsquash[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -q -m "$TITLE" -m "Fixes #$ISSUE" -m "Automated by the weekly Claude bug squash (audit: ${{ env.AUDIT_MODEL }}, fix: ${{ env.FIX_MODEL }})."
+            commit -q -m "$TITLE" -m "Fixes #$ISSUE" -m "$( [ "$STAGE" = "approved" ] && echo "Built from the plan the maintainer approved on #$ISSUE (model: ${{ env.AUDIT_MODEL }})." || echo "Automated by the weekly Claude bug squash (audit: ${{ env.AUDIT_MODEL }}, fix: ${{ env.FIX_MODEL }}).")"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "$branch"
 
           clean() { head -c 20000 "$1" 2>/dev/null | sed -e 's/@/@\xe2\x80\x8b/g' -e 's/<!--/\&lt;!--/g'; }
@@ -467,12 +527,18 @@ jobs:
                    "$ISSUE" "$(clean ../out/summary.md)" "$(clean ../out/plan.md)")
           pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
           if [ -z "$pr" ]; then
-            url=$(gh pr create --base main --head "$branch" --title "$TITLE" --body "$body" --label claude-fix)
+            labels=claude-fix; [ "$STAGE" = "approved" ] && labels="claude-fix,approved-plan"
+            url=$(gh pr create --base main --head "$branch" --title "$TITLE" --body "$body" --label "$labels")
             pr="${url##*/}"
           fi
           # PRs and pushes made with GITHUB_TOKEN don't trigger workflows, so start CI and the board update explicitly.
           gh workflow run ci.yml --ref "$branch" || true
           gh workflow run project-board.yml -f issue="$ISSUE" -f status=fix-in-pr -f pr="$pr" || true
-          # Low-risk fixes may auto-merge after CI + policy scan + an independent review (claude-automerge.yml).
-          gh workflow run claude-automerge.yml -f pr="$pr" || true
+          if [ "$STAGE" = "approved" ]; then
+            # The owner approved the plan, not the code: an approved build always waits for their review.
+            gh issue comment "$ISSUE" --body "Built the approved plan: #$pr. CI is testing it; it waits for your review before merging."
+          else
+            # Low-risk fixes may auto-merge after CI + policy scan + an independent review (claude-automerge.yml).
+            gh workflow run claude-automerge.yml -f pr="$pr" || true
+          fi
           echo "Opened PR #$pr for #$ISSUE"
