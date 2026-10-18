@@ -6,6 +6,7 @@
         xmlns:input="clr-namespace:OptimusVibe.App.Input"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Optimus-Vibe"
+        Icon="/Assets/app.ico"
         Width="1360" Height="880" MinWidth="880" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBackgroundBrush}"
@@ -61,10 +62,13 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <!-- TODO(app icon): when Assets/app.ico lands, add a 20-24px logo Image here, left of the title
-                     (make column 0 a horizontal StackPanel: Image then the "Optimus-Vibe" TextBlock). -->
-                <TextBlock Text="Optimus-Vibe" FontFamily="{StaticResource DisplayFont}" FontSize="{DynamicResource HeaderTitleSize}" FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
+                <!-- logo + name; part of the draggable caption (not hit-testable in chrome) -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Image Source="/Assets/app-64.png" Width="24" Height="24" Margin="0,0,10,0" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="Optimus-Vibe logo" />
+                    <TextBlock Text="Optimus-Vibe" FontFamily="{StaticResource DisplayFont}" FontSize="{DynamicResource HeaderTitleSize}" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True">
                     <!-- non-modal: a newer release exists (silent daily check) -->
