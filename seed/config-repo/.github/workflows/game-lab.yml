@@ -232,13 +232,13 @@ jobs:
       ISSUE: ${{ needs.gate.outputs.issue }}
     steps:
       - name: Checkout the config repo (no credentials)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: config-repo
           persist-credentials: false
 
       - name: Checkout the Optimus-Vibe skill and notes (public)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ env.APP_REPO }}
           ref: main
@@ -295,7 +295,7 @@ jobs:
 
       - name: Claude - research
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1
         with:
           github_token: ${{ github.token }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -329,7 +329,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: game-lab-${{ github.run_id }}
           path: .claude-out/
@@ -381,7 +381,7 @@ jobs:
       - name: Download results
         id: dl
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: game-lab-${{ github.run_id }}
           path: out
@@ -491,7 +491,7 @@ jobs:
 
       - name: Checkout the config repo
         if: steps.triage.outputs.mode == 'apply'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: config-repo
