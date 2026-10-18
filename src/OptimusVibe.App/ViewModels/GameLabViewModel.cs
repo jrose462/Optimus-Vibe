@@ -481,9 +481,14 @@ public sealed class GameLabViewModel : ObservableObject
     /// <summary>The queue's home: the project board, else the repo's open lab requests.</summary>
     public async Task OpenQueueAsync()
     {
-        var s = await SettingsStore.LoadAsync();
-        var conn = await Task.Run(() => _service.Connect(s, _main.Session?.Paths, out _));
-        var url = conn is null ? null : await Task.Run(() => _service.BoardUrlAsync(conn));
+        string? url = null;
+        try
+        {
+            var s = await SettingsStore.LoadAsync();
+            var conn = await Task.Run(() => _service.Connect(s, _main.Session?.Paths, out _));
+            url = conn is null ? null : await Task.Run(() => _service.BoardUrlAsync(conn));
+        }
+        catch (Exception ex) { Log.Warn($"Game lab: finding the board failed: {ex.Message}"); } // offline: fall back to the issues page
         if (url is not null) OpenUrl(url);
         else if (_repo is not null) OpenUrl($"https://github.com/{_repo.Repo}/issues?q=is%3Aissue+is%3Aopen+label%3Agame-lab");
         else _main.OpenSettings("gamelab");
