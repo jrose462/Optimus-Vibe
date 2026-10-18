@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Web;
@@ -136,6 +136,7 @@ public sealed class FakeLabGitHub : HttpMessageHandler
     public bool Squash { get; set; }
     public bool DeleteBranch { get; set; }
     public bool AutoMerge { get; set; }
+    public bool AutoMergeUnavailable { get; set; }
     public bool RejectWorkflowFiles { get; set; }
 
     public FakeLabGitHub() => _git = new HttpMessageInvoker(Git, disposeHandler: false);
@@ -201,9 +202,15 @@ public sealed class FakeLabGitHub : HttpMessageHandler
             });
         if (rest == "" && method == HttpMethod.Patch)
         {
-            Squash = body!["allow_squash_merge"]!.GetValue<bool>();
-            DeleteBranch = body["delete_branch_on_merge"]!.GetValue<bool>();
-            AutoMerge = body["allow_auto_merge"]!.GetValue<bool>();
+            if (body!["allow_squash_merge"] is { } sq) Squash = sq.GetValue<bool>();
+            if (body["delete_branch_on_merge"] is { } db) DeleteBranch = db.GetValue<bool>();
+            if (body["allow_auto_merge"] is { } am)
+            {
+                // Free-plan private repos: GitHub refuses auto-merge.
+                if (AutoMergeUnavailable)
+                    return new HttpResponseMessage(HttpStatusCode.UnprocessableEntity) { Content = new StringContent("{\"message\":\"Validation Failed\"}") };
+                AutoMerge = am.GetValue<bool>();
+            }
             return FakeGitHub.Json(new JsonObject());
         }
         if (rest == "/actions/permissions")

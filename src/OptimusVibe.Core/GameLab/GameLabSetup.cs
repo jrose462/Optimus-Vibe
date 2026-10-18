@@ -398,7 +398,9 @@ public sealed class GameLabSetup
         {
             public bool ActionsOk => ActionsEnabled;
             public bool WorkflowOk => WorkflowPermissions == "read" && CanApprove;
-            public bool RepoOk => Squash && DeleteBranch && AutoMerge;
+            // allow_auto_merge is nice-to-have only: GitHub refuses it for private repos on the Free plan, and the
+            // game-lab workflow merges directly after validation, so it is never required.
+            public bool RepoOk => Squash && DeleteBranch;
         }
 
         private async Task<State> ReadAsync(CancellationToken ct)
@@ -425,7 +427,6 @@ public sealed class GameLabSetup
             if (!st.CanApprove) todo.Add("let Actions create and approve pull requests");
             if (!st.Squash) todo.Add("allow squash merge");
             if (!st.DeleteBranch) todo.Add("delete branch on merge");
-            if (!st.AutoMerge) todo.Add("allow auto-merge");
             return todo.Count == 0 ? new SetupCheck(true, "Actions, workflow permissions and merge settings are right.") : new SetupCheck(false, "To change: " + string.Join("; ", todo) + ".");
         }
 
@@ -447,8 +448,18 @@ public sealed class GameLabSetup
             if (!st.RepoOk)
             {
                 await s._api.RequestAsync(HttpMethod.Patch, $"repos/{s.R}",
-                    new JsonObject { ["allow_squash_merge"] = true, ["delete_branch_on_merge"] = true, ["allow_auto_merge"] = true }, s.R, true, ct).ConfigureAwait(false);
+                    new JsonObject { ["allow_squash_merge"] = true, ["delete_branch_on_merge"] = true }, s.R, true, ct).ConfigureAwait(false);
                 changed.Add("merge settings");
+            }
+            if (!st.AutoMerge)
+            {
+                // Best effort, separately: on a Free-plan private repo GitHub ignores or rejects this, which is fine.
+                try
+                {
+                    await s._api.RequestAsync(HttpMethod.Patch, $"repos/{s.R}", new JsonObject { ["allow_auto_merge"] = true }, s.R, true, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (GitHubException) { }
             }
             return new SetupResult(true, changed.Count == 0 ? "Repository settings already right." : "Updated " + string.Join(", ", changed) + ".");
         }

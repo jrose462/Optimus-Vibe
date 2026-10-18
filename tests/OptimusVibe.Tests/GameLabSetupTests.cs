@@ -210,6 +210,25 @@ public class GameLabSetupTests
         Assert.Empty(GitHubAuth.MissingScopes(null)); // fine-grained: unknown, not missing
         Assert.Equal("repo workflow project", GitHubAuth.Scopes);
     }
+
+    [Fact]
+    public async Task Settings_step_passes_on_a_free_private_repo_that_refuses_auto_merge()
+    {
+        var fake = new FakeLabGitHub { Scopes = "repo, workflow", AutoMergeUnavailable = true };
+        var setup = Setup(fake, new GameLabSetupOptions { ClaudeToken = "sk-ant-oat01-x" });
+
+        var results = await setup.RunAllAsync();
+
+        var settings = results.Single(r => r.Step.Name == "settings").Result;
+        Assert.True(settings.Ok, settings.Message);
+        Assert.True(fake.Squash);
+        Assert.True(fake.DeleteBranch);
+        Assert.False(fake.AutoMerge);
+
+        // a second check doesn't ask for auto-merge again
+        var again = await setup.RunAllAsync();
+        Assert.True(again.Single(r => r.Step.Name == "settings").Result.Ok);
+    }
 }
 
 public class GameLabEmbeddedFilesTests
