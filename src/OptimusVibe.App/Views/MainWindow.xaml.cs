@@ -63,7 +63,7 @@ public partial class MainWindow : Window, IGamepadActions
         var maximized = WindowState == WindowState.Maximized;
         // A WindowChrome window maximizes with its resize border hanging off the screen edges: pull the content back in.
         RootGrid.Margin = maximized ? SystemParameters.WindowResizeBorderThickness : new Thickness(0);
-        MaxRestoreButton.Content = maximized ? "E923" : "E922"; // Fluent: restore / maximize
+        MaxRestoreButton.Content = maximized ? "" : ""; // Fluent: restore / maximize
         MaxRestoreButton.Command = maximized ? SystemCommands.RestoreWindowCommand : SystemCommands.MaximizeWindowCommand;
         MaxRestoreButton.ToolTip = maximized ? "Restore" : "Maximize";
         System.Windows.Automation.AutomationProperties.SetName(MaxRestoreButton, maximized ? "Restore" : "Maximize");
