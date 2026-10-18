@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using OptimusVibe.App.Input;
 using OptimusVibe.App.Services;
@@ -50,7 +51,28 @@ public partial class MainWindow : Window, IGamepadActions
         vm.RestoreRequested += RestoreFromGame;
         SourceInitialized += (_, _) => UseDarkTitleBar();
         Activated += (_, _) => _vm.OnWindowActivated();
+
+        // Title bar: the header row is the caption; keep CaptionHeight equal to it, and compensate the maximized overflow.
+        HeaderBar.SizeChanged += (_, e) => WindowChrome.GetWindowChrome(this).CaptionHeight = e.NewSize.Height;
+        StateChanged += (_, _) => UpdateWindowState();
+        UpdateWindowState();
     }
+
+    private void UpdateWindowState()
+    {
+        var maximized = WindowState == WindowState.Maximized;
+        // A WindowChrome window maximizes with its resize border hanging off the screen edges: pull the content back in.
+        RootGrid.Margin = maximized ? SystemParameters.WindowResizeBorderThickness : new Thickness(0);
+        MaxRestoreButton.Content = maximized ? "" : "";
+        MaxRestoreButton.Command = maximized ? SystemCommands.RestoreWindowCommand : SystemCommands.MaximizeWindowCommand;
+        MaxRestoreButton.ToolTip = maximized ? "Restore" : "Maximize";
+        System.Windows.Automation.AutomationProperties.SetName(MaxRestoreButton, maximized ? "Restore" : "Maximize");
+    }
+
+    private void OnMinimize(object sender, ExecutedRoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
+    private void OnMaximize(object sender, ExecutedRoutedEventArgs e) => SystemCommands.MaximizeWindow(this);
+    private void OnRestore(object sender, ExecutedRoutedEventArgs e) => SystemCommands.RestoreWindow(this);
+    private void OnClose(object sender, ExecutedRoutedEventArgs e) => SystemCommands.CloseWindow(this);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
