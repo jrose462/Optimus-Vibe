@@ -194,6 +194,20 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- a "This device" count that is also a status filter (click / tap; LB / RB keep doing it on a controller): highlighted while active -->
+        <Style x:Key="MetricFilter" TargetType="Button" BasedOn="{StaticResource Button.Quiet}">
+            <Setter Property="Padding" Value="8,4,10,4" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Command" Value="{Binding ToggleStatusFilterCommand}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
@@ -224,9 +238,18 @@
                             <Run Text="{Binding DeviceName, Mode=OneWay}" />
                         </TextBlock>
                         <UniformGrid Columns="3" Margin="0,20,0,2">
-                            <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
-                            <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
-                            <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
+                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.Managed}" Tag="{Binding IsTunedFilter}"
+                                    ToolTip="Show only tuned games (again for all)" AutomationProperties.Name="Filter: tuned">
+                                <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
+                            </Button>
+                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.NeedsPresets}" Tag="{Binding IsWaitingFilter}"
+                                    ToolTip="Show only games waiting for presets (again for all)" AutomationProperties.Name="Filter: waiting">
+                                <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
+                            </Button>
+                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.OptedOut}" Tag="{Binding IsOptedOutFilter}"
+                                    ToolTip="Show only opted-out games (again for all)" AutomationProperties.Name="Filter: opted out">
+                                <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
+                            </Button>
                         </UniformGrid>
                     </StackPanel>
                 </Border>
@@ -256,9 +279,18 @@
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="&#xE7F8;" FontFamily="{StaticResource IconFont}" FontSize="16" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
                             <TextBlock Text="{Binding DeviceName, Mode=OneWay}" Style="{StaticResource Text.Dim}" VerticalAlignment="Center" Margin="8,0,22,0" TextWrapping="NoWrap" />
-                            <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" Margin="0,0,20,0" />
-                            <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" Margin="0,0,20,0" />
-                            <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" Margin="0,0,20,0" />
+                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.Managed}" Tag="{Binding IsTunedFilter}" Margin="0,0,10,0"
+                                    ToolTip="Show only tuned games (again for all)" AutomationProperties.Name="Filter: tuned">
+                                <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
+                            </Button>
+                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.NeedsPresets}" Tag="{Binding IsWaitingFilter}" Margin="0,0,10,0"
+                                    ToolTip="Show only games waiting for presets (again for all)" AutomationProperties.Name="Filter: waiting">
+                                <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
+                            </Button>
+                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.OptedOut}" Tag="{Binding IsOptedOutFilter}" Margin="0,0,10,0"
+                                    ToolTip="Show only opted-out games (again for all)" AutomationProperties.Name="Filter: opted out">
+                                <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
+                            </Button>
                             <Button Style="{StaticResource Button.Quiet}" Command="{Binding OpenQueueCommand}" Padding="0" VerticalAlignment="Center"
                                     ToolTip="See the requests on your game lab board" AutomationProperties.Name="Queued games"
                                     Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
