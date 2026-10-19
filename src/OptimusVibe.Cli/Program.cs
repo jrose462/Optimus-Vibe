@@ -53,7 +53,7 @@ public static class Program
             SteamCommands.SteamOptionsCommand(),
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
             CloudCheckCommands.CloudCheckCommand(), DeviceCommands.DevicesCommand(),
-            GameLabCommands.LabCommand(),
+            GameLabCommands.LabCommand(), OutboxCommands.OutboxCommand(),
         };
         return root.Parse(args).Invoke();
     }

@@ -4,6 +4,7 @@ using OptimusVibe.Devices;
 using OptimusVibe.Engine;
 using OptimusVibe.Feedback;
 using OptimusVibe.Logging;
+using OptimusVibe.Outbox;
 using OptimusVibe.Sync;
 using OptimusVibe.Updates;
 
@@ -148,8 +149,13 @@ internal static class AppCommands
             Console.WriteLine(BugReport.DescribeIdentity(identity, login) + ".");
             if (identity != BugReport.ReportIdentity.Browser)
             {
-                var url = BugReport.SubmitAsync(draft, userToken).GetAwaiter().GetResult();
-                Console.WriteLine($"Bug report filed: {url}");
+                var outcome = OutboxFlow.SendBugReportAsync(new OutboxStore(), draft, userToken).GetAwaiter().GetResult();
+                if (outcome.WasQueued)
+                {
+                    Console.WriteLine(OutboxCommands.OfflineQueued);
+                    return 0;
+                }
+                Console.WriteLine($"Bug report filed: {outcome.Url}");
                 return 0;
             }
 

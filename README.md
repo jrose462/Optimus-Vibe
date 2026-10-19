@@ -261,6 +261,11 @@ start, every 15 minutes, when you come back to the window, and, for at most abou
 **After you quit a game** that changed its settings, a full-screen, controller-friendly prompt offers **A** Save, **Y** Save as...,
 **B** Don't save, **X** Don't ask again for this game (turn it back on from the game's page). It closes without saving after 2 minutes.
 
+**Offline.** Bug reports and game-lab requests made without a connection are saved on this PC and sent by themselves when you are
+back online (the app checks when the network returns, after you sign in and every 5 minutes). A **N waiting** button appears in
+the header while anything is waiting; click it to see the items, **Send now** or **Discard** one. From the command line,
+`optimus-vibe outbox list` shows them and `optimus-vibe outbox send` sends them.
+
 ## Appearance
 
 Settings → **Appearance** picks the colours for this machine: **Default** (navy and teal), **Majestic** (black and gold)
@@ -314,6 +319,7 @@ Global options: `--config <dir>` (config root), `--profile <device>` (override d
 | `version` | Show this build's version |
 | `update-app [--check]` | Update `optimus-vibe.exe` (and `OptimusVibe.exe` next to it, unless it's running) from the latest release of the app repo; `--check` only reports whether a newer release exists |
 | `report-bug <description> [--game <game>] [--dry-run]` | File a bug report on the app repo, or print it with `--dry-run` (same as **Report a problem** in the app) |
+| `outbox list` / `outbox send` | Show or send the reports and game-lab requests that were saved while offline |
 | `detect` | Show detected hardware and the matched device |
 | `inspect <game> [--full]` | Show resolved paths, current values vs the active preset, and file contents |
 | `list` | List configured games with the active preset, available presets, and number of manual saves |
