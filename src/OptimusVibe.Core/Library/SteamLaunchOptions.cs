@@ -66,6 +66,27 @@ public static class SteamLaunchOptions
         return !IsSteamRunning();
     }
 
+    /// <summary>Start Steam again (after <see cref="ExitSteam"/>): steam.exe from the Steam folder, else the steam:// handler.</summary>
+    public static bool StartSteam(string? steamRoot = null)
+    {
+        if (IsSteamRunning()) return true;
+        try
+        {
+            var root = new SteamLocator(steamRoot).SteamRoot;
+            var exe = root is null ? null : Path.Combine(root, "steam.exe");
+            var psi = exe is not null && File.Exists(exe)
+                ? new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = root! }
+                : new ProcessStartInfo("steam://open/main") { UseShellExecute = true };
+            Process.Start(psi)?.Dispose();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not start Steam", ex);
+            return false;
+        }
+    }
+
     // ------------------------------------------------------------------ locations
 
     /// <summary>
@@ -134,6 +155,19 @@ public static class SteamLaunchOptions
                 && int.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
                 result[id] = opt;
         return result;
+    }
+
+    /// <summary>
+    /// Read localconfig.vdf back and return the changes whose launch option is not what was written (empty = all took).
+    /// No Steam account folder = nothing could be checked, so every change is returned.
+    /// </summary>
+    public static IReadOnlyList<LaunchOptionChange> Verify(IReadOnlyList<LaunchOptionChange> changes, string? accountDir = null)
+    {
+        if (changes.Count == 0) return [];
+        var dir = accountDir ?? AccountDir();
+        if (dir is null) return changes;
+        var now = GetAll(dir);
+        return changes.Where(c => (now.TryGetValue(c.AppId, out var v) ? v : "") != (c.After ?? "")).ToList();
     }
 
     // ------------------------------------------------------------------ compose / strip

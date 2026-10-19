@@ -112,9 +112,10 @@
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
-                        <Button Style="{StaticResource Button.Primary}" Focusable="False" Command="{Binding PlayCommand}" MinWidth="120"
-                                ToolTip="{Binding PlayHint}" AutomationProperties.Name="Play">
-                            <StackPanel Orientation="Horizontal">
+                        <Button Focusable="False" Command="{Binding PlayCommand}" MinWidth="120"
+                                ToolTip="{Binding PlayHint}" AutomationProperties.Name="Play"
+                                Background="{DynamicResource TileHoverButtonBrush}">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                 <views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" />
                                 <TextBlock Text="&#xE768;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
                                 <TextBlock Text="Play" />

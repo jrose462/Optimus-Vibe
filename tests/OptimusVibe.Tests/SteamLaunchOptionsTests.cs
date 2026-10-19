@@ -248,6 +248,20 @@ public sealed class SteamLaunchOptionsFileTests : IDisposable
     }
 
     [Fact]
+    public void Verify_EmptyAfterApply_ListsChangesThatDidNotTake()
+    {
+        var changes = SteamLaunchOptions.Plan([(1091500, "cyberpunk2077"), (999, "newgame")], [1245620], Exe, _account);
+        Assert.Equal(3, SteamLaunchOptions.Verify(changes, _account).Count); // nothing written yet
+
+        SteamLaunchOptions.Apply(changes, _account, isSteamRunning: () => false, backupDir: _backups.Path);
+        Assert.Empty(SteamLaunchOptions.Verify(changes, _account)); // incl. the cleared one (After "" / null)
+
+        // Steam rewrote one option after us (e.g. it was still running): reported
+        SteamLaunchOptions.Apply([new LaunchOptionChange(999, "newgame", null, "-novid")], _account, () => false, _backups.Path);
+        Assert.Equal([999], SteamLaunchOptions.Verify(changes, _account).Select(c => c.AppId));
+    }
+
+    [Fact]
     public void Apply_NothingToDo_WritesNothing()
     {
         Assert.Null(SteamLaunchOptions.Apply([], _account, () => true, _backups.Path));

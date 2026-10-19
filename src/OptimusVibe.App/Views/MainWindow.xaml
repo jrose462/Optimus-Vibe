@@ -367,9 +367,9 @@
                             <StackPanel DockPanel.Dock="Top">
                                 <TextBlock Text="Steam launch options" Style="{StaticResource Text.OverlayTitle}" />
                                 <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                           Text="Pick the games whose Steam launch option should be updated. Steam is closed first." />
+                                           Text="Pick the games whose Steam launch option should be updated. Optimus-Vibe closes Steam, makes the change, checks it and reopens Steam." />
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                           Text="Unticked games keep their current Steam launch option; change this per game on its page." />
+                                           Text="Games whose settings sync between devices, or might, start ticked; games confirmed (medium or high confidence) to keep their settings on this device start unticked. Unticked games keep their current Steam launch option; change this per game on its page." />
                             </StackPanel>
 
                             <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
@@ -395,6 +395,7 @@
                                                     <TextBlock Style="{StaticResource Text.Caption}" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis">
                                                         <Run Text="{Binding BeforeText, Mode=OneWay}" /><Run Text="  →  " /><Run Text="{Binding AfterText, Mode=OneWay}" />
                                                     </TextBlock>
+                                                    <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding SyncText}" TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
                                             </CheckBox>
                                         </DataTemplate>

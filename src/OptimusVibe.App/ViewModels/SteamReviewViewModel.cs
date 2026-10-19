@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Input;
+using OptimusVibe.CloudSync;
 using OptimusVibe.Library;
 
 namespace OptimusVibe.App.ViewModels;
@@ -9,18 +10,35 @@ namespace OptimusVibe.App.ViewModels;
 public sealed class SteamReviewItem : ObservableObject
 {
     private readonly Action _changed;
-    private bool _isChecked = true;
+    private bool _isChecked;
 
-    public SteamReviewItem(LaunchOptionChange change, string name, Action changed)
+    public SteamReviewItem(LaunchOptionChange change, string name, SyncBucket bucket, bool confirmed, string syncText, Action changed)
     {
         Change = change;
         Name = name;
+        Bucket = bucket;
+        SyncText = syncText;
         _changed = changed;
+        _isChecked = DefaultChecked(change, bucket, confirmed);
     }
 
     public LaunchOptionChange Change { get; }
     public string Name { get; }
     public string Key => $"steam:{Change.AppId}";
+
+    /// <summary>Do this game's graphics settings travel between devices (the library's "Settings sync" bucket)?</summary>
+    public SyncBucket Bucket { get; }
+
+    /// <summary>"Syncs between devices · high confidence", "Maybe syncs · not known yet", ...</summary>
+    public string SyncText { get; }
+
+    /// <summary>
+    /// Ticked by default unless the game's settings are confirmed (medium or high confidence, seen on this device) to stay
+    /// on this device: games that sync, or might (unknown, low confidence, research only), are where another device can
+    /// overwrite this one's preset. Removing our wrapper (opted-out game) is always ticked.
+    /// </summary>
+    public static bool DefaultChecked(LaunchOptionChange change, SyncBucket bucket, bool confirmed) =>
+        !SteamLaunchOptions.IsWrapped(change.After) || bucket != SyncBucket.StaysOnDevice || !confirmed;
 
     /// <summary>The first row takes the keyboard / gamepad focus when the panel opens.</summary>
     public bool IsFirst { get; init; }
@@ -33,7 +51,7 @@ public sealed class SteamReviewItem : ObservableObject
 
     public string BeforeText => Compact(Change.Before);
     public string AfterText => Compact(Change.After);
-    public string ToolTipText => $"Before: {Change.Before ?? "(none)"}\nAfter: {Change.After ?? "(none)"}";
+    public string ToolTipText => $"Before: {Change.Before ?? "(none)"}\nAfter: {Change.After ?? "(none)"}\nSettings: {SyncText}";
 
     private const int MaxLength = 64;
 
@@ -50,8 +68,9 @@ public sealed class SteamReviewItem : ObservableObject
 }
 
 /// <summary>
-/// "Review Steam launch options" panel: every planned change with a checkbox. Applying writes only the ticked ones
-/// (after closing Steam, same as the banner's apply-all); unticked games go to steamLaunchOptionsSkip in library.yaml so
+/// "Review Steam launch options" panel: every planned change with a checkbox and whether the game's settings sync
+/// between devices (ticked by default unless they confidently stay on this device). Applying writes only the ticked ones
+/// (closing Steam, checking the result and reopening Steam, same as the banner's apply-all); unticked games go to steamLaunchOptionsSkip in library.yaml so
 /// they are not proposed again.
 /// </summary>
 public sealed class SteamReviewViewModel : ObservableObject
@@ -85,9 +104,13 @@ public sealed class SteamReviewViewModel : ObservableObject
     {
         Items.Clear();
         foreach (var c in changes
-                     .Select(c => (c, name: _main.Library.SteamGameName(c.AppId, c.GameId)))
+                     .Select(c => (c, name: _main.Library.SteamGameName(c.AppId, c.GameId), tile: _main.Library.FindBySteamAppId(c.AppId)))
                      .OrderBy(x => x.name, StringComparer.CurrentCultureIgnoreCase))
-            Items.Add(new SteamReviewItem(c.c, c.name, RaiseSelection) { IsFirst = Items.Count == 0 });
+        {
+            var bucket = c.tile?.SyncBucket ?? SyncBucket.Maybe;
+            var text = c.tile?.SyncLabel ?? LibraryTileViewModel.SyncLabelFor(SyncBucket.Maybe, null);
+            Items.Add(new SteamReviewItem(c.c, c.name, bucket, c.tile?.SyncConfirmed ?? false, text, RaiseSelection) { IsFirst = Items.Count == 0 });
+        }
         RaiseSelection();
         IsOpen = true;
     }

@@ -224,9 +224,9 @@ for Claude's weekly bug squash (Thursdays, Pacific time): Claude audits them and
   sync status is unknown.
 - **Filters**: two rows of pills above the covers, combinable. The first row is the status (All, Tuned, Needs presets,
   Opted out; LB / RB on a controller switch it). The second row, **Settings sync**, shows whether a game's settings
-  travel between your devices: *Stays on device* (the check found medium or high confidence that they are per machine),
-  *Syncs* (medium or better confidence, or settings were seen arriving from another device) or *Maybe* (unknown, low
-  confidence, not checked yet). Every pill shows its count, and each tile carries a small cloud, device or question-mark
+  travel between your devices, with the same answer the game's page gives: *Stays on device* or *Syncs* (from the
+  check on this device, else from the game's research; settings seen arriving from another device always count as
+  *Syncs*) or *Maybe* (neither the check nor research has an answer yet). Every pill shows its count, and each tile carries a small cloud, device or question-mark
   glyph with the reason as its tooltip. On a controller, press D-pad down from the status pills (or up from the first row
   of covers) to reach the sync row.
 - **Request queue**: an installed game with no config is added to `config/requests.yaml` (store, id, name,
@@ -388,12 +388,17 @@ Every managed Steam game needs this launch option (Properties → Launch Options
 
 **The app writes it for you**: for every managed Steam game it sets the option (keeping anything else you had
 there), and removes it again when you opt a game out. Steam overwrites its config while running, so the app only
-writes while Steam is closed: it offers to close Steam, or does it the next time Steam is not running. To manage
+writes while Steam is closed: it offers to close Steam itself, writes the options, reads them back to check them and
+reopens Steam (or it writes them the next time Steam is not running). To manage
 launch options yourself, turn this off in Settings (or `"writeSteamLaunchOptions": false` in
 `%LOCALAPPDATA%\OptimusVibe\settings.json`); `optimus-vibe steam-options` shows and applies the changes by hand.
 
 **Choose which games get it**: when changes are waiting, the banner has a **Review…** button listing each game with a
-checkbox and its launch option before and after; **Apply selected** closes Steam and writes only the ticked ones.
+checkbox, its launch option before and after, and whether its graphics settings sync between your devices (with the
+confidence: *Syncs between devices · high confidence*, *Maybe syncs · not known yet*, *Stays on this device · medium
+confidence*, *· from research*). Games that sync or might are ticked by default; games confirmed on this device
+(medium or high confidence) to keep their settings there start unticked.
+**Apply selected** closes Steam, writes only the ticked ones, checks them and reopens Steam.
 Unticked games (and any game whose page has *Keep Steam launch option up to date* switched off) go to
 `steamLaunchOptionsSkip` in `config/library.yaml` (synced), so Optimus-Vibe never touches their launch option, whether
 to add or remove it. From the CLI: `optimus-vibe steam-options <game> --skip` / `--unskip`; `--sync-all` respects the list.
