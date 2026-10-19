@@ -12,14 +12,14 @@ public sealed class SteamReviewItem : ObservableObject
     private readonly Action _changed;
     private bool _isChecked;
 
-    public SteamReviewItem(LaunchOptionChange change, string name, SyncBucket bucket, string syncText, Action changed)
+    public SteamReviewItem(LaunchOptionChange change, string name, SyncBucket bucket, bool confirmed, string syncText, Action changed)
     {
         Change = change;
         Name = name;
         Bucket = bucket;
         SyncText = syncText;
         _changed = changed;
-        _isChecked = DefaultChecked(change, bucket);
+        _isChecked = DefaultChecked(change, bucket, confirmed);
     }
 
     public LaunchOptionChange Change { get; }
@@ -33,12 +33,12 @@ public sealed class SteamReviewItem : ObservableObject
     public string SyncText { get; }
 
     /// <summary>
-    /// Ticked by default when the game's settings sync (medium+ confidence) or might (unknown / low confidence): there
-    /// another device can overwrite this one's preset. Games that confidently keep their settings on this device start
-    /// unticked. Removing our wrapper (opted-out game) is always ticked.
+    /// Ticked by default unless the game's settings are confirmed (medium or high confidence, seen on this device) to stay
+    /// on this device: games that sync, or might (unknown, low confidence, research only), are where another device can
+    /// overwrite this one's preset. Removing our wrapper (opted-out game) is always ticked.
     /// </summary>
-    public static bool DefaultChecked(LaunchOptionChange change, SyncBucket bucket) =>
-        !SteamLaunchOptions.IsWrapped(change.After) || bucket != SyncBucket.StaysOnDevice;
+    public static bool DefaultChecked(LaunchOptionChange change, SyncBucket bucket, bool confirmed) =>
+        !SteamLaunchOptions.IsWrapped(change.After) || bucket != SyncBucket.StaysOnDevice || !confirmed;
 
     /// <summary>The first row takes the keyboard / gamepad focus when the panel opens.</summary>
     public bool IsFirst { get; init; }
@@ -109,7 +109,7 @@ public sealed class SteamReviewViewModel : ObservableObject
         {
             var bucket = c.tile?.SyncBucket ?? SyncBucket.Maybe;
             var text = c.tile?.SyncLabel ?? LibraryTileViewModel.SyncLabelFor(SyncBucket.Maybe, null);
-            Items.Add(new SteamReviewItem(c.c, c.name, bucket, text, RaiseSelection) { IsFirst = Items.Count == 0 });
+            Items.Add(new SteamReviewItem(c.c, c.name, bucket, c.tile?.SyncConfirmed ?? false, text, RaiseSelection) { IsFirst = Items.Count == 0 });
         }
         RaiseSelection();
         IsOpen = true;

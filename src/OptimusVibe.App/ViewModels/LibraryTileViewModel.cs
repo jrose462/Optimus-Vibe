@@ -117,14 +117,11 @@ public sealed class LibraryTileViewModel : ObservableObject
             SyncBucket.StaysOnDevice => "Stays on this device",
             _ => "Maybe syncs",
         };
-        var how = report switch
-        {
-            { StrongChange: not null } => "seen syncing",
-            { ConfidenceText: { Length: > 0 } c } => c,
-            _ => "not known yet",
-        };
-        return $"{what} · {how}";
+        return $"{what} · {SyncBuckets.ConfidenceLabel(report)}";
     }
+
+    /// <summary>The sync bucket rests on what was seen on this device (medium+ detection), not only research.</summary>
+    public bool SyncConfirmed => SyncBuckets.IsConfirmed(_entry.CloudSync);
 
     public bool CanPlay => GameLauncher.CanLaunch(_entry.Game, _entry.Detected);
 

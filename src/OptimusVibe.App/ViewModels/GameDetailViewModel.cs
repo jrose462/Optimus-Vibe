@@ -24,6 +24,8 @@ public sealed class GameDetailViewModel : ObservableObject
     private string _newSaveName = "";
     private string _newSaveNotes = "";
     private string? _lastSyncText;
+    private bool _isEditingIntent;
+    private string _intentDraft = "";
 
     public GameDetailViewModel(IAppShell shell, GameSnapshot snapshot)
     {
@@ -44,6 +46,14 @@ public sealed class GameDetailViewModel : ObservableObject
         UseDefaultCommand = new AsyncRelayCommand(UseDefaultAsync, () => Idle() && CanUseDefault);
         NextTabCommand = new RelayCommand(() => SelectedTabIndex = (SelectedTabIndex + 1) % 2);
         PreviousTabCommand = new RelayCommand(() => SelectedTabIndex = (SelectedTabIndex + 1) % 2); // two tabs: previous == next
+        EditIntentCommand = new RelayCommand(() =>
+        {
+            CancelTransient();
+            IntentDraft = IntentText ?? "";
+            IsEditingIntent = true;
+        }, () => Idle() && HasIntent);
+        SaveIntentCommand = new AsyncRelayCommand(SaveIntentAsync, () => Idle() && IsEditingIntent && GameIntent.Clean(IntentDraft).Length > 0);
+        CancelIntentCommand = new RelayCommand(() => IsEditingIntent = false);
         Lab = shell.Lab.ForGame(() =>
         {
             var game = _snap.Game;
@@ -167,9 +177,54 @@ public sealed class GameDetailViewModel : ObservableObject
             : null;
 
     public string IntentDisplay => IntentText
-        ?? "Not set yet. Tell Claude what matters to you here, like “steady 60” or “quiet on battery”, and it will tune the presets.";
+        ?? "Not set yet. Click to tell Claude what matters to you here, like “steady 60” or “quiet on battery”, and it will tune the presets.";
 
     public bool HasIntent => _snap.Game is not null;
+
+    /// <summary>The intent card is in edit mode (text box + Save / Cancel).</summary>
+    public bool IsEditingIntent
+    {
+        get => _isEditingIntent;
+        private set => Set(ref _isEditingIntent, value);
+    }
+
+    public string IntentDraft
+    {
+        get => _intentDraft;
+        set { if (Set(ref _intentDraft, value)) CommandManager.InvalidateRequerySuggested(); }
+    }
+
+    public int IntentMaxLength => GameIntent.MaxLength;
+
+    /// <summary>
+    /// Write this device's line of the game file's <c>intent:</c> block, sync it, then offer a game-lab refresh so
+    /// Claude re-tunes the presets around it.
+    /// </summary>
+    private async Task SaveIntentAsync()
+    {
+        var session = Session;
+        var gameId = GameId;
+        var device = DeviceName;
+        var draft = IntentDraft;
+        if (_snap.Game is not { } game || GameIntent.Clean(draft).Length == 0) return;
+        GitResult? git = null;
+        var ok = await Shell.RunAsync("Saving what you want from it (and syncing)", () => Task.Run(() =>
+        {
+            var path = session.Paths.GameFile(game.Id);
+            var saved = GameIntent.SetInFile(path, device, draft);
+            Log.Info($"{game.Id} on {device}: intent set to \"{saved}\"");
+            git = SyncService.CommitAndSync(session.Paths, $"chore(games): {game.Id} intent for {device}", path);
+        }));
+        if (!ok) return;
+        IsEditingIntent = false;
+        await Shell.ReloadGameAsync(gameId);
+        var sync = git is { Ok: false } ? $" {SyncText(git)}" : "";
+        if (Lab.CanAct && Lab.CanRefreshPresets)
+            Shell.NotifyWithAction($"Saved what you want from {Name}.{sync} Ask Claude to re-tune its presets around it?", "Re-tune",
+                () => { if (Lab.RefreshPresetsCommand.CanExecute(null)) Lab.RefreshPresetsCommand.Execute(null); });
+        else
+            Shell.Notify($"Saved what you want from {Name}.{sync} Claude uses it the next time it tunes this game.", git is { Ok: false });
+    }
 
     public string? RecommendationText
     {
@@ -264,6 +319,9 @@ public sealed class GameDetailViewModel : ObservableObject
     public ICommand ReportCommand { get; }
     public ICommand NextTabCommand { get; }
     public ICommand PreviousTabCommand { get; }
+    public ICommand EditIntentCommand { get; }
+    public ICommand SaveIntentCommand { get; }
+    public ICommand CancelIntentCommand { get; }
 
     public void Update(GameSnapshot snapshot)
     {
@@ -303,9 +361,10 @@ public sealed class GameDetailViewModel : ObservableObject
     /// <summary>Close the diff panel, save form, rename or delete confirmation. True if anything was open.</summary>
     public bool CancelTransient()
     {
-        bool any = (Preview is not null || IsSaveFormOpen) | Lab.CancelTransient();
+        bool any = (Preview is not null || IsSaveFormOpen || IsEditingIntent) | Lab.CancelTransient();
         Preview = null;
         IsSaveFormOpen = false;
+        IsEditingIntent = false;
         foreach (var c in Recommended.Concat(Manual)) any |= c.CancelTransient();
         return any;
     }

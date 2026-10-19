@@ -28,6 +28,9 @@ public interface IAppShell
 
     void Notify(string message, bool error = false);
 
+    /// <summary>A toast with one action button.</summary>
+    void NotifyWithAction(string message, string actionText, Action action);
+
     /// <summary>Opens the Report a problem panel (prefilled with the game and its active preset, when known).</summary>
     void OpenReport(string? gameId, string? preset);
 
