@@ -1,9 +1,11 @@
 # Preset guidelines
 
-Four presets per game. Names are fixed (the app orders and remembers them by name). `desktop` and `ally-x` are the
-conventional device ids from the starter `devices.yaml`; use the ids and hardware in the user's own
-`config/devices.yaml` (a desktop-class device gets the desktop rows, a handheld the ally-x rows). Fps caps quoted
-below as 162 assume a 165 Hz display: use the device refresh rate minus 3.
+Six presets per game: two per device for its own screen, plus `big-picture` on each device for a big TV. Names are
+fixed (the app orders and remembers them by name). `desktop` and `ally-x` are the conventional device ids from the
+starter `devices.yaml`; use the ids and hardware in the user's own `config/devices.yaml` (a desktop-class device gets
+the desktop rows, a handheld the ally-x rows). Fps caps quoted below as 162 assume a 165 Hz display: use the device
+refresh rate minus 3. The TV is described by the device's `bigPicture` block in `devices.yaml` when present;
+otherwise assume a 4K (3840x2160) 120 Hz TV with VRR and HDR viewed from a couch.
 
 | Device | Preset | Goal | targetFps | Typical cap |
 |---|---|---|---|---|
@@ -11,6 +13,11 @@ below as 162 assume a 165 Hz display: use the device refresh rate minus 3.
 | desktop | `performance` | High fps / competitive | 162 | 162 |
 | ally-x | `performance` (default) | 60+ fps, sustained (honest lower target for very heavy games) | 60 (45 or 40 if 60 is unreachable) | 60, or per "Frame caps" below |
 | ally-x | `battery` | Longest playable battery life | 40 (30 for very heavy games) | 40 / 30 |
+| desktop | `big-picture` | 4K TV, streamed (Apollo/Sunshine → Moonlight); couch distance | 120 (60 for very heavy games) | 120 / 60 |
+| ally-x | `big-picture` | 4K TV, docked and plugged in; couch distance | 60 (40 for heavy games) | 60 / 40 |
+
+`big-picture` is chosen automatically when the TV is in use (the Ally docked to a 4K TV, or a stream client asking
+for 4K), so it must stand alone: never assume the user also picked another preset.
 
 Every preset has `label`, `description` (1-2 sentences: what it targets + what it gives up; include the TDP
 assumption on ally-x), `targetFps`.
@@ -69,6 +76,40 @@ assumption on ally-x), `targetFps`.
 - No frame generation.
 - `description` must say: pair with Armoury Crate **Silent (~13 W)**; Optimus-Vibe cannot set TDP.
 
+## desktop / big-picture (streamed to the TV)
+
+- Output **3840x2160 @ 120** (`display: { width: 3840, height: 2160, refresh: 120 }`): the stream host (Apollo)
+  creates a virtual display at the client's resolution, so the game must render for it, not for the 5120x2160
+  monitor. Borderless.
+- Upscaler: DLSS **Balanced** at 4K (Quality in light games that still hold 120; Performance in very heavy ones).
+  4K DLSS Performance looks better on a TV at couch distance than 1440p native.
+- Frame generation: on in single-player games when base fps is ≥ 60 (latency is hidden by the stream's own
+  latency less than you'd think: keep it off in competitive shooters). Reflex On.
+- RT: reflections/GI where the game still reaches the target; skip RT shadows. Path tracing off.
+- Settings: the `quality` look, one notch down where the 4K cost bites (volumetrics, shadows, post).
+- **TV readability**: raise HUD/UI scale and subtitle size by one or two steps where the game has them (only in
+  `big-picture`; leave the other presets' HUD alone), and turn on large/background subtitles if offered.
+- **HDR on** when the game supports it natively (Moonlight/Apollo stream HDR to the TV). Do not set peak/paper
+  white brightness: those depend on the TV; tell the user in `notes:` to run the game's HDR calibration once on the
+  TV. Set the switch in the other presets too (see Shared rules: on for the desktop's own presets, off on the handheld).
+- Cap **120** with `nvidia.FrameRateLimiter: 120` (the stream runs at 120 fps; VRR doesn't cross the stream, so an
+  even 120 or 60 matters). Heavy games that can't hold ~110: cap **60** and say so in `description`. With frame gen
+  on, leave the in-game limiter off (see "Frame caps").
+
+## ally-x / big-picture (docked to the TV)
+
+- Output **3840x2160 @ 120** when the TV accepts it from the dock (`display: { width: 3840, height: 2160, refresh: 120 }`),
+  VRR on (the TV's range is typically 40-120 Hz, so caps of 40 and 60 both work). If research shows the Z2 Extreme's
+  output path can't do 4K120 over the dock in this game (or UI text becomes unreadably small at 4K), use 2560x1440
+  @ 120 and say why in `notes:`.
+- Render low and upscale: FSR/XeSS **Performance** or **Ultra Performance** at 4K output (internal ~1080p/720p),
+  Balanced at 1440p output. TSR in UE5 if it looks better. Never drop below ~720p internal.
+- Plugged in, so power isn't the limit: assume the 30-35 W docked profile (Armoury Crate Turbo) and say so in
+  `description`. The GPU is still the limit: Low/Medium base, textures Medium-High, RT off, hardware Lumen off.
+- Same **TV readability** and **HDR** rules as desktop / big-picture (HDR only when the game supports it natively).
+- Cap **60** (in-game limiter) when sustainable, else **40** (even pacing at 120 Hz, inside the TV's VRR range).
+  No frame generation unless the game's own FSR 3 FG is proven stable on the Z2 Extreme from ≥ 40 fps base.
+
 ## Shared rules
 
 - `profiles.base` holds (1) keys with the same value on all four presets (motion blur/film grain/CA off, vsync
@@ -80,6 +121,11 @@ assumption on ally-x), `targetFps`.
   store (`handler: file`), write the step into the preset `description` and `notes:` instead.
 - Never change: FOV, gameplay/difficulty, controls/keybinds/sensitivity, HUD/subtitles/accessibility,
   colour-blind modes, audio, language, brightness/gamma/HDR calibration, account/online/crossplay settings.
+  Exception, `big-picture` only: HUD/UI scale, subtitle size/background and the HDR on/off switch (never the HDR
+  calibration values). Every other preset must then set HUD scale and subtitle size back to the game's default (put
+  those defaults in `profiles.base`) and set the HDR switch explicitly so switching back from the TV restores it:
+  `profiles.base` HDR **off** (the handheld panel is SDR), and the desktop's own presets HDR **on** (the owner plays
+  in HDR on the desk monitor; check `devices.yaml`'s description, and ask if another user's desktop is SDR).
 - Frame caps: see the section below.
 - If the game has a quick-preset key that overrides individual keys (e.g. writes "Custom"), set the preset
   value only if the game honours individual keys afterwards; otherwise set the individual keys and the preset
