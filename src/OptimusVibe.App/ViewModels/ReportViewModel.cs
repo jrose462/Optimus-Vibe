@@ -4,6 +4,7 @@ using System.Windows.Input;
 using OptimusVibe.Devices;
 using OptimusVibe.Feedback;
 using OptimusVibe.Logging;
+using OptimusVibe.Outbox;
 using OptimusVibe.Updates;
 
 namespace OptimusVibe.App.ViewModels;
@@ -172,9 +173,20 @@ public sealed class ReportViewModel : ObservableObject
             HandOffToBrowser(draft);
             return;
         }
-        string? url = null;
-        var ok = await _main.RunAsync("Sending the report", async () => url = await BugReport.SubmitAsync(draft, _userToken));
-        if (!ok || url is null) return;
+        BugReportOutcome? outcome = null;
+        var ok = await _main.RunAsync("Sending the report", async () => outcome = await OutboxFlow.SendBugReportAsync(_main.Outbox.Store, draft, _userToken));
+        if (!ok || outcome is null) return;
+        if (outcome.WasQueued)
+        {
+            Log.Info("Bug report queued (offline)");
+            Description = "";
+            ClearDraft();
+            Close();
+            _main.Outbox.Service.NotifyQueued();
+            _main.Notify("You're offline - the report is saved and will be sent when you're back online.");
+            return;
+        }
+        var url = outcome.Url!;
         Log.Info($"Bug report filed: {url}");
         Description = "";
         ClearDraft();

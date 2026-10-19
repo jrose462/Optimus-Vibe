@@ -2,6 +2,7 @@ using OptimusVibe.Config;
 using OptimusVibe.GameLab;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
+using OptimusVibe.Outbox;
 using OptimusVibe.Sync;
 
 namespace OptimusVibe.App.Services;
@@ -133,6 +134,17 @@ public sealed class GameLabService
         if (IsDemo)
             return new FiledRequest(7, $"https://github.com/{c.Repo.Repo}/issues/7", false, 1, $"Demo: would file #7 ({GameLabContract.KindText(kind)})");
         return await ClientFor(c).FileRequestAsync(kind, target, session.Device.Name, CollectorFor(session), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Files the request, or - when GitHub can't be reached because we are offline - stores it (with the evidence as collected now) in
+    /// the outbox to be sent later. An already open request is reused as before.
+    /// </summary>
+    public async Task<LabRequestOutcome> FileOrQueueAsync(Connection c, AppSession session, OutboxStore store, LabKind kind, LabTarget target,
+        CancellationToken ct = default)
+    {
+        if (IsDemo) return new LabRequestOutcome(await FileRequestAsync(c, session, kind, target, ct).ConfigureAwait(false), null);
+        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session), ct).ConfigureAwait(false);
     }
 
     /// <summary>A sync-check on the first configured game that is installed here, for the wizard's test step.</summary>

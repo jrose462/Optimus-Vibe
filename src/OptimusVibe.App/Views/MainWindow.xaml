@@ -81,6 +81,16 @@
                             <Border Style="{StaticResource Dot.Attention}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-6,0" />
                         </Grid>
                     </Button>
+                    <!-- non-modal indicator: reports / lab requests saved while offline, waiting to be sent -->
+                    <Button Style="{StaticResource Button.Quiet}" AutomationProperties.Name="Waiting to send" Command="{Binding Outbox.OpenCommand}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True" Margin="0,0,6,0"
+                            ToolTip="Waiting to send (offline). Click to see them."
+                            Visibility="{Binding Outbox.HasItems, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE898;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Outbox.BadgeText}" Margin="6,0,0,0" FontSize="{DynamicResource CaptionSize}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                     <views:ButtonGlyph Kind="Y" Size="Small" Margin="6,0,0,0" />
                     <Button Style="{StaticResource Button.Quiet}" AutomationProperties.Name="Sync saves" Command="{Binding SyncCommand}"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"
@@ -284,6 +294,54 @@
                                                  AutomationProperties.Name="Report preview" />
                                     </StackPanel>
                                 </StackPanel>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+
+                <!-- waiting to send (offline outbox; modal panel; B / Esc closes) -->
+                <Grid DataContext="{Binding Outbox}" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle"
+                      Visibility="{Binding IsOpen, Converter={StaticResource VisibleWhen}}">
+                    <Border Background="{DynamicResource BackdropBrush}" />
+                    <Border Style="{StaticResource Overlay.Card}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top">
+                                <TextBlock Text="Waiting to send" Style="{StaticResource Text.OverlayTitle}" />
+                                <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Text="These were saved while you were offline. They are sent by themselves when you are back online." />
+                            </StackPanel>
+
+                            <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
+                                <Button Style="{StaticResource Button.Quiet}" Command="{Binding CloseCommand}" Margin="0,0,8,0" AutomationProperties.Name="Close">
+                                    <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Close" /></StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Button.Primary}" Content="Send now" Command="{Binding SendNowCommand}" MinWidth="120"
+                                        input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Send now" ToolTip="Try to send everything that is waiting" />
+                            </WrapPanel>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False" MaxHeight="{DynamicResource OverlayListMaxHeight}" Margin="0,16,0,0">
+                                <ItemsControl ItemsSource="{Binding Items}" Margin="0,0,12,0" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:OutboxItemViewModel}">
+                                            <Grid Margin="0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel MaxWidth="640" Margin="0,0,12,0">
+                                                    <TextBlock Text="{Binding Summary}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Style="{StaticResource Text.Caption}">
+                                                        <Run Text="{Binding KindText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding WhenText, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                    <TextBlock Text="{Binding ErrorText}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap"
+                                                               Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Content="{Binding DiscardLabel}" Command="{Binding DiscardCommand}"
+                                                        VerticalAlignment="Center" AutomationProperties.Name="Discard" ToolTip="Remove it without sending (click twice)" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </ScrollViewer>
                         </DockPanel>
                     </Border>

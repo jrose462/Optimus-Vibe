@@ -7,6 +7,7 @@ using OptimusVibe.Engine;
 using OptimusVibe.GameLab;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
+using OptimusVibe.Outbox;
 using OptimusVibe.Sync;
 
 namespace OptimusVibe;
@@ -247,7 +248,12 @@ internal static class GameLabCommands
             var r = ResolveGame(pr, pr.GetValue(game)!);
             var k = ParseKind(pr.GetValue(kind), r.Target);
             var device = r.Device?.Name ?? "unknown";
-            var filed = Wait(new GameLabClient(c.Api, c.Repo, c.Branch).FileRequestAsync(k, r.Target, device, CollectorFor(r)));
+            var outcome = Wait(OutboxFlow.FileLabRequestAsync(new OutboxStore(), new GameLabClient(c.Api, c.Repo, c.Branch), k, r.Target, device, CollectorFor(r)));
+            if (outcome.Filed is not { } filed)
+            {
+                Console.WriteLine(OutboxCommands.OfflineQueued);
+                return 0;
+            }
             Console.WriteLine(filed.Message);
             Console.WriteLine(filed.Url);
             return 0;

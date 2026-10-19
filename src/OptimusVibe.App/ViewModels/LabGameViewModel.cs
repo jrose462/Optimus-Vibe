@@ -157,9 +157,14 @@ public sealed class LabGameViewModel : ObservableObject
     {
         var ctx = Ctx;
         if (_confirming is not { } kind || ctx.Target is null) return;
-        var filed = await _lab.FileRequestAsync(kind, ctx.Target);
-        if (filed is null) return;
+        var outcome = await _lab.FileRequestAsync(kind, ctx.Target);
+        if (outcome is null) return;
         CancelTransient();
+        if (outcome.Filed is not { } filed)
+        {
+            _main.Notify("Saved - it will be sent to the game lab when you're back online.");
+            return;
+        }
         if (filed.Reused) _main.NotifyWithAction(filed.Message, "Open", () => _lab.OpenUrl(filed.Url));
         else _main.NotifyWithAction($"Sent {ctx.Name} to the game lab. {filed.Message}", "Open issue", () => _lab.OpenUrl(filed.Url));
     }

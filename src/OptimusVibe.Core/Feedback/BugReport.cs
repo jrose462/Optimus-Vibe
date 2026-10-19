@@ -174,23 +174,34 @@ public static partial class BugReport
     /// per day per machine. Labels are tried and dropped when GitHub refuses them (non-collaborators can't label); the body's
     /// hidden marker is what the triage workflow keys on. Never logs a token. Throws <see cref="GitHubException"/>.
     /// </summary>
-    public static async Task<string> SubmitAsync(BugReportDraft draft, string? userToken = null, CancellationToken ct = default, string? dataDir = null)
+    public static Task<string> SubmitAsync(BugReportDraft draft, string? userToken = null, CancellationToken ct = default, string? dataDir = null) =>
+        SubmitCoreAsync(draft, userToken, BugReportToken.Get(), t => new GitHubApi(t), enforceLimit: true, ct, dataDir);
+
+    /// <summary>
+    /// Sends a report that was queued in the offline outbox. Identical to <see cref="SubmitAsync(BugReportDraft, string?, CancellationToken, string?)"/>
+    /// except that the daily limit is neither checked nor recorded: it was already counted when the report was queued
+    /// (<see cref="OptimusVibe.Outbox.OutboxFlow.QueueBugReport"/>).
+    /// </summary>
+    public static Task<string> SubmitQueuedAsync(BugReportDraft draft, string? userToken = null, CancellationToken ct = default) =>
+        SubmitCoreAsync(draft, userToken, BugReportToken.Get(), t => new GitHubApi(t), enforceLimit: false, ct, null);
+
+    internal static async Task<string> SubmitCoreAsync(BugReportDraft draft, string? userToken, string? builtIn, Func<string, GitHubApi> api,
+        bool enforceLimit, CancellationToken ct, string? dataDir)
     {
-        var builtIn = BugReportToken.Get();
         var token = !string.IsNullOrWhiteSpace(userToken) ? userToken.Trim() : builtIn
                     ?? throw new GitHubException("This build can't send reports directly. Use the browser option instead.");
-        BugReportLimiter.EnsureAllowed(dataDir);
+        if (enforceLimit) BugReportLimiter.EnsureAllowed(dataDir);
         string url;
         try
         {
-            url = await SubmitAsync(draft, new GitHubApi(token), ct, signedIn: token != builtIn).ConfigureAwait(false);
+            url = await SubmitAsync(draft, api(token), ct, signedIn: token != builtIn).ConfigureAwait(false);
         }
         catch (GitHubApiException ex) when (ex.Status == HttpStatusCode.Unauthorized && builtIn is not null && token != builtIn)
         {
             Log.Info("bug report: the saved GitHub sign-in was rejected; filing with the built-in access instead");
-            url = await SubmitAsync(draft, new GitHubApi(builtIn), ct).ConfigureAwait(false);
+            url = await SubmitAsync(draft, api(builtIn), ct).ConfigureAwait(false);
         }
-        BugReportLimiter.Record(dataDir);
+        if (enforceLimit) BugReportLimiter.Record(dataDir);
         return url;
     }
 

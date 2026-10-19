@@ -23,6 +23,9 @@ public sealed record PendingEvidence(LabIssue Issue, NeedsEvidence Request, long
 /// <param name="Reused">An open request for the same game and kind already existed; nothing new was filed.</param>
 public sealed record FiledRequest(int Number, string Url, bool Reused, int EvidenceComments, string Message);
 
+/// <summary>A request whose evidence is already collected (and confirmed by the user): header plus the rendered evidence parts, ready to post.</summary>
+public sealed record PreparedLabRequest(GameLabContract.RequestInfo Info, IReadOnlyList<string> EvidenceParts);
+
 /// <summary>What <see cref="GameLabClient.DrainQueueAsync"/> did.</summary>
 /// <param name="Dispatched">Issue number the workflow was started for, or null.</param>
 public sealed record DrainResult(int? Dispatched, string Message);
@@ -53,6 +56,7 @@ public sealed class GameLabClient
     }
 
     public string Repo => _repo;
+    public string Branch => _branch;
 
     // ------------------------------------------------------------ requests
 
@@ -97,6 +101,57 @@ public sealed class GameLabClient
         }
         Log.Info($"game lab: filed #{number} for {info.Key} ({GameLabContract.KindText(kind)}), {parts.Count} evidence part(s)");
         return new FiledRequest(number, url, false, comments, $"Filed #{number}: {GameLabContract.Title(target.Name, kind)}");
+    }
+
+    // ------------------------------------------------------------ prepared requests (offline outbox)
+
+    /// <summary>The request header (kind, game, device, app version) for a target; no I/O.</summary>
+    public static GameLabContract.RequestInfo InfoFor(LabKind kind, LabTarget target, string device) =>
+        new(kind, target.GameId ?? "", target.Name, target.Store, target.StoreId, device, AppVersion.Current);
+
+    /// <summary>
+    /// Collects the evidence on this PC now (no network) and returns it as a <see cref="PreparedLabRequest"/>, exactly what
+    /// <see cref="FilePreparedAsync"/> will post, so it can be stored in the outbox and sent later unchanged.
+    /// </summary>
+    public static PreparedLabRequest PrepareRequest(LabKind kind, LabTarget target, string device, EvidenceCollector collector) =>
+        new(InfoFor(kind, target, device), collector.Collect(target).Split());
+
+    /// <summary>
+    /// Files a prepared request through the same path as <see cref="FileRequestAsync(LabKind, LabTarget, string, EvidenceCollector, CancellationToken)"/>:
+    /// an open request for the same game and kind is reused (nothing new is filed) unless <paramref name="skipDedupe"/> says the
+    /// caller just checked. Posts the stored evidence unchanged.
+    /// </summary>
+    public async Task<FiledRequest> FilePreparedAsync(PreparedLabRequest request, bool skipDedupe = false, CancellationToken ct = default)
+    {
+        var info = request.Info;
+        if (!skipDedupe)
+        {
+            var existing = await FindOpenAsync(info, ct).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                Log.Info($"game lab: reusing open request #{existing.Number} for {info.Key} ({GameLabContract.KindText(info.Kind)})");
+                return new FiledRequest(existing.Number, existing.Url, true, 0,
+                    $"A {GameLabContract.KindText(info.Kind)} request for {info.Name} is already open (#{existing.Number}, {GameLabContract.StatusText(existing.Status)}).");
+            }
+        }
+
+        var parts = request.EvidenceParts;
+        var body = GameLabContract.RequestBody(info, parts.Count > 0 ? parts[0] : null);
+        var inBody = body.Length <= 65_000;
+        if (!inBody) body = GameLabContract.RequestBody(info);
+
+        var (number, url) = await _api.CreateIssueAsync(_repo, GameLabContract.Title(info.Name, info.Kind), body,
+            [GameLabContract.LabelGameLab], ct).ConfigureAwait(false);
+        if (number == 0) throw new GitHubApiException(null, "GitHub did not return an issue number.");
+
+        var comments = 0;
+        foreach (var part in inBody ? parts.Skip(1) : parts)
+        {
+            await PostCommentAsync(number, part, ct).ConfigureAwait(false);
+            comments++;
+        }
+        Log.Info($"game lab: filed #{number} for {info.Key} ({GameLabContract.KindText(info.Kind)}), {parts.Count} evidence part(s)");
+        return new FiledRequest(number, url, false, comments, $"Filed #{number}: {GameLabContract.Title(info.Name, info.Kind)}");
     }
 
     /// <summary>The open request with the same store:storeId and kind, if any (dedupe).</summary>

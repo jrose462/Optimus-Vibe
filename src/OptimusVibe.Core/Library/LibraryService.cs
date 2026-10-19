@@ -165,6 +165,20 @@ public static class LibraryService
     }
 
     /// <summary>
+    /// Removes the queued request for <paramref name="store"/>:<paramref name="storeId"/> (optionally only the one made by
+    /// <paramref name="device"/>) from config/requests.yaml; the rest of the file is left as is. Returns whether anything was removed.
+    /// </summary>
+    public static bool RemoveRequest(ConfigStore configStore, string store, string storeId, string? device = null, bool onlyUnassigned = false)
+    {
+        var file = LoadRequests(configStore);
+        var removed = file.Requests.RemoveAll(r =>
+            r.Store.Equals(store, StringComparison.OrdinalIgnoreCase) && r.StoreId.Equals(storeId, StringComparison.OrdinalIgnoreCase)
+            && (onlyUnassigned ? string.IsNullOrWhiteSpace(r.Device) : device is null || string.Equals(r.Device, device, StringComparison.OrdinalIgnoreCase)));
+        if (removed > 0) Write(configStore.Paths.RequestsFile, RequestsHeader, file);
+        return removed > 0;
+    }
+
+    /// <summary>
     /// Add NeedsPresets games (not opted out) to config/requests.yaml if not already queued (by Key).
     /// Returns the number added. Requests for games that now have a config (with presets for the requesting device)
     /// or that were opted out are pruned. The file is only written when something changed.
