@@ -29,7 +29,13 @@ public sealed class UpdatesViewModel : ObservableObject
         CheckCommand = new AsyncRelayCommand(CheckAsync, () => !main.IsBusy && !IsChecking);
         InstallCommand = new AsyncRelayCommand(InstallAsync, () => !main.IsBusy && IsAvailable);
         ShowCommand = new RelayCommand(() => main.OpenSettings("updates"));
+        PopOutNotesCommand = new RelayCommand(
+            () => Views.ReleaseNotesWindow.Show(Update is { } u ? $"What's new in {u.Version}" : "Release notes", NotesText, Application.Current?.MainWindow),
+            () => Update is not null);
     }
+
+    /// <summary>Open the release notes in their own window (Markdown rendered, reading size).</summary>
+    public ICommand PopOutNotesCommand { get; }
 
     public string VersionText => $"Optimus-Vibe {AppVersion.Current}";
     public string RepoText => AppRepo.FullName;

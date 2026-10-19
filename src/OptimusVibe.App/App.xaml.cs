@@ -25,6 +25,11 @@ public partial class App : Application
             Shutdown(DebugScenes.RunCaptureDemo(this));
             return;
         }
+        if (e.Args.Length > 0 && e.Args[0] == "notes-demo")
+        {
+            DebugScenes.RunNotesDemo(this, e.Args.Length > 1 ? e.Args[1] : null);
+            return;
+        }
 #endif
 
         // Steam launch option: `OptimusVibe.exe run <game> -- %command%` — no window, no console flash.

@@ -14,6 +14,7 @@
             </ResourceDictionary.MergedDictionaries>
             <conv:VisibleWhenConverter x:Key="VisibleWhen" />
             <conv:InverseBoolConverter x:Key="Not" />
+            <conv:MarkdownDocumentConverter x:Key="MarkdownDocument" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
