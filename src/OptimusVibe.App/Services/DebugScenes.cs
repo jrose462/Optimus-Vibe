@@ -60,6 +60,26 @@ public static class DebugScenes
         return 0;
     }
 
+    /// <summary>`notes-demo [file.md]`: the pop-out release notes (sample or the given Markdown file); with OPTIMUSVIBE_SHOT it saves a picture and closes.</summary>
+    public static void RunNotesDemo(Application app, string? file)
+    {
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var saved = SettingsStore.Load();
+        ThemeManager.Apply(saved.Theme);
+        Density.SetMode(saved.Density);
+        var md = file is not null && File.Exists(file) ? File.ReadAllText(file)
+            : "## What's new in v0.0.0\n\n### Features\n\n- **app:** something new (#1) ([`abc1234`](https://github.com/o/r/commit/abc1234))\n  - nested detail\n\nPlain *text* with `code`.\n\n---\n**Full Changelog**: https://github.com/o/r/compare/v0.0.0...v0.0.1";
+        var w = ReleaseNotesWindow.Show("What's new in 0.0.0", md, null);
+        w.Closed += (_, _) => app.Shutdown(0);
+        if (ShotPath is { } shot)
+            w.ContentRendered += async (_, _) =>
+            {
+                await Task.Delay(1500);
+                Save((FrameworkElement)w.Content, shot);
+                w.Close();
+            };
+    }
+
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
