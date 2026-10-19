@@ -643,8 +643,14 @@ jobs:
             setout merged false; exit 0
           fi
           setout pr "$pr"
-          # Validation passed = auto-merge (the owner's choice).
-          if gh pr merge "$pr" --squash --subject "$TITLE (#$pr)"; then
+          # Validation passed = auto-merge (the owner's choice). Right after the PR is opened GitHub may still be computing
+          # its mergeability, and the first merge attempt fails: retry a few times before asking a human.
+          merged_ok=false
+          for attempt in 1 2 3 4 5 6; do
+            if gh pr merge "$pr" --squash --subject "$TITLE (#$pr)"; then merged_ok=true; break; fi
+            echo "Merge attempt $attempt failed; retrying in 10 s"; sleep 10
+          done
+          if [ "$merged_ok" = "true" ]; then
             gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
             setout merged true
           else
