@@ -30,6 +30,40 @@ public sealed class DeviceDef
     /// only (the target's own presetsFrom is not followed).
     /// </summary>
     public string? PresetsFrom { get; set; }
+
+    /// <summary>
+    /// Optional: how a big TV (4K, couch) is recognised and which preset it gets. Without it the defaults apply:
+    /// an active 16:9 display of 3840 px or more, or a 4K stream client, selects the <c>big-picture</c> preset.
+    /// </summary>
+    public BigPictureDef? BigPicture { get; set; }
+}
+
+/// <summary>devices.yaml <c>bigPicture:</c> block.</summary>
+public sealed class BigPictureDef
+{
+    /// <summary>Preset name used on the TV (default <c>big-picture</c>).</summary>
+    public string? Preset { get; set; }
+
+    /// <summary>The TV's target mode when a preset does not set its own display (default 3840x2160@120).</summary>
+    public DisplayModeDef? Display { get; set; }
+
+    public BigPictureMatchDef? Match { get; set; }
+}
+
+/// <summary>How the TV is detected.</summary>
+public sealed class BigPictureMatchDef
+{
+    /// <summary>Monitor friendly-name wildcard(s): a string or a list (see `optimus-vibe display list`).</summary>
+    public object? Name { get; set; }
+
+    /// <summary>Minimum width in pixels for the size test and for a stream client (default 3840).</summary>
+    public int? MinWidth { get; set; }
+
+    /// <summary>Aspect ratio for the size test (default 16:9; keeps a 21:9 ultrawide from counting).</summary>
+    public string? Aspect { get; set; }
+
+    /// <summary>Also activate when a stream client (Apollo/Sunshine) asks for at least minWidth (default true).</summary>
+    public bool? Stream { get; set; }
 }
 
 public sealed class DisplayModeDef

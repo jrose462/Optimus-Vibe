@@ -19,9 +19,12 @@ public sealed class DisplayException(string message) : Exception(message);
 public static class DisplayManager
 {
     /// <summary>Current mode of the primary attached display, or null if it cannot be determined.</summary>
-    public static DisplayModeState? GetCurrent()
+    public static DisplayModeState? GetCurrent() => GetCurrent(null);
+
+    /// <summary>Current mode of a specific display device (e.g. \\.\DISPLAY2); null = the primary display.</summary>
+    public static DisplayModeState? GetCurrent(string? deviceName)
     {
-        var device = GetPrimaryDeviceName();
+        var device = deviceName ?? GetPrimaryDeviceName();
         if (device == null) return null;
         var dm = NewDevMode();
         if (!Native.EnumDisplaySettingsW(device, Native.ENUM_CURRENT_SETTINGS, ref dm)) return null;
@@ -40,10 +43,17 @@ public static class DisplayManager
     /// Applies <paramref name="target"/> to the primary display (null fields keep the current value).
     /// Returns the previous mode when a change was made, or null when the display already matches.
     /// </summary>
-    public static DisplayModeState? Apply(DisplayModeDef target)
+    public static DisplayModeState? Apply(DisplayModeDef target) => Apply(target, null);
+
+    /// <summary>
+    /// Same as <see cref="Apply(DisplayModeDef)"/> for a specific display device (null = the primary display).
+    /// The returned state names the device, so <see cref="Restore"/> puts the right display back.
+    /// </summary>
+    public static DisplayModeState? Apply(DisplayModeDef target, string? deviceName)
     {
         ArgumentNullException.ThrowIfNull(target);
-        var current = GetCurrent() ?? throw new DisplayException("Could not read the current mode of the primary display.");
+        var current = GetCurrent(deviceName)
+                      ?? throw new DisplayException($"Could not read the current mode of {deviceName ?? "the primary display"}.");
 
         var width = target.Width ?? current.Width;
         var height = target.Height ?? current.Height;
@@ -125,6 +135,76 @@ public static class DisplayManager
             .ThenByDescending(m => m.Height)
             .ThenByDescending(m => m.Refresh)
             .ToList();
+    }
+
+    /// <summary>
+    /// Every display attached to the desktop with its device name, monitor friendly name (what Windows shows in
+    /// Settings: the EDID name, via QueryDisplayConfig; the monitor's DeviceString as a fallback), current mode and
+    /// primary flag. Empty when nothing can be read.
+    /// </summary>
+    public static IReadOnlyList<ActiveDisplay> GetActiveDisplays()
+    {
+        var friendly = FriendlyNamesByGdiName();
+        var list = new List<ActiveDisplay>();
+        var dd = NewDisplayDevice();
+        for (uint i = 0; Native.EnumDisplayDevicesW(null, i, ref dd, 0); i++)
+        {
+            var adapter = dd;
+            dd = NewDisplayDevice();
+            if ((adapter.StateFlags & Native.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) == 0) continue;
+            var dm = NewDevMode();
+            if (!Native.EnumDisplaySettingsW(adapter.DeviceName, Native.ENUM_CURRENT_SETTINGS, ref dm)) continue;
+            if (!friendly.TryGetValue(adapter.DeviceName, out var name) || string.IsNullOrWhiteSpace(name))
+                name = MonitorString(adapter.DeviceName) ?? adapter.DeviceString;
+            list.Add(new ActiveDisplay(adapter.DeviceName, name ?? "", (int)dm.dmPelsWidth, (int)dm.dmPelsHeight,
+                (int)dm.dmDisplayFrequency, (adapter.StateFlags & Native.DISPLAY_DEVICE_PRIMARY_DEVICE) != 0));
+        }
+        return list;
+    }
+
+    private static string? MonitorString(string adapterName)
+    {
+        var mon = NewDisplayDevice();
+        return Native.EnumDisplayDevicesW(adapterName, 0, ref mon, 0) && !string.IsNullOrWhiteSpace(mon.DeviceString)
+            ? mon.DeviceString
+            : null;
+    }
+
+    /// <summary>GDI device name (\\.\DISPLAYn) → monitor friendly name, from the active display paths. Best effort.</summary>
+    private static Dictionary<string, string> FriendlyNamesByGdiName()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            const uint QDC_ONLY_ACTIVE_PATHS = 2;
+            if (Native.GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out var np, out var nm) != 0) return result;
+            var paths = new Native.DISPLAYCONFIG_PATH_INFO[np];
+            var modes = new Native.DISPLAYCONFIG_MODE_INFO[nm];
+            if (Native.QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref np, paths, ref nm, modes, IntPtr.Zero) != 0) return result;
+            for (var i = 0; i < np; i++)
+            {
+                var src = new Native.DISPLAYCONFIG_SOURCE_DEVICE_NAME();
+                src.header.type = 1; // GET_SOURCE_NAME
+                src.header.size = (uint)Marshal.SizeOf<Native.DISPLAYCONFIG_SOURCE_DEVICE_NAME>();
+                src.header.adapterId = paths[i].sourceAdapterId;
+                src.header.id = paths[i].sourceId;
+                if (Native.DisplayConfigGetDeviceInfo(ref src) != 0) continue;
+
+                var tgt = new Native.DISPLAYCONFIG_TARGET_DEVICE_NAME();
+                tgt.header.type = 2; // GET_TARGET_NAME
+                tgt.header.size = (uint)Marshal.SizeOf<Native.DISPLAYCONFIG_TARGET_DEVICE_NAME>();
+                tgt.header.adapterId = paths[i].targetAdapterId;
+                tgt.header.id = paths[i].targetId;
+                if (Native.DisplayConfigGetDeviceInfo(ref tgt) != 0) continue;
+                if (!string.IsNullOrWhiteSpace(tgt.monitorFriendlyDeviceName))
+                    result[src.viewGdiDeviceName] = tgt.monitorFriendlyDeviceName;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display: friendly names unavailable: {ex.Message}");
+        }
+        return result;
     }
 
     private static string? GetPrimaryDeviceName()
@@ -227,6 +307,78 @@ public static class DisplayManager
             public uint dmPanningWidth;
             public uint dmPanningHeight;
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct LUID { public uint LowPart; public int HighPart; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_DEVICE_INFO_HEADER
+        {
+            public uint type;
+            public uint size;
+            public LUID adapterId;
+            public uint id;
+        }
+
+        /// <summary>DISPLAYCONFIG_PATH_INFO (72 bytes): only the adapter/id fields are read.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_INFO
+        {
+            public LUID sourceAdapterId;
+            public uint sourceId;
+            public uint sourceModeInfoIdx;
+            public uint sourceStatusFlags;
+            public LUID targetAdapterId;
+            public uint targetId;
+            public uint targetModeInfoIdx;
+            public uint outputTechnology;
+            public uint rotation;
+            public uint scaling;
+            public uint refreshNumerator;
+            public uint refreshDenominator;
+            public uint scanLineOrdering;
+            public int targetAvailable;
+            public uint targetStatusFlags;
+            public uint flags;
+        }
+
+        /// <summary>DISPLAYCONFIG_MODE_INFO (64 bytes); contents are not used.</summary>
+        [StructLayout(LayoutKind.Sequential, Size = 64)]
+        public struct DISPLAYCONFIG_MODE_INFO { public uint infoType; }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string viewGdiDeviceName;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint flags;
+            public uint outputTechnology;
+            public ushort edidManufactureId;
+            public ushort edidProductCodeId;
+            public uint connectorInstance;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string monitorFriendlyDeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string monitorDevicePath;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern int GetDisplayConfigBufferSizes(uint flags, out uint numPathArrayElements, out uint numModeInfoArrayElements);
+
+        [DllImport("user32.dll")]
+        public static extern int QueryDisplayConfig(uint flags, ref uint numPathArrayElements,
+            [Out] DISPLAYCONFIG_PATH_INFO[] pathArray, ref uint numModeInfoArrayElements,
+            [Out] DISPLAYCONFIG_MODE_INFO[] modeInfoArray, IntPtr currentTopologyId);
+
+        [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME info);
+
+        [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME info);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

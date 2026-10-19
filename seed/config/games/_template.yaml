@@ -132,6 +132,7 @@ profiles:
 # presets.<device id from devices.yaml>.<preset name>. Conventional names (the app shows them in this order):
 #   desktop: quality (best visuals at a smooth framerate), performance (high fps toward the 165 Hz cap)
 #   ally-x:  performance (60+ fps sustained), battery (30/40 fps cap, cheapest playable settings)
+#   every device: big-picture (4K TV: docked Ally or a 4K Apollo/Sunshine stream; chosen automatically, see devices.yaml bigPicture)
 # Reserved keys in a preset:
 #   label        name shown in the app (default: the preset name, capitalized)
 #   description  1-2 sentences: what it targets and what it trades away

@@ -83,6 +83,37 @@ public sealed class GameDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>This game has a Big Picture (TV) preset for this device (so the opt-out toggle means something).</summary>
+    public bool HasBigPicturePreset => _snap.Recommended.Any(o => o.IsBigPicture);
+
+    /// <summary>"Never use Big Picture for this game" (this device only). On = always the normal preset, even on the TV.</summary>
+    public bool NeverBigPicture
+    {
+        get => _snap.Context?.BigPictureOptedOut ?? false;
+        set
+        {
+            new SelectionStore(Session.Paths.SelectionsFile).SetNeverBigPicture(Session.Device.Name, GameId, value);
+            OnPropertyChanged();
+            Shell.Notify(value ? $"{Name}: won't switch to Big Picture on the TV." : $"{Name}: uses its Big Picture preset on the TV again.");
+            _ = Shell.ReloadGameAsync(GameId);
+        }
+    }
+
+    /// <summary>Shown when the TV is in use: whether this game switched to its Big Picture preset, or why it didn't.</summary>
+    public string? BigPictureText
+    {
+        get
+        {
+            var ctx = _snap.Context;
+            if (ctx?.BigPicture is not { Active: true } bp) return null;
+            if (ctx.BigPictureUsed) return $"TV in use ({bp.Reason}): Big Picture preset is picked automatically.";
+            if (ctx.BigPictureOptedOut) return "TV in use, but this game is set to never use Big Picture.";
+            return ctx.BigPictureNote;
+        }
+    }
+
+    public bool HasBigPictureText => BigPictureText is not null;
+
     public string ActiveText
     {
         get
@@ -91,7 +122,7 @@ public sealed class GameDetailViewModel : ObservableObject
             if (ctx is null) return "";
             if (ctx.Profile.IsEmpty) return "No preset for this device";
             var label = ctx.Preset?.Kind == PresetKind.Manual ? $"Manual: {ctx.Save?.Name ?? ctx.Preset.Name}" : ctx.Profile.Label ?? ctx.Preset?.Name;
-            return $"Active: {label}{(ctx.Profile.TargetFps is { } f ? $"  ·  {f} fps" : "")}{(ctx.IsSelected ? "" : "  (device default)")}";
+            return $"Active: {label}{(ctx.Profile.TargetFps is { } f ? $"  ·  {f} fps" : "")}{(ctx.BigPictureUsed ? "  (auto, TV)" : ctx.IsSelected ? "" : "  (device default)")}";
         }
     }
 
@@ -244,7 +275,7 @@ public sealed class GameDetailViewModel : ObservableObject
 
     private void Rebuild()
     {
-        bool selected = _snap.Context?.IsSelected == true;
+        bool selected = _snap.Context?.IsSelected == true && !_snap.Context.BigPictureUsed; // an automatic TV pick is not "your pick"
         SyncCards(Recommended, _snap.Recommended, selected);
         SyncCards(Manual, _snap.Manual, selected);
     }

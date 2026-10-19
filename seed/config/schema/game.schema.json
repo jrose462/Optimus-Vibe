@@ -103,7 +103,7 @@
     },
     "presets": {
       "type": "object",
-      "description": "Claude-recommended presets: device id (from devices.yaml) -> preset name -> body. Conventional names: desktop: quality, performance; ally-x: performance, battery.",
+      "description": "Claude-recommended presets: device id (from devices.yaml) -> preset name -> body. Conventional names: desktop: quality, performance; ally-x: performance, battery; every device: big-picture (picked automatically on a 4K TV, see devices.yaml bigPicture).",
       "propertyNames": {
         "pattern": "^[a-z0-9][a-z0-9_-]*$"
       },

@@ -116,6 +116,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Report.PropertyChanged += OnOverlayChanged;
         Outbox.PropertyChanged += OnOverlayChanged;
         SteamReview.PropertyChanged += OnOverlayChanged;
+        StartTvWatch();
         Lab = new GameLabViewModel(this, Account);
         Settings = new SettingsViewModel(this, Account);
         // The library note ("1 in the game lab · 1 waiting to send ...") follows the lab, the outbox and the lab being set up.
@@ -244,6 +245,43 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private void OnDetailChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(GameDetailViewModel.SelectedTabIndex) or "") RaiseNav();
+    }
+
+    // ---------------------------------------------------------------- Big Picture (TV)
+
+    private readonly DispatcherTimer _tvDebounce = new() { Interval = TimeSpan.FromSeconds(2) };
+    private bool _isTvActive;
+    private string _tvReason = "";
+
+    /// <summary>A 4K TV display is active or a 4K stream client is connected: games with a Big Picture preset use it.</summary>
+    public bool IsTvActive { get => _isTvActive; private set => Set(ref _isTvActive, value); }
+
+    public string TvReason { get => _tvReason; private set { if (Set(ref _tvReason, value)) OnPropertyChanged(nameof(TvTooltip)); } }
+
+    public string TvTooltip => $"Big Picture (TV): {TvReason}. Games with a Big Picture preset use it automatically.";
+
+    private void StartTvWatch()
+    {
+        _tvDebounce.Tick += async (_, _) => { _tvDebounce.Stop(); await RefreshTvAsync(reloadGames: true); };
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) =>
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => { _tvDebounce.Stop(); _tvDebounce.Start(); });
+    }
+
+    /// <summary>Re-detect the TV (off the UI thread); when it flipped, re-read the games so the preset pickers follow.</summary>
+    private async Task RefreshTvAsync(bool reloadGames)
+    {
+        var session = Session;
+        if (session is null) { IsTvActive = false; return; }
+        var result = await Task.Run(() => OptimusVibe.Display.BigPictureDetector.DetectNow(session.Device.Def));
+        var changed = result.Active != IsTvActive;
+        TvReason = result.Reason;
+        IsTvActive = result.Active;
+        if (changed)
+        {
+            Log.Info($"Big Picture is now {(result.Active ? "active" : "inactive")}: {result.Reason}");
+            if (reloadGames)
+                foreach (var id in Games.Select(g => g.Id).ToList()) await ReloadGameAsync(id);
+        }
     }
 
     public AppSession? Session
@@ -596,6 +634,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
         if (Session is not null && Session.Paths.ConfigRoot != result.Session.Paths.ConfigRoot) Library.Clear();
         Session = result.Session;
+        await RefreshTvAsync(reloadGames: false);
         Games.Clear();
         foreach (var snap in result.Games.OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase))
             Games.Add(new GameItemViewModel(snap));

@@ -295,6 +295,46 @@ Settings → **Devices** edits `config/devices.yaml` (it syncs like `library.yam
 On the command line: `optimus-vibe devices list`, `devices add <id> --name <n> [--match key=value ...] [--presets-from <id>]
 [--from-this-machine]`, `devices rename <id> <name>` and `devices remove <id> [--yes]`.
 
+## Big Picture (TV)
+
+When a big TV is in use, games that have a `big-picture` preset for your device switch to it automatically, the
+display mode is set on the TV for that launch, and it is restored when the game exits. It activates when:
+
+- **the TV is docked**: an active display that is 16:9 and at least 3840 px wide (and is not the device's own `display`
+  mode, so a 5120x2160 ultrawide never counts), or whose monitor name matches your `match.name`; for example the
+  Ally X plugged into a 4K TV; or
+- **a 4K stream arrives**: Apollo/Sunshine (Moonlight client) exports `SUNSHINE_CLIENT_WIDTH`, `_HEIGHT`, `_FPS`
+  and `_HDR` (Apollo also `APOLLO_CLIENT_*`) to the launched app, and a client asking for at least 3840 px wide counts.
+
+An explicit `--preset` (or a preset picked for that launch) always wins; `--no-big-picture` skips detection. A game without a
+`big-picture` preset keeps its normal one and the log says "No Big Picture preset for <game>; using ...". In the app a
+**TV** badge appears in the header (tooltip: why), the game page lists **Big Picture (TV)** first marked "Auto on TV", and
+**Never use Big Picture for this game** (or `optimus-vibe tv opt-out <game>` / `tv opt-in <game>`) opts one game out on
+this device.
+
+```powershell
+optimus-vibe display list     # active displays: device name, monitor name, mode, primary
+optimus-vibe tv status        # is Big Picture active, and why
+```
+
+Everything is optional; add a `bigPicture:` block to a device in `devices.yaml` to tune it:
+
+```yaml
+devices:
+  desktop:
+    bigPicture:
+      preset: big-picture            # preset name used on the TV (default)
+      display: { width: 3840, height: 2160, refresh: 120 }   # fallback mode if the preset sets none
+      match:
+        name: ["LG TV*", "SONY TV*"] # monitor names from `display list` (one pattern or a list; * and ?)
+        minWidth: 3840               # size test and stream test (default 3840)
+        aspect: "16:9"               # size test (default)
+        stream: true                 # also activate for a 4K stream client (default)
+```
+
+Moonlight users can also force it per app by adding `--preset big-picture` to the Apollo app's command.
+The desktop streams at the client's resolution, so no `match` is needed there.
+
 ## Commands
 
 Global options: `--config <dir>` (config root), `--profile <device>` (override detection),
@@ -320,6 +360,7 @@ Global options: `--config <dir>` (config root), `--profile <device>` (override d
 | `update-app [--check]` | Update `optimus-vibe.exe` (and `OptimusVibe.exe` next to it, unless it's running) from the latest release of the app repo; `--check` only reports whether a newer release exists |
 | `report-bug <description> [--game <game>] [--dry-run]` | File a bug report on the app repo, or print it with `--dry-run` (same as **Report a problem** in the app) |
 | `outbox list` / `outbox send` | Show or send the reports and game-lab requests that were saved while offline |
+| `display list` / `tv status` / `tv opt-out <game>` / `tv opt-in <game>` | Active displays with monitor names; whether Big Picture (TV) is active and why; per-game opt-out (see "Big Picture (TV)"). `run` and `apply` take `--no-big-picture` |
 | `detect` | Show detected hardware and the matched device |
 | `inspect <game> [--full]` | Show resolved paths, current values vs the active preset, and file contents |
 | `list` | List configured games with the active preset, available presets, and number of manual saves |

@@ -20,7 +20,7 @@ public static class HeadlessRun
     {
         string? game = null, preset = null, profile = null, config = null, launch = null, installDir = null;
         var launchArgs = new List<string>();
-        bool prompt = true;
+        bool prompt = true, noBigPicture = false;
         var command = new List<string>();
 
         for (int i = 1; i < args.Length; i++)
@@ -37,6 +37,7 @@ public static class HeadlessRun
                 case "--profile" when i + 1 < args.Length: profile = args[++i]; break;
                 case "--config" when i + 1 < args.Length: config = args[++i]; break;
                 case "--no-prompt": prompt = false; break;
+                case "--no-big-picture": noBigPicture = true; break;
                 case "--launch" when i + 1 < args.Length: launch = args[++i]; break;           // app library: uri or exe when no %command%
                 case "--launch-arg" when i + 1 < args.Length: launchArgs.Add(args[++i]); break;
                 case "--install-dir" when i + 1 < args.Length: installDir = args[++i]; break; // to wait on a URI-launched game
@@ -58,7 +59,8 @@ public static class HeadlessRun
         GameContext ctx;
         try
         {
-            ctx = GameContext.Load(AppPaths.Resolve(config), game, profile, preset is null ? null : PresetRef.Parse(preset));
+            ctx = GameContext.Load(AppPaths.Resolve(config), game, profile, preset is null ? null : PresetRef.Parse(preset),
+                bigPicture: new BigPictureOptions { Suppress = noBigPicture });
         }
         catch (Exception ex)
         {

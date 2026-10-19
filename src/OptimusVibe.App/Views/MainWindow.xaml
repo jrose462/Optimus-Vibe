@@ -71,6 +71,17 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <!-- non-interactive badge: a 4K TV / 4K stream is in use, so Big Picture presets apply; the tooltip says why -->
+                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="10" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center"
+                            AutomationProperties.Name="Big Picture TV active" ToolTip="{Binding TvTooltip}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            Visibility="{Binding IsTvActive, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" Foreground="{DynamicResource AccentTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="TV" Margin="6,0,0,0" FontWeight="SemiBold" FontSize="{DynamicResource CaptionSize}"
+                                       Foreground="{DynamicResource AccentTextBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
                     <!-- non-modal: a newer release exists (silent daily check) -->
                     <Button Style="{StaticResource Button.Icon}" AutomationProperties.Name="Update available" Command="{Binding Updates.ShowCommand}"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"

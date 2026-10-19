@@ -130,6 +130,7 @@ public sealed class DevicesService(AppPaths paths)
             var doc = Read();
             var block = Find(doc, id);
             var def = Build(name, match, display, driver, defaultPreset, presetsFrom);
+            def.BigPicture = ParseDevices(doc).Devices.GetValueOrDefault(id)?.BigPicture; // not edited in the app: keep it
             ValidateDef(id, def, ParseDevices(doc), isNew: false);
             block.Body = Render(id, def, doc.Indent);
             return Write(doc);
