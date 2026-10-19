@@ -4,7 +4,8 @@ namespace OptimusVibe.Tests;
 
 public sealed class GameIntentTests
 {
-    private const string Game = """
+    // LF whatever the checkout's line endings (CI checks out CRLF).
+    private static readonly string Game = """
         id: g
         name: G
         # Claude's notes stay put
@@ -15,7 +16,7 @@ public sealed class GameIntentTests
         profiles:
           base: {}
 
-        """;
+        """.ReplaceLineEndings("\n");
 
     [Fact]
     public void ReplacesTheDeviceLine_KeepsEverythingElse()
