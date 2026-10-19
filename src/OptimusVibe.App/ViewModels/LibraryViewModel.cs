@@ -371,6 +371,8 @@ public sealed class LibraryViewModel : ObservableObject
     public LibraryTileViewModel? FindByGameId(string gameId) =>
         _byKey.Values.FirstOrDefault(t => string.Equals(t.GameId, gameId, StringComparison.OrdinalIgnoreCase));
 
+    public LibraryTileViewModel? FindBySteamAppId(int appId) => _byKey.GetValueOrDefault($"steam:{appId}");
+
     /// <summary>Display name for a Steam app id: the library entry, else the game config with that steamAppId, else its game id.</summary>
     public string SteamGameName(int appId, string? gameId)
     {

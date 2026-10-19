@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
@@ -381,7 +382,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public bool HasSteamBanner => SteamChanges is { Count: > 0 };
 
     public string SteamBannerText => SteamChanges is { Count: var n }
-        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update. Steam has to be closed first so your presets are used."
+        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update so your presets are used. Optimus-Vibe closes Steam, makes the change, checks it and reopens Steam."
         : "";
 
     // ---------------------------------------------------------------- launch overlay
@@ -888,25 +889,44 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     }
 
     /// <summary>
-    /// Close Steam if it runs, then write <paramref name="changes"/>. <paramref name="skipKeys"/> ("steam:appid" of the
-    /// games the user unticked) go to steamLaunchOptionsSkip afterwards, synced when AutoSync is on, so they aren't proposed again.
+    /// Close Steam if it runs, write <paramref name="changes"/>, read them back, then start Steam again if it was closed
+    /// here (also when the write fails). <paramref name="skipKeys"/> ("steam:appid" of the games the user unticked) go to
+    /// steamLaunchOptionsSkip afterwards, synced when AutoSync is on, so they aren't proposed again.
     /// </summary>
     public async Task<bool> ApplySteamChangesAsync(IReadOnlyList<LaunchOptionChange> changes, IReadOnlyList<string> skipKeys)
     {
         var session = Session;
         if (session is null || changes.Count == 0) return false;
-        var ok = await RunAsync("Closing Steam and updating launch options", () => Task.Run(() =>
+        var reopened = false;
+        var ok = await RunAsync("Closing Steam, updating launch options and reopening Steam", () => Task.Run(() =>
         {
-            if (SteamLaunchOptions.IsSteamRunning() && !SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(30)))
-                throw new InvalidOperationException("Steam didn't close within 30 seconds — close it yourself, then try again.");
-            SteamLaunchOptions.Apply(changes);
-            foreach (var key in skipKeys) LibraryService.SetSteamLaunchOptionSkip(session.Store, key, true);
+            var closedHere = false;
+            if (SteamLaunchOptions.IsSteamRunning())
+            {
+                if (!SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(60)))
+                    throw new InvalidOperationException("Steam didn't close within 60 seconds, so nothing was changed. Try again once Steam is idle (no downloads or game running).");
+                closedHere = true;
+            }
+            try
+            {
+                SteamLaunchOptions.Apply(changes);
+                var failed = SteamLaunchOptions.Verify(changes);
+                if (failed.Count > 0)
+                    throw new InvalidOperationException(
+                        $"{failed.Count} Steam launch option(s) did not read back as written ({string.Join(", ", failed.Select(c => c.GameId ?? c.AppId.ToString(CultureInfo.InvariantCulture)))}). A backup of Steam's settings was kept.");
+                foreach (var key in skipKeys) LibraryService.SetSteamLaunchOptionSkip(session.Store, key, true);
+            }
+            finally
+            {
+                if (closedHere) reopened = SteamLaunchOptions.StartSteam();
+            }
         }));
         if (!ok) return false;
         SteamChanges = null;
+        var again = reopened ? " Steam was reopened." : "";
         Notify(skipKeys.Count == 0
-            ? $"Steam launch options updated for {changes.Count} game(s). You can start Steam again."
-            : $"Steam launch options updated for {changes.Count} game(s); {skipKeys.Count} left as they are. You can start Steam again.");
+            ? $"Steam launch options updated and checked for {changes.Count} game(s).{again}"
+            : $"Steam launch options updated and checked for {changes.Count} game(s); {skipKeys.Count} left as they are.{again}");
         if (skipKeys.Count > 0)
         {
             var settings = await SettingsStore.LoadAsync();

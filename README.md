@@ -388,12 +388,16 @@ Every managed Steam game needs this launch option (Properties → Launch Options
 
 **The app writes it for you**: for every managed Steam game it sets the option (keeping anything else you had
 there), and removes it again when you opt a game out. Steam overwrites its config while running, so the app only
-writes while Steam is closed: it offers to close Steam, or does it the next time Steam is not running. To manage
+writes while Steam is closed: it offers to close Steam itself, writes the options, reads them back to check them and
+reopens Steam (or it writes them the next time Steam is not running). To manage
 launch options yourself, turn this off in Settings (or `"writeSteamLaunchOptions": false` in
 `%LOCALAPPDATA%\OptimusVibe\settings.json`); `optimus-vibe steam-options` shows and applies the changes by hand.
 
 **Choose which games get it**: when changes are waiting, the banner has a **Review…** button listing each game with a
-checkbox and its launch option before and after; **Apply selected** closes Steam and writes only the ticked ones.
+checkbox, its launch option before and after, and whether its graphics settings sync between your devices (with the
+confidence: *Syncs between devices · high confidence*, *Maybe syncs · not known yet*, *Stays on this device · medium
+confidence*). Games that sync or might are ticked by default; games whose settings stay on this device start unticked.
+**Apply selected** closes Steam, writes only the ticked ones, checks them and reopens Steam.
 Unticked games (and any game whose page has *Keep Steam launch option up to date* switched off) go to
 `steamLaunchOptionsSkip` in `config/library.yaml` (synced), so Optimus-Vibe never touches their launch option, whether
 to add or remove it. From the CLI: `optimus-vibe steam-options <game> --skip` / `--unskip`; `--sync-all` respects the list.

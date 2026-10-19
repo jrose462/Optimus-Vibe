@@ -106,6 +106,26 @@ public sealed class LibraryTileViewModel : ObservableObject
     /// <summary>The cloud-sync report's headline ("Settings stay on this device"), or "Not known yet".</summary>
     public string SyncTip => _entry.CloudSync?.Headline ?? "Not known yet";
 
+    /// <summary>Bucket plus confidence for a list row: "Syncs between devices · high confidence", "Maybe syncs · not known yet".</summary>
+    public string SyncLabel => SyncLabelFor(SyncBucket, _entry.CloudSync);
+
+    public static string SyncLabelFor(SyncBucket bucket, CloudSyncReport? report)
+    {
+        var what = bucket switch
+        {
+            SyncBucket.Syncs => "Syncs between devices",
+            SyncBucket.StaysOnDevice => "Stays on this device",
+            _ => "Maybe syncs",
+        };
+        var how = report switch
+        {
+            { StrongChange: not null } => "seen syncing",
+            { ConfidenceText: { Length: > 0 } c } => c,
+            _ => "not known yet",
+        };
+        return $"{what} · {how}";
+    }
+
     public bool CanPlay => GameLauncher.CanLaunch(_entry.Game, _entry.Detected);
 
     public string PlayHint => Status switch

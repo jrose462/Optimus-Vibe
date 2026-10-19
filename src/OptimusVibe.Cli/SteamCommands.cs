@@ -129,14 +129,27 @@ internal static class SteamCommands
             return 0;
         }
 
+        var closedHere = false;
         if (exitSteam && SteamLaunchOptions.IsSteamRunning())
         {
             Console.WriteLine("Asking Steam to exit…");
             if (!SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(60)))
                 throw new InvalidOperationException("Steam did not exit within 60 seconds; nothing written.");
+            closedHere = true;
         }
-        var backup = SteamLaunchOptions.Apply(changes, account);
-        Console.WriteLine($"Wrote {changes.Count} change(s). Backup: {backup}");
+        try
+        {
+            var backup = SteamLaunchOptions.Apply(changes, account);
+            var failed = SteamLaunchOptions.Verify(changes, account);
+            if (failed.Count > 0)
+                throw new InvalidOperationException($"{failed.Count} launch option(s) did not read back as written: {string.Join(", ", failed.Select(c => c.AppId))}. Backup: {backup}");
+            Console.WriteLine($"Wrote and checked {changes.Count} change(s). Backup: {backup}");
+        }
+        finally
+        {
+            if (closedHere)
+                Console.WriteLine(SteamLaunchOptions.StartSteam() ? "Steam started again." : "Could not start Steam again; start it yourself.");
+        }
         return 0;
     }
 
