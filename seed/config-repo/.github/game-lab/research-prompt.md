@@ -78,9 +78,13 @@ it), do NOT guess. Write `.claude-out/needs-evidence.json` and stop (write no ga
 
 Exactly those three arrays of strings (empty arrays allowed), at most 12 entries each, each entry short and specific
 (directories to list, files or globs to read, registry keys). Path tokens: `{Documents}` `{LocalAppData}` `{AppData}`
-`{LocalLow}` `{SavedGames}` `{UserProfile}` `{ProgramData}` `{SteamLibrary:<appid>}` `{SteamUserData:<appid>}`. Only ask
-for settings/config locations of this game, never for credentials, tokens, or unrelated folders. Ask for what is
-needed in one go; do not ask for things already in the evidence.
+`{LocalLow}` `{SavedGames}` `{UserProfile}` `{ProgramData}` `{SteamLibrary:<appid>}`; the app refuses any other token
+(there is no `{SteamUserData}`). `listDirs` entries must name one exact folder: wildcards there are refused. Evidence
+shows account ids redacted (e.g. `Steam/[STEAM-ID]/`), so you cannot name such a folder: reach inside it with a
+`files` glob instead, e.g. `{LocalAppData}/X/Steam/*/*` (globs work in any segment of `files`, up to 25 matches each;
+binary files come back as their size plus the readable strings inside). Only ask for settings/config locations of this game, never for
+credentials, tokens, or unrelated folders. Ask for what is needed in one go; do not ask for things already in the
+evidence.
 
 Evidence rounds are limited: `meta.json` has `round` (rounds already used) and `maxRounds` (2). If `round >=
 maxRounds` you may NOT ask again. Finish with what you have: leave unconfirmed keys out or mark them `# TODO verify`

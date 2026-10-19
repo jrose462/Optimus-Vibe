@@ -14,7 +14,9 @@
 # and squash merging allowed.
 name: Game lab
 
-run-name: game-lab #${{ github.event.issue.number || github.event.inputs.issue }}
+# Quoted: unquoted, YAML reads " #..." as a comment, every run gets the same title "game-lab", and the gate's
+# duplicate check (which compares run titles) treats every other request as a duplicate of this one.
+run-name: "game-lab #${{ github.event.issue.number || github.event.inputs.issue }}"
 
 on:
   issues:
@@ -69,6 +71,11 @@ jobs:
         contains(github.event.issue.labels.*.name, 'game-lab'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # One gate per issue at a time: a new issue fires both "opened" and "labeled", and two gates starting together each
+    # saw no other run and both claimed it. Serialized, the second sees the first one's claim and stops as a duplicate.
+    concurrency:
+      group: game-lab-gate-${{ github.event.issue.number || github.event.inputs.issue || github.run_id }}
+      cancel-in-progress: false
     permissions:
       contents: read
       issues: write
