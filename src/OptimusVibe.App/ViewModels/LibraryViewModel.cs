@@ -90,6 +90,8 @@ public sealed class LibraryViewModel : ObservableObject
         SyncFilters[0].IsSelected = true;
         SetSyncFilterCommand = new RelayCommand(p => { if (p is SyncPillViewModel f) SetSyncFilter(f.Filter); });
         SetFilterCommand = new RelayCommand(p => { if (p is FilterPillViewModel f) SetFilter(f.Filter); });
+        // the "This device" counts (tuned / waiting / opted out) filter too; pressing the active one goes back to All
+        ToggleStatusFilterCommand = new RelayCommand(p => { if (p is LibraryFilter f) SetFilter(_filter == f ? LibraryFilter.All : f); });
         RescanCommand = new AsyncRelayCommand(() => ScanAsync(rescanLaunchers: true), () => !IsScanning && main.Session is not null);
         OpenQueueCommand = new RelayCommand(() => { if (main.Lab.IsReady) _ = main.Lab.OpenQueueAsync(); else main.OpenSettings("gamelab"); });
     }
@@ -132,6 +134,11 @@ public sealed class LibraryViewModel : ObservableObject
     public int TunedCount => Filters[1].Count;
     public int WaitingCount => Filters[2].Count;
     public int OptedOutCount => Filters[3].Count;
+
+    public ICommand ToggleStatusFilterCommand { get; }
+    public bool IsTunedFilter => _filter == LibraryFilter.Managed;
+    public bool IsWaitingFilter => _filter == LibraryFilter.NeedsPresets;
+    public bool IsOptedOutFilter => _filter == LibraryFilter.OptedOut;
     public string DeviceFriendly => _main.DeviceFriendly;
     public string DeviceName => _main.DeviceName;
 
@@ -207,6 +214,9 @@ public sealed class LibraryViewModel : ObservableObject
         ApplyFilter();
         OnPropertyChanged(nameof(Filter));
         OnPropertyChanged(nameof(EmptyText));
+        OnPropertyChanged(nameof(IsTunedFilter));
+        OnPropertyChanged(nameof(IsWaitingFilter));
+        OnPropertyChanged(nameof(IsOptedOutFilter));
     }
 
     public void SetSyncFilter(SyncFilter filter)
