@@ -23,6 +23,12 @@
 #          Derived from the detected GPUs when omitted, but set it explicitly when a CPU also exposes an iGPU.
 # presetsFrom: another device id whose recommended presets this device uses for games that have none of their own
 #          (one level, no loops). The app edits all of this for you under Settings > Devices.
+# bigPicture: (optional) how a big TV is recognised; see README "Big Picture (TV)". Without it, an active 16:9 display of
+#          3840 px or more (docked TV), or a 4K stream client (Apollo/Sunshine), selects the `big-picture` preset.
+#            bigPicture:
+#              preset: big-picture                   # preset name used on the TV
+#              display: { width: 3840, height: 2160, refresh: 120 }
+#              match: { name: ["LG TV*"], minWidth: 3840, aspect: "16:9", stream: true }   # see `optimus-vibe display list`
 #
 # Override detection with `--profile <device>` or once per machine with `optimus-vibe setup --force-profile <device>`.
 

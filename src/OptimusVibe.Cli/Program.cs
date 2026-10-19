@@ -34,6 +34,11 @@ public static class Program
         Recursive = true,
     };
 
+    private static readonly Option<bool> NoBigPictureOption = new("--no-big-picture")
+    {
+        Description = "Don't switch to the Big Picture (TV) preset even if a 4K TV or stream is detected.",
+    };
+
     private static readonly Argument<string> GameArg = new("game") { Description = "Game id (file name in config\\games without .yaml)" };
 
     public static int Main(string[] args)
@@ -45,6 +50,7 @@ public static class Program
         var root = new RootCommand("Applies per-device graphics settings to games (desktop vs handheld) from a shared config repo.")
         {
             ConfigOption, ProfileOption, PresetOption,
+            BigPictureCommands.DisplayCommand(), BigPictureCommands.TvCommand(),
             RunCommand(), ApplyCommand(), PresetsCommand(), UseCommand(), SaveCommand(), DeleteSaveCommand(),
             RestoreCommand(), DetectCommand(), InspectCommand(), ListCommand(), ValidateCommand(),
             SyncCommand(), UpdateCommand(), ShortcutCommand(), SetupCommand(),
@@ -79,6 +85,12 @@ public static class Program
 
     private static AppPaths Paths(ParseResult pr) => AppPaths.Resolve(pr.GetValue(ConfigOption));
 
+    /// <summary>run/apply: also lets a detected TV (docked 4K display or 4K stream) pick the Big Picture preset.</summary>
+    private static GameContext ContextWithBigPicture(ParseResult pr) =>
+        GameContext.Load(Paths(pr), pr.GetValue(GameArg)!, pr.GetValue(ProfileOption),
+            pr.GetValue(PresetOption) is { } p ? PresetRef.Parse(p) : null,
+            bigPicture: new BigPictureOptions { Suppress = pr.GetValue(NoBigPictureOption) });
+
     private static GameContext Context(ParseResult pr) =>
         GameContext.Load(Paths(pr), pr.GetValue(GameArg)!, pr.GetValue(ProfileOption),
             pr.GetValue(PresetOption) is { } p ? PresetRef.Parse(p) : null);
@@ -95,7 +107,7 @@ public static class Program
         var noPrompt = new Option<bool>("--no-prompt") { Description = "Don't offer to save settings changed in-game." };
         var cmd = new Command("run", "Apply settings, launch the game, wait for it to exit, then undo temporary changes.")
         {
-            GameArg, commandArg, noPrompt,
+            GameArg, commandArg, noPrompt, NoBigPictureOption,
         };
         cmd.SetAction(Guard(pr =>
         {
@@ -104,7 +116,7 @@ public static class Program
             GameContext ctx;
             try
             {
-                ctx = Context(pr);
+                ctx = ContextWithBigPicture(pr);
             }
             catch (Exception ex)
             {
@@ -125,10 +137,10 @@ public static class Program
     private static Command ApplyCommand()
     {
         var dryRun = new Option<bool>("--dry-run") { Description = "Show what would change without writing anything." };
-        var cmd = new Command("apply", "Write this device's settings into the game's config files now (no launch).") { GameArg, dryRun };
+        var cmd = new Command("apply", "Write this device's settings into the game's config files now (no launch).") { GameArg, dryRun, NoBigPictureOption };
         cmd.SetAction(Guard(pr =>
         {
-            var ctx = Context(pr);
+            var ctx = ContextWithBigPicture(pr);
             bool dry = pr.GetValue(dryRun);
             PrintHeader(ctx);
             var plans = GameEngine.Plan(ctx);
@@ -724,6 +736,8 @@ public static class Program
         else
             Console.WriteLine($"  preset: {ctx.Preset} — {ctx.Profile.Label}" +
                               $"{(ctx.Profile.TargetFps is { } f ? $" ({f} fps target)" : "")}{(ctx.IsSelected ? "" : " [device default]")}");
+        if (ctx.BigPictureUsed) Console.WriteLine($"  Big Picture (TV): {ctx.BigPicture!.Reason}{(ctx.DisplayTarget is { } t ? $" -> display {t}" : "")}");
+        else if (ctx.BigPictureNote is { } note) Console.WriteLine($"  {note}");
     }
 
     private static void PrintPlan(List<FilePlan> plans)

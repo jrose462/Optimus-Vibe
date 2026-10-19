@@ -40,4 +40,19 @@ public sealed class SelectionStore(string file)
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, JsonSerializer.Serialize(all, JsonOpts));
     }
+
+    private static string NoBigPictureKey(string device, string gameId) => Key(device, gameId) + "#no-big-picture";
+
+    /// <summary>"Never use Big Picture for this game" (per device, kept beside the remembered preset).</summary>
+    public bool GetNeverBigPicture(string device, string gameId) =>
+        Load().ContainsKey(NoBigPictureKey(device, gameId));
+
+    public void SetNeverBigPicture(string device, string gameId, bool never)
+    {
+        var all = Load();
+        if (never) all[NoBigPictureKey(device, gameId)] = "1";
+        else all.Remove(NoBigPictureKey(device, gameId));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, JsonSerializer.Serialize(all, JsonOpts));
+    }
 }

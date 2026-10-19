@@ -66,6 +66,8 @@ public static class Runner
 
         RunState.RecoverStale(ctx.Paths.StateFile);
         Log.Info($"=== run {ctx.Game.Id} as '{ctx.Device.Name}' ({ctx.Device.Reason}), preset {ctx.Preset?.ToString() ?? "(none)"} ===");
+        if (ctx.BigPictureUsed) Log.Info($"Big Picture (TV): {ctx.BigPicture!.Reason}");
+        else if (ctx.BigPictureNote is { } bpNote) Log.Warn(bpNote);
 
         // Did the settings change while we were not running (launcher cloud sync)? Before anything is applied; never throws.
         SyncObserver.BeforeRun(ctx);
@@ -140,11 +142,12 @@ public static class Runner
 
     private static void ApplyDisplay(GameContext ctx, RunState state)
     {
-        if (ctx.Profile.Display is null) return;
+        var wanted = ctx.Profile.Display ?? (ctx.BigPictureUsed ? ctx.BigPicture?.Mode : null);
+        if (wanted is null) return;
         try
         {
-            state.Display = DisplayManager.Apply(ctx.Profile.Display);
-            if (state.Display is not null) Log.Info($"Display set to {ctx.Profile.Display}");
+            state.Display = DisplayManager.Apply(wanted, ctx.DisplayTarget);
+            if (state.Display is not null) Log.Info($"Display set to {wanted}{(ctx.DisplayTarget is { } t ? $" on {t}" : "")}");
         }
         catch (Exception ex)
         {

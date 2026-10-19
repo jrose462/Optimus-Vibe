@@ -406,6 +406,17 @@
                     </StackPanel>
                 </CheckBox>
 
+                <!-- Big Picture (TV): per game opt-out and the current state -->
+                <CheckBox IsChecked="{Binding NeverBigPicture}" Margin="{DynamicResource AskMargin}" HorizontalAlignment="Left"
+                          Visibility="{Binding HasBigPicturePreset, Converter={StaticResource VisibleWhen}}"
+                          ToolTip="Keep this game on its normal preset even when a 4K TV or a 4K stream is detected (this device only).">
+                    <StackPanel>
+                        <TextBlock Text="Never use Big Picture for this game" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding BigPictureText}" Style="{StaticResource AskDetail}"
+                                   Visibility="{Binding HasBigPictureText, Converter={StaticResource VisibleWhen}}" />
+                    </StackPanel>
+                </CheckBox>
+
                 <!-- config error -->
                 <Border Style="{StaticResource Card}" Margin="{DynamicResource BlockGap}" HorizontalAlignment="Left" MaxWidth="760"
                         Visibility="{Binding HasError, Converter={StaticResource VisibleWhen}}">

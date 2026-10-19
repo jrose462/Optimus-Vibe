@@ -15,6 +15,12 @@ public sealed class PresetOption
     /// <summary>The device's default recommended preset (used when nothing is picked).</summary>
     public bool IsDefault { get; init; }
 
+    /// <summary>The device's Big Picture (TV) preset.</summary>
+    public bool IsBigPicture { get; init; }
+
+    /// <summary>Big Picture is active right now and this preset is picked automatically ("Auto on TV").</summary>
+    public bool AutoOnTv { get; init; }
+
     /// <summary>Set for manual saves.</summary>
     public ManualSave? Save { get; init; }
 
@@ -23,11 +29,12 @@ public sealed class PresetOption
 
 public static class PresetCatalog
 {
-    public static IReadOnlyList<PresetOption> Recommended(GameDef game, DeviceSelection device, PresetRef? active)
+    public static IReadOnlyList<PresetOption> Recommended(GameDef game, DeviceSelection device, PresetRef? active, bool autoOnTv = false)
     {
         var defaultName = GameContext.DefaultFor(game, device);
         var list = new List<PresetOption>();
-        foreach (var name in ProfileResolver.PresetNames(game, device.Name, device.Def))
+        var bpName = Display.BigPictureDetector.PresetName(device.Def);
+        foreach (var name in ProfileResolver.PresetNames(game, device.Name, device.Def).OrderBy(n => n == bpName ? 0 : 1))
         {
             var r = PresetRef.Recommended(name);
             try
@@ -35,8 +42,9 @@ public static class PresetCatalog
                 var p = ProfileResolver.ResolvePreset(game, device.Name, device.Def, name);
                 list.Add(new PresetOption
                 {
-                    Ref = r, Label = p.Label ?? name, Description = p.Description, TargetFps = p.TargetFps,
+                    Ref = r, Label = name == bpName ? "Big Picture (TV)" : p.Label ?? name, Description = p.Description, TargetFps = p.TargetFps,
                     IsActive = r == active, IsDefault = name == defaultName,
+                    IsBigPicture = name == bpName, AutoOnTv = autoOnTv && name == bpName,
                 });
             }
             catch (ConfigException ex)

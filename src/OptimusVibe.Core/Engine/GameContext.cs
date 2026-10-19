@@ -1,5 +1,6 @@
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
+using OptimusVibe.Display;
 using OptimusVibe.Handlers;
 using OptimusVibe.Logging;
 
@@ -42,6 +43,21 @@ public sealed class GameContext
 
     public PresetRef? Preset => Profile.Source;
 
+    /// <summary>Big Picture detection result for this load (null when not asked for or suppressed).</summary>
+    public BigPictureResult? BigPicture { get; init; }
+
+    /// <summary>The Big Picture preset was chosen automatically for this load.</summary>
+    public bool BigPictureUsed { get; init; }
+
+    /// <summary>The user opted this game out of Big Picture on this device.</summary>
+    public bool BigPictureOptedOut { get; init; }
+
+    /// <summary>Set when the TV is in use but the game has no Big Picture preset: "No Big Picture preset for X; using Y".</summary>
+    public string? BigPictureNote { get; init; }
+
+    /// <summary>Display device to change for this run: the TV when it was detected as a display, else null (the primary).</summary>
+    public string? DisplayTarget => BigPictureUsed ? BigPicture?.TargetDisplay : null;
+
     public SelectionStore Selections => new(Paths.SelectionsFile);
 
     /// <summary>Driver settings for this machine's vendor (nvidia: or amd: block).</summary>
@@ -64,11 +80,11 @@ public sealed class GameContext
     }
 
     public static GameContext Load(AppPaths paths, string gameId, string? profileOption, PresetRef? preset = null,
-        PathResolver? resolver = null)
+        PathResolver? resolver = null, BigPictureOptions? bigPicture = null)
     {
         var store = new ConfigStore(paths);
         var device = SelectDevice(store, profileOption);
-        return Load(store, gameId, device, preset, resolver);
+        return Load(store, gameId, device, preset, resolver, bigPicture);
     }
 
     /// <summary>
@@ -76,7 +92,7 @@ public sealed class GameContext
     /// the device's defaultPreset, the device's first preset. A stale selection (deleted save/preset) falls back.
     /// </summary>
     public static GameContext Load(ConfigStore store, string gameId, DeviceSelection device, PresetRef? preset = null,
-        PathResolver? resolver = null)
+        PathResolver? resolver = null, BigPictureOptions? bigPicture = null)
     {
         resolver ??= new PathResolver();
         var game = store.LoadGame(gameId);
@@ -86,6 +102,34 @@ public sealed class GameContext
         {
             try { chosen = selections.Get(device.Name, game.Id); }
             catch (ConfigException ex) { Log.Warn($"Ignoring unreadable selection for {game.Id}: {ex.Message}"); }
+        }
+
+        // Big Picture (TV): a docked 4K display or a 4K stream client picks the TV preset, unless the user chose a
+        // preset explicitly (preset != null), opted this game out, or the game has no such preset.
+        BigPictureResult? bp = null;
+        bool optedOut = false, bpWanted = false;
+        string? bpNote = null;
+        if (bigPicture is { Suppress: false })
+        {
+            bp = (bigPicture.Detect ?? BigPictureDetector.DetectNow)(device.Def);
+            try { optedOut = selections.GetNeverBigPicture(device.Name, game.Id); } catch (Exception) { /* unreadable: not opted out */ }
+            if (bp.Active && preset is null)
+            {
+                if (optedOut)
+                    Log.Info($"Big Picture is active ({bp.Reason}) but {game.Id} is opted out");
+                else if (ProfileResolver.PresetNames(game, device.Name, device.Def).Contains(bp.Preset))
+                {
+                    chosen = PresetRef.Recommended(bp.Preset);
+                    bpWanted = true;
+                    Log.Info($"Big Picture: using '{bp.Preset}' for {game.Id} ({bp.Reason})");
+                }
+                else
+                {
+                    var usedName = chosen?.ToString() ?? DefaultFor(game, device) ?? "(none)";
+                    bpNote = $"No Big Picture preset for {game.Name}; using {usedName}";
+                    Log.Info(bpNote);
+                }
+            }
         }
 
         ManualSave? save = null;
@@ -152,6 +196,10 @@ public sealed class GameContext
             Files = files,
             Save = save,
             IsSelected = isSelected,
+            BigPicture = bp,
+            BigPictureUsed = bpWanted && isSelected,
+            BigPictureOptedOut = optedOut,
+            BigPictureNote = bpNote,
         };
     }
 

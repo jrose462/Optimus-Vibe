@@ -35,13 +35,13 @@ public sealed class GameSnapshot
     {
         try
         {
-            var ctx = GameContext.Load(session.Store, id, session.Device);
+            var ctx = GameContext.Load(session.Store, id, session.Device, bigPicture: new BigPictureOptions());
             return new GameSnapshot
             {
                 Id = ctx.Game.Id,
                 Session = session,
                 Context = ctx,
-                Recommended = PresetCatalog.Recommended(ctx.Game, ctx.Device, ctx.Preset),
+                Recommended = PresetCatalog.Recommended(ctx.Game, ctx.Device, ctx.Preset, ctx.BigPictureUsed),
                 Manual = PresetCatalog.Manual(ctx.Store, ctx.Game, ctx.Device, ctx.Preset),
                 CloudSync = CheckSync(session, ctx.Game),
             };

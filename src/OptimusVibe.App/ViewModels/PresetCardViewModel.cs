@@ -64,6 +64,7 @@ public sealed class PresetCardViewModel : ObservableObject
         {
             var parts = new List<string>();
             if (IsActive) parts.Add("In use");
+            if (Option.AutoOnTv) parts.Add("Auto on TV");
             if (IsDefault) parts.Add("Device default");
             if (Option.TargetFps is { } f) parts.Add($"{f} fps target");
             return string.Join("  \u00b7  ", parts);
