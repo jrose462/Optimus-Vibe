@@ -69,9 +69,20 @@
                     <StackPanel>
                         <TextBlock Text="A new version is ready" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
                         <TextBlock Text="{Binding AvailableText}" FontSize="14.5" Foreground="{DynamicResource OnFeatureDimBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
-                        <TextBox Text="{Binding NotesText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
-                                 VerticalScrollBarVisibility="Auto" MaxHeight="200" VerticalContentAlignment="Top" Margin="0,16,0,0"
-                                 Background="{DynamicResource FeatureScrimBrush}" FontSize="14" AutomationProperties.Name="Release notes" />
+                        <!-- release notes, rendered from Markdown; Pop out opens them in their own window to read -->
+                        <Border Background="{DynamicResource FeatureScrimBrush}" CornerRadius="8" Padding="12,10" Margin="0,16,0,0">
+                            <FlowDocumentScrollViewer Document="{Binding NotesText, Converter={StaticResource MarkdownDocument}, ConverterParameter=14}"
+                                                      MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                                      IsToolBarVisible="False" Focusable="False" Foreground="{DynamicResource FeatureTextBrush}"
+                                                      AutomationProperties.Name="Release notes" />
+                        </Border>
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding PopOutNotesCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                Foreground="{DynamicResource FeatureTextBrush}" AutomationProperties.Name="Pop out release notes" ToolTip="Read the release notes in their own window">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8A7;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="Pop out release notes" />
+                            </StackPanel>
+                        </Button>
                         <Button Style="{StaticResource Button.Large}" Command="{Binding InstallCommand}" HorizontalAlignment="Left" Margin="0,16,0,0"
                                 Background="{DynamicResource FeatureButtonBrush}" Foreground="{DynamicResource FeatureButtonTextBrush}" AutomationProperties.Name="Download and restart" Content="Download and restart" />
                         <StackPanel Margin="0,12,0,0" Visibility="{Binding IsDownloading, Converter={StaticResource VisibleWhen}}">

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using OptimusVibe.App.Services;
 
 namespace OptimusVibe.App.Converters;
 
@@ -42,4 +43,14 @@ public sealed class InverseBoolConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not true;
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not true;
+}
+
+/// <summary>Markdown string → FlowDocument (a new one each time: a document can only sit in one viewer). Parameter: font size.</summary>
+public sealed class MarkdownDocumentConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        MarkdownFlow.ToDocument(value as string,
+            parameter is string s && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var size) ? size : 14);
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }
