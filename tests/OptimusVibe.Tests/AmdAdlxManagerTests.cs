@@ -358,6 +358,22 @@ public class AmdAdlxManagerTests
     }
 
     [Fact]
+    public void Self_test_moves_by_the_driver_step()
+    {
+        // The Ally's driver reports RIS sharpness 10..100 in steps of 10: +1 would be rounded straight back to 80.
+        var api = Ally();
+        api.Values[AmdSettingId.RisSharpness] = 80;
+        api.Ranges[AmdSettingId.RisSharpness] = (10, 100);
+        api.Steps[AmdSettingId.RisSharpness] = 10;
+        var m = new AmdAdlxManager(api);
+
+        Assert.Contains(DriverDiagnostics.AmdStatus(m), l => l.Contains("[10..100 step 10]"));
+        var real = DriverDiagnostics.TestAmd(m, applyAndRestore: true, out var passed);
+        Assert.True(passed, string.Join("\n", real));
+        Assert.Equal(["RisSharpness=90", "RisSharpness=80"], api.Writes);
+    }
+
+    [Fact]
     public void Status_text_is_pasteable_and_reports_unavailable_driver()
     {
         var lines = DriverDiagnostics.AmdStatus(new AmdAdlxManager(new FakeAdlx { Available = false }));
