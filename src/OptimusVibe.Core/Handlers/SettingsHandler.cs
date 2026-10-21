@@ -37,6 +37,12 @@ public abstract class SettingsHandler
 
     public abstract void Write(FileDef def, string path, IReadOnlyDictionary<string, string> values);
 
+    /// <summary>
+    /// Every key of a store's text with its value, in the key syntax this handler's `files:` blocks use (so the lab can copy a key into a
+    /// preset). Used by mapping runs to diff a file key by key. Null when the handler can't enumerate or the text isn't in its format.
+    /// </summary>
+    public virtual IReadOnlyList<(string Key, string Value)>? ReadAll(string text) => null;
+
     public virtual bool Exists(string path) => File.Exists(path);
 
     /// <summary>Opaque copy of the whole store, or null if it does not exist.</summary>

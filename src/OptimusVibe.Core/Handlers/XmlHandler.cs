@@ -71,6 +71,35 @@ public sealed class XmlHandler : SettingsHandler
         File.WriteAllBytes(path, output);
     }
 
+    /// <summary>Every attribute and every leaf element as an XPath (<c>/Root/Setting[2]/@value</c>) with its value; null when the text is not XML. At most 5000.</summary>
+    public override IReadOnlyList<(string Key, string Value)>? ReadAll(string text)
+    {
+        XDocument doc;
+        try { doc = XDocument.Parse(text); }
+        catch (XmlException) { return null; }
+        if (doc.Root is null) return null;
+        var result = new List<(string, string)>();
+        void Walk(XElement e, string path)
+        {
+            if (result.Count >= 5000) return;
+            foreach (var a in e.Attributes().Where(a => !a.IsNamespaceDeclaration)) result.Add(($"{path}/@{a.Name.LocalName}", a.Value));
+            var kids = e.Elements().ToList();
+            if (kids.Count == 0)
+            {
+                if (e.Value.Length > 0) result.Add((path, e.Value));
+                return;
+            }
+            foreach (var group in kids.GroupBy(k => k.Name))
+            {
+                var list = group.ToList();
+                for (var i = 0; i < list.Count; i++)
+                    Walk(list[i], $"{path}/{group.Key.LocalName}{(list.Count > 1 ? $"[{i + 1}]" : "")}");
+            }
+        }
+        Walk(doc.Root, "/" + doc.Root.Name.LocalName);
+        return result;
+    }
+
     private static XObject? Select(XDocument doc, string xpath)
     {
         var result = doc.XPathEvaluate(xpath);

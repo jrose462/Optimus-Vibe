@@ -154,6 +154,12 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public event Action? MinimizeRequested;
     public event Action? RestoreRequested;
 
+    /// <summary>Map this game: step aside while the game runs (any thread).</summary>
+    public void MinimizeForGame() => System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => MinimizeRequested?.Invoke());
+
+    /// <summary>Map this game: the game has exited (any thread).</summary>
+    public void RestoreAfterGame() => System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => RestoreRequested?.Invoke());
+
     // ---------------------------------------------------------------- state
 
     public AppState State

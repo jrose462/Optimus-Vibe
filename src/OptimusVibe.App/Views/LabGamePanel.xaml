@@ -54,6 +54,9 @@
                     <Button Command="{Binding TestCommand}" Content="Test preset" Margin="0,0,8,6"
                             Visibility="{Binding ShowTest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Test preset"
                             ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
+                    <Button Command="{Binding MapCommand}" Content="Map this game" Margin="0,0,8,6"
+                            Visibility="{Binding ShowMap, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Map this game"
+                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
                 </WrapPanel>
             </StackPanel>
 
@@ -82,6 +85,9 @@
                     <Button Command="{Binding TestCommand}" Content="Test preset" Margin="0,2,8,2"
                             Visibility="{Binding ShowTest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Test preset"
                             ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
+                    <Button Command="{Binding MapCommand}" Content="Map this game" Margin="0,2,8,2"
+                            Visibility="{Binding ShowMap, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Map this game"
+                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
                 </WrapPanel>
                 <Button Grid.Column="2" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
                         Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
@@ -240,6 +246,11 @@
                         <Button Style="{StaticResource Button.Primary}" Command="{Binding ConfirmCommand}" Content="{Binding SendText}" Margin="0,0,8,0" MinWidth="130"
                                 input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Send request"
                                 Visibility="{Binding HasPreview, Converter={StaticResource VisibleWhen}}" />
+                        <Button Command="{Binding MapFirstCommand}" Margin="0,0,8,0" AutomationProperties.Name="Map this game first"
+                                Visibility="{Binding ShowMapFirst, Converter={StaticResource VisibleWhen}}"
+                                ToolTip="Two launches show Claude where this game really keeps its settings. You can still send the request without it.">
+                            <TextBlock Text="Map this game first (recommended)" />
+                        </Button>
                         <Button Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Cancel">
                             <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
                         </Button>

@@ -4,7 +4,7 @@ using OptimusVibe.Feedback;
 
 namespace OptimusVibe.GameLab;
 
-public enum EvidenceKind { Install, File, Registry, Directory, CloudCheck, CurrentConfig, VerifyRun }
+public enum EvidenceKind { Install, File, Registry, Directory, CloudCheck, CurrentConfig, VerifyRun, Probe }
 
 /// <summary>One <c>### Kind: title</c> block with a fenced body.</summary>
 public sealed record EvidenceSection(EvidenceKind Kind, string Title, string Body)
@@ -17,6 +17,7 @@ public sealed record EvidenceSection(EvidenceKind Kind, string Title, string Bod
         EvidenceKind.Install => $"### Install: {Title}",
         EvidenceKind.CloudCheck => "### Cloud check",
         EvidenceKind.VerifyRun => "### Verify run",
+        EvidenceKind.Probe => "### Mapping run",
         _ => "### Current config",
     };
 

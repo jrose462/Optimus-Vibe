@@ -60,6 +60,8 @@ public sealed class LabGameViewModel : ObservableObject
         SendResultCommand = new AsyncRelayCommand(() => BeginAsync(LabKind.Refresh, _result), () => Idle() && CanSendResult);
         SaveResultCommand = new AsyncRelayCommand(SaveResultAsync, () => Idle() && _result is not null && Ctx.GameId is not null);
         DismissResultCommand = new RelayCommand(DismissResult);
+        MapCommand = new RelayCommand(BeginMap, () => Idle() && CanMap && !_testing);
+        MapFirstCommand = new RelayCommand(BeginMap, () => Idle() && CanMap);
         lab.IssuesChanged += Refresh;
         lab.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(GameLabViewModel.IsReady)) Refresh(); };
     }
@@ -78,6 +80,8 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand SendResultCommand { get; }
     public ICommand SaveResultCommand { get; }
     public ICommand DismissResultCommand { get; }
+    public ICommand MapCommand { get; }
+    public ICommand MapFirstCommand { get; }
 
     public void Refresh()
     {
@@ -102,6 +106,56 @@ public sealed class LabGameViewModel : ObservableObject
         : "The game lab isn't set up yet. Set it up in Settings and Claude can research this game for you.";
     public bool IsDisabled => DisabledReason.Length > 0;
     public bool NeedsSetup => !LabReady;
+
+    // ---------------------------------------------------------------- map this game
+
+    /// <summary>The game is installed here and can be launched: two real launches can show where its settings live. Does not need the game lab.</summary>
+    public bool CanMap =>
+#if DEBUG
+        _demo ||
+#endif
+        (_main.Session is not null && Ctx.Target is { InstallDir.Length: > 0 } t && GameLauncher.CanLaunch(t.Game, t.Detected));
+
+    public bool ShowMap => CanMap;
+
+    /// <summary>This PC already has a recent mapping run for the game (it is attached to requests).</summary>
+    public bool HasMapping =>
+#if DEBUG
+        !_demo &&
+#endif
+        _main.Session is { } s && Ctx.Target is { } t && GameLabService.StoredMapping(s, t) is not null;
+
+    /// <summary>The request card offers to map the game first when nothing is known about where its settings live. It never blocks the request.</summary>
+    public bool ShowMapFirst => _confirming is LabKind.New or LabKind.Refresh && _verifyText is null && CanMap && !HasMapping;
+
+    private void BeginMap()
+    {
+        var ctx = Ctx;
+        if (ctx.Target is not { } target || _main.Session is not { } session) return;
+        ClearTransient();
+        var kind = ctx.HasConfig ? LabKind.Refresh : LabKind.New;
+        var options = new EvidenceOptions { CurrentConfig = LabCloud.CurrentConfigFrom(session.Paths) };
+
+        async Task<string?> Send()
+        {
+            var outcome = await _lab.FileRequestAsync(kind, target);
+            if (outcome is null) return null;
+            OnPropertyChanged(string.Empty);
+            if (outcome.Filed is not { } filed) return "Saved - it will be sent to the game lab when you're back online.";
+            return filed.Reused ? filed.Message + " The mapping wasn't added to it." : $"Sent to the game lab. {filed.Message}";
+        }
+
+        async Task<string?> Keep()
+        {
+            var saved = await SaveGameSettingsAsync($"Mapped settings {DateTime.Now:MMM d HH:mm}");
+            return saved is null ? null
+                : $"Saved “{saved.Save.Name}”: {saved.KeysSaved} setting(s)" + (saved.Snapshots.Count > 0 ? $", {saved.Snapshots.Count} whole file(s)" : "") + " - now active.";
+        }
+
+        var flow = new MapGameFlow(target, session.Paths.DataDir, options, CanAct, Send, ctx.HasConfig && ctx.GameId is not null ? Keep : null,
+            _main.MinimizeForGame, _main.RestoreAfterGame);
+        MapGameHost.Open(new MapGameModel(ctx.Name, flow));
+    }
 
     // ---------------------------------------------------------------- test preset
 
@@ -211,19 +265,28 @@ public sealed class LabGameViewModel : ObservableObject
     /// <summary>Keeps the settings the game left as a manual save (it becomes the active setting, like any other manual save).</summary>
     private async Task SaveResultAsync()
     {
+        var gameId = Ctx.GameId;
+        var saved = await SaveGameSettingsAsync($"Game's own {DateTime.Now:MMM d HH:mm}");
+        if (saved is null || gameId is null) return;
+        _main.Notify($"Saved “{saved.Save.Name}”: {saved.KeysSaved} setting(s)" +
+                     (saved.Snapshots.Count > 0 ? $", {saved.Snapshots.Count} whole file(s)" : "") + " - now active.", saved.Sync is { Ok: false });
+    }
+
+    /// <summary>Saves whatever the game's files hold right now as a manual save (it becomes the active setting). Null when it could not be done.</summary>
+    private async Task<SaveResult?> SaveGameSettingsAsync(string name)
+    {
         var session = _main.Session;
         var gameId = Ctx.GameId;
-        if (session is null || gameId is null) return;
+        if (session is null || gameId is null) return null;
         SaveResult? saved = null;
         var ok = await _main.RunAsync("Saving the game's own settings (and syncing git)", () => Task.Run(() =>
         {
             var gctx = GameContext.Load(session.Store, gameId, session.Device);
-            saved = ManualSaves.SaveCurrent(gctx, $"Game's own {DateTime.Now:MMM d HH:mm}");
+            saved = ManualSaves.SaveCurrent(gctx, name);
         }));
-        if (!ok || saved is null) return;
+        if (!ok || saved is null) return null;
         await _main.ReloadGameAsync(gameId);
-        _main.Notify($"Saved “{saved.Save.Name}”: {saved.KeysSaved} setting(s)" +
-                     (saved.Snapshots.Count > 0 ? $", {saved.Snapshots.Count} whole file(s)" : "") + " - now active.", saved.Sync is { Ok: false });
+        return saved;
     }
 
 #if DEBUG
@@ -257,6 +320,12 @@ public sealed class LabGameViewModel : ObservableObject
             case "sent": _result = Sample(10); _resultSent = true; break;
             case "unknown": _result = Sample(0, seen: false); break;
             case "hint": _demoHint = Sample(10, verify: false); break;
+            case "map-first":
+                _confirming = LabKind.New;
+                Preview = new EvidencePreview(3, 2, 1,
+                    ["Install: {SteamLibrary:1234}", "File: {LocalAppData}\\Demo\\Saved\\Config\\GameUserSettings.ini", "File: {Documents}\\Demo\\settings.json",
+                     "Directory: {LocalAppData}\\Demo", "Registry: HKCU\\Software\\Demo\\Graphics"], []);
+                break;
         }
         OnPropertyChanged(string.Empty);
     }
@@ -370,6 +439,7 @@ public sealed class LabGameViewModel : ObservableObject
         PreviewError = null;
         IsLoadingPreview = false;
         OnPropertyChanged(nameof(IsConfirming));
+        OnPropertyChanged(nameof(ShowMapFirst));
         OnPropertyChanged(nameof(ConfirmTitle));
         CommandManager.InvalidateRequerySuggested();
         return any;
@@ -388,6 +458,7 @@ public sealed class LabGameViewModel : ObservableObject
         PreviewError = null;
         IsLoadingPreview = true;
         OnPropertyChanged(nameof(IsConfirming));
+        OnPropertyChanged(nameof(ShowMapFirst));
         OnPropertyChanged(nameof(ConfirmTitle));
         OnPropertyChanged(nameof(ConfirmLead));
         OnPropertyChanged(nameof(PrivacyNote));

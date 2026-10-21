@@ -59,7 +59,7 @@ public static class Program
             SteamCommands.SteamOptionsCommand(),
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
             CloudCheckCommands.CloudCheckCommand(), DeviceCommands.DevicesCommand(),
-            GameLabCommands.LabCommand(), OutboxCommands.OutboxCommand(),
+            GameLabCommands.LabCommand(), GameLabCommands.ProbeCommand(), OutboxCommands.OutboxCommand(),
         };
         return root.Parse(args).Invoke();
     }
@@ -109,9 +109,13 @@ public static class Program
         {
             Description = "Test the preset: change nothing in the game, play about a minute, quit. No save prompt; see the result with verify-result.",
         };
+        var probe = new Option<bool>("--probe")
+        {
+            Description = "Mapping run: apply nothing, change no display mode, ask nothing; just launch and wait. Used by `probe` and the app's Map this game.",
+        };
         var cmd = new Command("run", "Apply settings, launch the game, wait for it to exit, then undo temporary changes.")
         {
-            GameArg, commandArg, noPrompt, verify, NoBigPictureOption,
+            GameArg, commandArg, noPrompt, verify, probe, NoBigPictureOption,
         };
         cmd.SetAction(Guard(pr =>
         {
@@ -131,7 +135,7 @@ public static class Program
                 p?.WaitForExit();
                 return p?.ExitCode ?? 2;
             }
-            return Runner.Run(ctx, command, prompt: !pr.GetValue(noPrompt), new RunOptions { Verify = pr.GetValue(verify) });
+            return Runner.Run(ctx, command, prompt: !pr.GetValue(noPrompt), new RunOptions { Verify = pr.GetValue(verify), Probe = pr.GetValue(probe) });
         }));
         return cmd;
     }

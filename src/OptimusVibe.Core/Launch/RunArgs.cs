@@ -2,7 +2,7 @@ namespace OptimusVibe.Launch;
 
 /// <summary>
 /// The command line of the headless wrapper: <c>run &lt;game&gt; [--preset p] [--profile d] [--config dir] [--no-prompt] [--no-big-picture]
-/// [--verify] [--launch &lt;uri-or-exe&gt; [--launch-arg a]... [--install-dir d]] [-- %command%]</c>. args[0] is the verb and is skipped.
+/// [--verify] [--probe] [--launch &lt;uri-or-exe&gt; [--launch-arg a]... [--install-dir d]] [-- %command%]</c>. args[0] is the verb and is skipped.
 /// </summary>
 public sealed class RunArgs
 {
@@ -18,6 +18,9 @@ public sealed class RunArgs
 
     /// <summary>A test of the preset: nothing is asked afterwards, the result is stored as a verify run.</summary>
     public bool Verify { get; private set; }
+
+    /// <summary>A mapping run: skip apply, display change and the capture prompt, just launch and wait (see <see cref="RunOptions.Probe"/>).</summary>
+    public bool Probe { get; private set; }
 
     /// <summary>The game command line after "--" (Steam's %command%), or stray arguments.</summary>
     public List<string> Command { get; } = [];
@@ -41,6 +44,7 @@ public sealed class RunArgs
                 case "--no-prompt": r.Prompt = false; break;
                 case "--no-big-picture": r.NoBigPicture = true; break;
                 case "--verify": r.Verify = true; break;
+                case "--probe": r.Probe = true; break;
                 case "--launch" when i + 1 < args.Length: r.Launch = args[++i]; break;           // app library: uri or exe when no %command%
                 case "--launch-arg" when i + 1 < args.Length: r.LaunchArgs.Add(args[++i]); break;
                 case "--install-dir" when i + 1 < args.Length: r.InstallDir = args[++i]; break; // to wait on a URI-launched game
@@ -54,5 +58,5 @@ public sealed class RunArgs
     }
 
     /// <summary>The run options these arguments describe.</summary>
-    public RunOptions ToOptions() => new() { Launch = Launch, LaunchArgs = LaunchArgs, InstallDir = InstallDir, Verify = Verify };
+    public RunOptions ToOptions() => new() { Launch = Launch, LaunchArgs = LaunchArgs, InstallDir = InstallDir, Verify = Verify, Probe = Probe };
 }
