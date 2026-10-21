@@ -90,6 +90,16 @@ public sealed record GameHealth
     public const string ResearchFinishedLine = "Research finished - try managing settings again?";
     public const string ConfigFlagLine = "The game lab set this flag, so only it can lift it. It does that when its research finds a way to set this game's settings.";
 
+    /// <summary>The "Not checked" line when nothing counts yet (also right after "Manage settings again": older runs stopped counting).</summary>
+    public const string ChecksAfterPlayLine = "Optimus-Vibe checks it by itself after you play.";
+
+    /// <summary>The caption under "Manage settings again": says the same as the health shows afterwards (<see cref="ChecksAfterPlayLine"/>).</summary>
+    public const string ManageAgainCaption = "Optimus-Vibe writes this game's settings again and checks them by itself after you play (or test the preset now).";
+
+    /// <summary>The toast after "Manage settings again", in line with <see cref="ChecksAfterPlayLine"/> (nothing is suggested until a run counts).</summary>
+    public static string ManagedAgainLine(string name) =>
+        $"Optimus-Vibe manages {name}'s settings again. It checks by itself that the game keeps them after you play, or test the preset now.";
+
     /// <summary>The button text of a suggested action.</summary>
     public static string ActionText(HealthAction action) => action switch
     {
@@ -188,11 +198,13 @@ public sealed record GameHealth
 
         // 6. cloud sync may be changing them
         // Only the contradiction that says the settings do travel counts ("probably per machine" is no doubt about this game), and changes
-        // made while Optimus-Vibe wasn't running stop counting once the preset held on a later launch or test.
+        // made while Optimus-Vibe wasn't running stop counting once the preset held on a later launch or test, and like every other evidence
+        // once they are older than the fresh start (EvidenceSinceUtc: the game was flagged, or its settings managed again since).
         var sync = i.CloudSync;
         var syncContradiction = sync is { Contradiction: { } contradiction, Effective: true } ? contradiction : null;
         var syncExternal = sync is { HasExternalChanges: true, Confidence: <= SyncConfidence.Low } &&
-                           !(sync.LastExternalChangeUtc is { } changedUtc && runs.NewestHeldUtc is { } heldUtc && heldUtc > changedUtc);
+                           !(sync.LastExternalChangeUtc is { } changedUtc &&
+                             ((runs.NewestHeldUtc is { } heldUtc && heldUtc > changedUtc) || (i.EvidenceSinceUtc is { } since && since > changedUtc)));
         if (syncContradiction is not null || syncExternal || runs.LastPassive == PassiveVerdict.SyncSuspect)
             return new GameHealth
             {
@@ -224,7 +236,7 @@ public sealed record GameHealth
             Why = runs.HeldStreak > 0
                 ? $"The preset held on your last {(runs.HeldStreak == 1 ? "launch" : $"{runs.HeldStreak} launches")}. {WorkingAfter - runs.HeldStreak} more to be sure."
                 : ambiguous ? "Your last launches didn't show clearly whether the game keeps the preset."
-                : "Optimus-Vibe checks it by itself after you play.",
+                : ChecksAfterPlayLine,
             Suggested = ambiguous ? HealthAction.TestPreset : HealthAction.None,
         };
     }
@@ -439,4 +451,10 @@ public sealed record FlagFinding(FlagSource Source, string Reason, RunResult? Ru
 
     /// <summary>The run's full evidence text for the research task (<see cref="RunResults.EvidenceText"/>), null without a run.</summary>
     public string? RunText => Run is { } r ? RunResults.EvidenceText(r) : null;
+
+    /// <summary><see cref="RunText"/> of a Test preset (the research task's "Verify run" section), null when the run was not a test.</summary>
+    public string? VerifyRunText => Source == FlagSource.Verify ? RunText : null;
+
+    /// <summary><see cref="RunText"/> of a normal launch (the research task's "Normal launch" section, never "Verify run": the player may have changed settings).</summary>
+    public string? LaunchRunText => Source == FlagSource.Passive ? RunText : null;
 }

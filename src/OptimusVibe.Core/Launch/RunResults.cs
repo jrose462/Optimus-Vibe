@@ -310,28 +310,38 @@ public static class RunResults
     });
 
     /// <summary>
-    /// The game ran flagged "set in-game" on this device: starts both streaks over and stamps <see cref="RunResultEntry.EvidenceSinceUtc"/> so that, should the flag be lifted
-    /// (here or on another device), what led to it does not suggest it again. Writes only when the stamp is missing or older than the newest
-    /// stored run (a flagged run records none, so once per flag). Never throws.
+    /// The game is flagged "set in-game" and this device saw it: it was flagged here, ran flagged here, or the library scan found the flag
+    /// (also one synced from another device). Starts both streaks over and stamps <see cref="RunResultEntry.EvidenceSinceUtc"/> so that, should
+    /// the flag be lifted (here or on another device), what led to it does not suggest it again. Writes only when the stamp is missing or older
+    /// than the newest stored run (a flagged run records none, so once per flag). Never throws.
     /// </summary>
-    public static void MarkFlagged(string dataDir, string gameId, string device, DateTime? nowUtc = null)
+    public static void MarkFlagged(string dataDir, string gameId, string device, DateTime? nowUtc = null) =>
+        MarkFlagged(dataDir, [gameId], device, nowUtc);
+
+    /// <summary><see cref="MarkFlagged(string, string, string, DateTime?)"/> for several games in one write (the library scan). Never throws.</summary>
+    public static void MarkFlagged(string dataDir, IReadOnlyCollection<string> gameIds, string device, DateTime? nowUtc = null)
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(device) || gameIds.All(string.IsNullOrWhiteSpace)) return;
             Modify(dataDir, m =>
             {
-                if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(device)) return false;
-                var e = EntryFor(m, gameId, device);
-                if (e.EvidenceSinceUtc is { } mark && !(NewestRunUtc(e) is { } newest && newest > mark)) return false;
-                e.OverriddenStreak = 0;
-                e.PassiveOverriddenStreak = 0;
-                e.EvidenceSinceUtc = nowUtc ?? DateTime.UtcNow;
-                return true;
+                var changed = false;
+                foreach (var gameId in gameIds.Where(id => !string.IsNullOrWhiteSpace(id)))
+                {
+                    var e = EntryFor(m, gameId, device);
+                    if (e.EvidenceSinceUtc is { } mark && !(NewestRunUtc(e) is { } newest && newest > mark)) continue;
+                    e.OverriddenStreak = 0;
+                    e.PassiveOverriddenStreak = 0;
+                    e.EvidenceSinceUtc = nowUtc ?? DateTime.UtcNow;
+                    changed = true;
+                }
+                return changed;
             });
         }
         catch (Exception ex)
         {
-            Log.Warn($"Could not mark {gameId} as flagged in the run history: {ex.Message}");
+            Log.Warn($"Could not mark {string.Join(", ", gameIds)} as flagged in the run history: {ex.Message}");
         }
     }
 

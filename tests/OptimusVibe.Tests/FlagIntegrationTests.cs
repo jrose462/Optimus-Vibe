@@ -168,6 +168,86 @@ public sealed class FlagIntegrationTests : IDisposable
     }
 
     [Fact]
+    public void FlaggedThenLifted_WithNoFlaggedRunAndNoReset_DoesNotSuggestOrDetectAgain()
+    {
+        // two overridden tests and two launches the game reset, then the user flags the game (the confirm stamps the mark) and plays it
+        // outside Optimus-Vibe; the flag is lifted on another device, so this one never runs "Manage settings again"
+        RunResults.Record(_data.Path, Run(0, drifted: 3, verify: true));
+        RunResults.Record(_data.Path, Run(1, drifted: 3, verify: true));
+        RunResults.Record(_data.Path, Overridden(2));
+        RunResults.Record(_data.Path, Overridden(3));
+        var before = HealthInputs.FromRuns(_data.Path, "g", "desktop") with { HasConfig = true, HasPresets = true, CurrentPreset = Preset };
+        Assert.NotNull(GameHealth.FlagSuggestion(before));
+        Assert.NotNull(AutoFindings.Detect(before));
+
+        RunResults.MarkFlagged(_data.Path, "g", "desktop", T0.AddDays(4));
+
+        var after = HealthInputs.FromRuns(_data.Path, "g", "desktop") with { HasConfig = true, HasPresets = true, CurrentPreset = Preset };
+        Assert.Null(after.Flag);
+        Assert.Null(GameHealth.FlagSuggestion(after));
+        Assert.Null(AutoFindings.Detect(after));
+        Assert.Equal(HealthState.NotChecked, GameHealth.Evaluate(after).State);
+    }
+
+    [Fact]
+    public void MarkFlagged_ForSeveralGames_StampsEachOnce_InOneCall()
+    {
+        RunResults.Record(_data.Path, Overridden(0));
+        RunResults.MarkFlagged(_data.Path, ["g", "never-launched", " "], "desktop", T0.AddDays(2));
+        Assert.Equal(T0.AddDays(2), RunResults.Entry(_data.Path, "g", "desktop")!.EvidenceSinceUtc);
+        Assert.Equal(T0.AddDays(2), RunResults.Entry(_data.Path, "never-launched", "desktop")!.EvidenceSinceUtc); // its mapping run stops counting too
+
+        // seen flagged again on the next scan: nothing moves
+        RunResults.MarkFlagged(_data.Path, ["g", "never-launched"], "desktop", T0.AddDays(3));
+        Assert.Equal(T0.AddDays(2), RunResults.Entry(_data.Path, "g", "desktop")!.EvidenceSinceUtc);
+        Assert.Equal(T0.AddDays(2), RunResults.Entry(_data.Path, "never-launched", "desktop")!.EvidenceSinceUtc);
+    }
+
+    [Fact]
+    public void ExternalChangesFromBeforeTheMark_DoNotMakeTheSyncUnsure()
+    {
+        OptimusVibe.CloudSync.CloudSyncReport Changed(int day) => new()
+        {
+            GameId = "g", Device = "desktop", HasExternalChanges = true, Confidence = OptimusVibe.CloudSync.SyncConfidence.None,
+            LastExternalChangeUtc = T0.AddDays(day),
+        };
+        // an old change a later held launch cleared; after the fresh start the held launches no longer count, and neither does the change
+        var fresh = In() with { Recent = [Run(1), Run(2), Run(3)], EvidenceSinceUtc = T0.AddDays(5) };
+        var h = GameHealth.Evaluate(fresh with { CloudSync = Changed(0) });
+        Assert.Equal(HealthState.NotChecked, h.State);
+
+        // a change after the fresh start still doubts it
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(fresh with { CloudSync = Changed(6) }).State);
+    }
+
+    [Fact]
+    public void AfterManagingSettingsAgain_TheToastAndCaption_SayWhatTheHealthShows()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Overridden(0), Overridden(1)], EvidenceSinceUtc = T0.AddDays(5) });
+        Assert.Equal(GameHealth.ChecksAfterPlayLine, h.Why);
+        Assert.Equal(HealthAction.None, h.Suggested);
+        Assert.Contains("after you play", GameHealth.ManagedAgainLine("Game"));
+        Assert.Contains("after you play", GameHealth.ManageAgainCaption);
+        Assert.DoesNotContain("Test the preset to check", GameHealth.ManagedAgainLine("Game"));
+    }
+
+    [Fact]
+    public void ANormalLaunchFinding_IsNeverSentAsAVerifyRun()
+    {
+        var passive = GameHealth.FlagEvidence(In() with { Recent = [Overridden(0), Overridden(1)] })!;
+        Assert.Equal(FlagSource.Passive, passive.Source);
+        Assert.Null(passive.VerifyRunText);
+        Assert.Contains("run: normal", passive.LaunchRunText);
+
+        var test = GameHealth.FlagEvidence(In() with { OverriddenStreak = 2, LastVerify = Run(1, drifted: 4, verify: true) })!;
+        Assert.Contains("run: verify", test.VerifyRunText);
+        Assert.Null(test.LaunchRunText);
+
+        var section = new EvidenceSection(EvidenceKind.LaunchRun, "", "x");
+        Assert.Equal("### Normal launch", section.Heading);
+    }
+
+    [Fact]
     public void AResultsFileWithoutTheMark_StillLoads_WithEverythingCounting()
     {
         File.WriteAllText(RunResults.FileFor(_data.Path),
@@ -243,5 +323,69 @@ public sealed class FlagIntegrationRunnerTests
         Assert.Null(inputs.Flag);
         Assert.Null(GameHealth.FlagSuggestion(inputs));
         Assert.Equal(HealthState.NotChecked, GameHealth.Evaluate(inputs).State);
+    }
+
+    private static void RecordTwoResets(EngineFixture fx)
+    {
+        var before = DateTime.UtcNow.AddDays(-2);
+        foreach (var day in new[] { 0, 1 })
+        {
+            var r = new RunResult
+            {
+                Utc = before.AddDays(day), Game = EngineFixture.GameId, Device = "desktop", Preset = PresetRef.Recommended("performance").ToString(),
+                Mode = RunResult.NormalMode, AppliedKeys = 10, ProcessSeen = true, DurationSec = 120, Capture = CaptureAnswer.DontSave,
+            };
+            for (var i = 0; i < 6; i++) r.Drift.Add(new RunDrift { FileId = "user", Key = $"K{i}", Applied = "1", Now = "0" });
+            RunResults.Record(fx.Paths.DataDir, r);
+        }
+    }
+
+    [Fact]
+    public void AFlagSyncedFromAnotherDevice_SeenByTheLibraryScan_StampsTheMark_SoLiftingItLaterStartsOver()
+    {
+        using var fx = new EngineFixture(GameYaml);
+        RecordTwoResets(fx);
+        Assert.NotNull(GameHealth.FlagSuggestion(HealthInputs.FromContext(fx.Load("desktop", PresetRef.Recommended("performance")))));
+
+        // flagged on the other device (library.yaml synced here); the game is never launched here through Optimus-Vibe
+        LibraryService.SetInGame(fx.Store, EngineFixture.GameId, GameFlags.Create("keeps resetting"));
+        Assert.NotNull(Assert.Single(LibraryService.Build(fx.Store, fx.Device("desktop"), [])).SetInGame);
+        Assert.NotNull(RunResults.Entry(fx.Paths.DataDir, EngineFixture.GameId, "desktop")!.EvidenceSinceUtc);
+
+        // lifted on the other device again: no suggestion and no automatic finding from the old resets
+        LibraryService.SetInGame(fx.Store, EngineFixture.GameId, null);
+        var inputs = HealthInputs.FromContext(fx.Load("desktop", PresetRef.Recommended("performance")));
+        Assert.Null(GameHealth.FlagSuggestion(inputs));
+        Assert.Null(AutoFindings.Detect(inputs));
+    }
+
+    [Fact]
+    public void AScanWithNothingFlagged_WritesNoRunHistory()
+    {
+        using var fx = new EngineFixture(GameYaml);
+        Assert.Null(Assert.Single(LibraryService.Build(fx.Store, fx.Device("desktop"), [])).SetInGame);
+        Assert.False(File.Exists(RunResults.FileFor(fx.Paths.DataDir)));
+    }
+
+    [Fact]
+    public void TheOutbox_WithdrawsAutomaticRequests_ForAGameFlaggedAnyWay()
+    {
+        using var fx = new EngineFixture(GameYaml);
+        using var outboxDir = new TempDir();
+        var store = new OutboxStore(outboxDir.Path);
+        var info = new GameLabContract.RequestInfo(LabKind.Refresh, EngineFixture.GameId, "Test Game", "other", EngineFixture.GameId, "desktop", "1.0");
+        var auto = store.Add(OutboxItem.ForLabRequest("o/r", "main", new PreparedLabRequest(info, ["e"]), automatic: true));
+        var byHand = store.Add(OutboxItem.ForLabRequest("o/r", "main", new PreparedLabRequest(info, ["e"])));
+        var unknown = store.Add(OutboxItem.ForLabRequest("o/r", "main",
+            new PreparedLabRequest(info with { GameId = "not-configured", StoreId = "x" }, ["e"]), automatic: true));
+
+        Assert.Equal(0, AutoFindings.WithdrawFlagged(store, fx.Store)); // not flagged: everything waits
+
+        // flagged by the CLI or a synced library.yaml, not the app's confirm
+        LibraryService.SetInGame(fx.Store, EngineFixture.GameId, GameFlags.Create("keeps resetting"));
+        Assert.Equal(1, AutoFindings.WithdrawFlagged(store, fx.Store));
+        Assert.Null(store.Get(auto.Id));
+        Assert.NotNull(store.Get(byHand.Id));   // one the user filed by hand stays
+        Assert.NotNull(store.Get(unknown.Id));  // a game that can't be read stays
     }
 }

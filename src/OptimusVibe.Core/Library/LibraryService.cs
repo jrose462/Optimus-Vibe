@@ -79,6 +79,12 @@ public static class LibraryService
             });
         }
 
+        // this device saw these games flagged (the flag may have synced from another device): what led to a flag must not suggest it again
+        // once it is lifted, so their run history from before now stops counting (once per flag; never throws)
+        var flagged = entries.Where(e => e.SetInGame is not null && e.Game is not null).Select(e => e.Game!.Id)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (flagged.Count > 0) OptimusVibe.Launch.RunResults.MarkFlagged(store.Paths.DataDir, flagged, device.Name);
+
         return entries
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Key, StringComparer.OrdinalIgnoreCase)

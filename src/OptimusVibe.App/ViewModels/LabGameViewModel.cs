@@ -57,7 +57,8 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _flagConfirming;
     private string? _flagReason;
     private string? _flagEvidence;
-    private string? _flagRunText;
+    private string? _flagVerifyRun;
+    private string? _flagLaunchRun;
     private int _researchFinishedFor;
     private bool _healthLoaded;
     private GameHealth? _health;
@@ -930,7 +931,7 @@ public sealed class LabGameViewModel : ObservableObject
     public string MapCaption => HasPassiveA
         ? "One launch where you change a few graphics options; your normal launches already showed what the game rewrites by itself."
         : "Quick launches that show where this game stores its settings. Use when the lab says it needs evidence.";
-    public string ManageAgainCaption => "Optimus-Vibe writes this game's settings again. Test the preset afterwards.";
+    public string ManageAgainCaption => GameHealth.ManageAgainCaption;
     public string FlagCaption => "Optimus-Vibe stops writing this game's settings. It still sets the display, graphics-driver settings and launch options.";
 
     /// <summary>
@@ -991,6 +992,7 @@ public sealed class LabGameViewModel : ObservableObject
                 var lib = LibraryService.LoadLibrary(s.Store);
                 _userFlag = GameFlags.FromLibrary(lib, id);
                 _flag = GameFlags.Effective(game, lib);
+                if (_flag is not null) RunResults.MarkFlagged(s.Paths.DataDir, id, s.Device.Name); // seen flagged here: its old evidence stops counting
             }
         }
         catch (Exception ex)
@@ -1091,7 +1093,8 @@ public sealed class LabGameViewModel : ObservableObject
         _flagReason = reason;
         var finding = CurrentFlagFinding();
         _flagEvidence = finding?.Summary ?? reason;
-        _flagRunText = finding?.RunText;
+        _flagVerifyRun = finding?.VerifyRunText;
+        _flagLaunchRun = finding?.LaunchRunText;
         _flagConfirming = true;
         OnPropertyChanged(nameof(IsFlagConfirming));
         OnPropertyChanged(nameof(FlagTitle));
@@ -1128,13 +1131,19 @@ public sealed class LabGameViewModel : ObservableObject
         var reason = _flagReason;
         if (_main.Session is not { } s || ctx.GameId is not { } id || reason is null) return;
         var evidence = _flagEvidence;
-        var runText = _flagRunText;
+        var verifyRun = _flagVerifyRun;
+        var launchRun = _flagLaunchRun;
         var target = ctx.Target;
         ClearTransient();
 
         // 1. the flag first: it must hold even when nothing can be filed
         var flag = GameFlags.Create(reason, evidence: evidence);
-        if (!await _main.RunAsync($"Flagging {ctx.Name} as set in-game", () => Task.Run(() => LibraryService.SetInGame(s.Store, id, flag)))) return;
+        if (!await _main.RunAsync($"Flagging {ctx.Name} as set in-game", () => Task.Run(() =>
+        {
+            LibraryService.SetInGame(s.Store, id, flag);
+            // what led to the flag must not suggest it again once it is lifted, here or on another device (never throws)
+            RunResults.MarkFlagged(s.Paths.DataDir, id, s.Device.Name);
+        }))) return;
         Log.Info($"{id}: flagged as set in-game ({reason})");
 
         // a flagged game gets no automatic findings: one still waiting in the outbox from before the flag is withdrawn (the research task asks instead)
@@ -1150,7 +1159,7 @@ public sealed class LabGameViewModel : ObservableObject
         // 2. the research task; a failure leaves the flag in place and says so
         FiledRequest? filed = null;
         string? problem = target is null ? "the game isn't installed here" : null;
-        if (target is not null) (filed, problem) = await _lab.FileResearchLaterAsync(target, reason, runText);
+        if (target is not null) (filed, problem) = await _lab.FileResearchLaterAsync(target, reason, verifyRun, launchRun);
         if (filed is not null)
         {
             flag.Issue = filed.Number;
@@ -1178,7 +1187,7 @@ public sealed class LabGameViewModel : ObservableObject
         await FinishFlagChangeAsync(s, id, $"chore(library): manage {id} settings again");
         _main.Notify(IsFlagged
             ? $"{ctx.Name} is still flagged by its game config, so its settings stay with the game."
-            : $"Optimus-Vibe manages {ctx.Name}'s settings again. Test the preset to check the game keeps it.");
+            : GameHealth.ManagedAgainLine(ctx.Name));
     }
 
     /// <summary>After the flag changed: re-read the game and the library (the tile says "Set in-game"), publish library.yaml when auto-sync is on.</summary>

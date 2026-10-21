@@ -152,7 +152,7 @@
                 </StackPanel>
                 <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowManageAgainInMore, Converter={StaticResource VisibleWhen}}">
                     <Button Command="{Binding ManageAgainCommand}" Content="Manage settings again" HorizontalAlignment="Left" AutomationProperties.Name="Manage settings again"
-                            ToolTip="Optimus-Vibe writes this game's settings again. Test the preset afterwards to check the game keeps it." />
+                            ToolTip="Optimus-Vibe writes this game&apos;s settings again and checks them by itself after you play (or test the preset now)." />
                     <TextBlock Text="{Binding ManageAgainCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
                 </StackPanel>
                 <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowFlagInMore, Converter={StaticResource VisibleWhen}}">

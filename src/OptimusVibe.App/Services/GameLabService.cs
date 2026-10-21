@@ -84,11 +84,13 @@ public sealed class GameLabService
     /// <param name="verifyRun">The text of a "### Verify run" section (<see cref="OptimusVibe.Launch.RunResults.EvidenceText"/>), when the request carries a preset test.</param>
     /// <param name="passive">Attach the passive pass A (<see cref="PassiveMapping"/>) when no mapping run is stored: for a request the player started
     /// (the preview lists it), or an automatic one with "Send findings to the game lab automatically" on.</param>
-    public static EvidenceCollector CollectorFor(AppSession session, string? verifyRun = null, bool passive = true) => new(new EvidenceOptions
+    /// <param name="launchRun">The text of a "### Normal launch" section: the normal launch that suggested the "set in-game" flag (not a test).</param>
+    public static EvidenceCollector CollectorFor(AppSession session, string? verifyRun = null, bool passive = true, string? launchRun = null) => new(new EvidenceOptions
     {
         CloudCheck = LabCloud.ForChecker(session.Store, session.Device),
         CurrentConfig = LabCloud.CurrentConfigFrom(session.Paths),
         VerifyRun = verifyRun is null ? null : _ => verifyRun,
+        LaunchRun = launchRun is null ? null : _ => launchRun,
         Probe = t => StoredMapping(session, t)?.Evidence ?? (passive ? PassiveMappingEvidence(session, t) : null),
     });
 
@@ -206,12 +208,12 @@ public sealed class GameLabService
     /// "Flag as set in-game": files a research-later issue in the config repo (the lab's evidence plus the reason and open questions; not the
     /// game-lab label, so nothing starts by itself).
     /// </summary>
-    public async Task<FiledRequest> FileResearchLaterAsync(Connection c, AppSession session, LabTarget target, string reason, string? verifyRun = null,
+    public async Task<FiledRequest> FileResearchLaterAsync(Connection c, AppSession session, LabTarget target, string reason, string? verifyRun = null, string? launchRun = null,
         CancellationToken ct = default)
     {
         if (IsDemo)
             return new FiledRequest(9, $"https://github.com/{c.Repo.Repo}/issues/9", false, 1, "Demo: would file research task #9");
-        return await ClientFor(c).FileResearchLaterAsync(target, session.Device.Name, reason, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
+        return await ClientFor(c).FileResearchLaterAsync(target, session.Device.Name, reason, CollectorFor(session, verifyRun, launchRun: launchRun), ct).ConfigureAwait(false);
     }
 
     /// <summary>Whether an issue of the config repo is still open; null when it can't be read.</summary>

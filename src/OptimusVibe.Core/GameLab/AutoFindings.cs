@@ -162,6 +162,44 @@ public static class AutoFindings
     }
 
     /// <summary>
+    /// Before the outbox sends: removes every waiting automatic request whose game is flagged "set in-game" now, however the flag arrived (the
+    /// app, the CLI's <c>set-in-game</c>, library.yaml synced from another device, or the game's own config). A flagged game gets no automatic
+    /// findings. A request whose game can't be read stays (the sender decides). Returns how many were removed. Never throws.
+    /// </summary>
+    public static int WithdrawFlagged(OutboxStore store, OptimusVibe.Config.ConfigStore config)
+    {
+        var removed = 0;
+        try
+        {
+            var lib = LibraryService.LoadLibrary(config);
+            foreach (var item in store.List())
+            {
+                if (item.Kind != OutboxKind.LabRequest) continue;
+                try
+                {
+                    var request = item.LabRequest;
+                    if (!request.Automatic || string.IsNullOrWhiteSpace(request.GameId)) continue;
+                    if (GameFlags.Effective(config.LoadGame(request.GameId), lib) is null) continue;
+                    if (store.Remove(item.Id))
+                    {
+                        removed++;
+                        Log.Info($"game lab: {request.GameId} is set in-game; withdrew its waiting automatic request {item.Id}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"outbox: could not check whether lab request {item.Id} is for a flagged game: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"outbox: could not check the waiting automatic requests for flagged games: {ex.Message}");
+        }
+        return removed;
+    }
+
+    /// <summary>
     /// The toast after "Turn on" on the consent card: findings go by themselves from now on, plus what happened to the finding at hand
     /// (<paramref name="gameId"/> in <paramref name="result"/>): sent (its own toast follows, so nothing more is said) or why nothing went now.
     /// </summary>

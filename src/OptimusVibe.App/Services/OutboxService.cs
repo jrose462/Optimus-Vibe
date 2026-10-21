@@ -101,6 +101,8 @@ public sealed class OutboxService : IDisposable
                 if (!AutoFindings.ConsentFrom(await SettingsStore.LoadAsync()) && AutoFindings.WithdrawQueued(Store) > 0) RaiseChanged();
             }
             catch (Exception ex) { Log.Warn($"outbox: could not check the waiting automatic requests: {ex.Message}"); }
+            // nor for a game flagged "set in-game" since, however the flag arrived (CLI, synced library.yaml, the game's config); never throws
+            if (_main.Session is { } session && await Task.Run(() => AutoFindings.WithdrawFlagged(Store, session.Store)) > 0) RaiseChanged();
             if (Store.Count == 0) return;
             var send = OutboxFlow.CreateSender(SafeToken, LabClientFor);
             var result = await Task.Run(() => new OutboxSender(Store).DrainAsync(send)).ConfigureAwait(true);

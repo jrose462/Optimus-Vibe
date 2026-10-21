@@ -84,6 +84,12 @@ public sealed class EvidenceOptions
     public Func<LabTarget, string?>? VerifyRun { get; init; }
 
     /// <summary>
+    /// Text for the "Normal launch" section: what a normal launch found (<see cref="Launch.RunResults.EvidenceText"/>), not a controlled test, so
+    /// the player may have changed settings. Null/empty = no section. Sent with the research task when normal launches suggested the flag.
+    /// </summary>
+    public Func<LabTarget, string?>? LaunchRun { get; init; }
+
+    /// <summary>
     /// Text for the "Mapping run" section (what two real launches changed, see <see cref="ProbeSession"/>); null/empty = no section.
     /// </summary>
     public Func<LabTarget, string?>? Probe { get; init; }
@@ -238,6 +244,12 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
             var text = _o.VerifyRun?.Invoke(t);
             if (!string.IsNullOrWhiteSpace(text))
                 bundle.Sections.Add(new EvidenceSection(EvidenceKind.VerifyRun, "", Clean(text, folders)));
+        });
+        TryAdd(bundle, "normal launch", () =>
+        {
+            var text = _o.LaunchRun?.Invoke(t);
+            if (!string.IsNullOrWhiteSpace(text))
+                bundle.Sections.Add(new EvidenceSection(EvidenceKind.LaunchRun, "", Clean(text, folders)));
         });
         TryAdd(bundle, "current config", () =>
         {

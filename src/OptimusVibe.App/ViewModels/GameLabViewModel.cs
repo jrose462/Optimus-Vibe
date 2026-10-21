@@ -714,7 +714,7 @@ public sealed class GameLabViewModel : ObservableObject
     /// Files the research-later issue for a game just flagged "set in-game". Never throws and never asks anything: with no sign-in, no config repo or no
     /// network the answer is (null, why), and the caller says the research task wasn't filed.
     /// </summary>
-    public async Task<(FiledRequest? Filed, string? Problem)> FileResearchLaterAsync(LabTarget target, string reason, string? verifyRun = null)
+    public async Task<(FiledRequest? Filed, string? Problem)> FileResearchLaterAsync(LabTarget target, string reason, string? verifyRun = null, string? launchRun = null)
     {
         var session = _main.Session;
         if (session is null) return (null, "no config is loaded");
@@ -725,7 +725,7 @@ public sealed class GameLabViewModel : ObservableObject
             if (conn is null) return (null, "you aren't signed in to GitHub");
             FiledRequest? filed = null;
             var ok = await _main.RunAsync($"Filing a research task for {target.Name}", async () =>
-                filed = await Task.Run(() => _service.FileResearchLaterAsync(conn, session, target, reason, verifyRun)));
+                filed = await Task.Run(() => _service.FileResearchLaterAsync(conn, session, target, reason, verifyRun, launchRun)));
             return ok && filed is not null ? (filed, null) : (null, "GitHub couldn't be reached");
         }
         catch (Exception ex)
