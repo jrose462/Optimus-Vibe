@@ -8,7 +8,8 @@ namespace OptimusVibe.Engine;
 
 /// <summary>
 /// Temporary changes made by `run` (display mode, AMD global driver settings), persisted so they can be undone
-/// on the next start if the wrapper is killed or the machine sleeps/crashes mid-game.
+/// on the next start if the wrapper is killed or the machine sleeps/crashes mid-game. One file per run
+/// (<c>AppPaths.RunStateFile</c>); a part that could not be undone stays in its file and is retried on the next start.
 /// </summary>
 public sealed class RunState
 {
@@ -40,8 +41,11 @@ public sealed class RunState
         File.WriteAllText(file, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    /// <summary>Undo everything recorded here. Each step is independent so one failure does not block the others.</summary>
-    public void Undo()
+    /// <summary>
+    /// Undo everything recorded here. Each step is independent so one failure does not block the others.
+    /// A restored part is cleared; a driver token that could not be fully restored is kept. True when nothing is left to undo.
+    /// </summary>
+    public bool Undo()
     {
         if (Display is not null)
         {
@@ -51,28 +55,85 @@ public sealed class RunState
                 Log.Info($"Display restored to {Display.Width}x{Display.Height}@{Display.Refresh}Hz");
             }
             catch (Exception ex) { Log.Error("Could not restore display mode", ex); }
+            Display = null;
         }
-        if (DriverToken is not null && DriverVendor is not null)
+        UndoDriver();
+        return IsEmpty;
+    }
+
+    /// <summary>Restores the driver settings; the token is only cleared when the restore reported success.</summary>
+    public void UndoDriver()
+    {
+        if (DriverToken is null || DriverVendor is null) return;
+        try
         {
-            try
+            if (DriverSettings.For(DriverVendor).Restore(DriverToken))
             {
-                DriverSettings.For(DriverVendor).Restore(DriverToken);
                 Log.Info($"{DriverVendor} driver settings restored");
+                DriverToken = null;
+                DriverVendor = null;
             }
-            catch (Exception ex) { Log.Error("Could not restore driver settings", ex); }
+            else Log.Warn($"{DriverVendor} driver settings were NOT fully restored; the restore token is kept and retried on the next start.");
+        }
+        catch (Exception ex) { Log.Error("Could not restore driver settings (the restore token is kept)", ex); }
+    }
+
+    /// <summary>The legacy single state file plus every per-run file next to it.</summary>
+    private static IEnumerable<string> StateFiles(string legacyFile)
+    {
+        yield return legacyFile;
+        var dir = Path.GetDirectoryName(legacyFile);
+        if (dir is null || !Directory.Exists(dir)) yield break;
+        string[] files;
+        try { files = Directory.GetFiles(dir, "state-*.json"); }
+        catch (Exception) { yield break; }
+        foreach (var f in files) yield return f;
+    }
+
+    /// <summary>
+    /// If a previous wrapper died without cleaning up, undo its changes now. A change that cannot be undone stays on disk
+    /// (never deleted until restored) and is retried on the next start.
+    /// </summary>
+    public static void RecoverStale(string file)
+    {
+        foreach (var path in StateFiles(file))
+        {
+            var state = Load(path);
+            if (state is null) continue;
+            if (IsAlive(state.WrapperPid, state.StartedUtc)) continue; // another run is in progress
+
+            Log.Warn($"Previous run of {state.Game} (started {state.StartedUtc.ToLocalTime():g}) did not clean up — restoring now");
+            if (state.Undo())
+            {
+                try { File.Delete(path); } catch (Exception ex) { Log.Warn($"Could not delete {path}: {ex.Message}"); }
+            }
+            else
+            {
+                Log.Warn($"Part of the previous run of {state.Game} could not be restored; keeping {Path.GetFileName(path)} to retry");
+                try { state.Save(path); } catch (Exception ex) { Log.Warn($"Could not update {path}: {ex.Message}"); }
+            }
         }
     }
 
-    /// <summary>If a previous wrapper died without cleaning up, undo its changes now.</summary>
-    public static void RecoverStale(string file)
+    /// <summary>
+    /// Another run (live, or dead with an unrestored leftover unless <paramref name="liveOnly"/>) whose state satisfies
+    /// <paramref name="holds"/>; null when there is none, otherwise a description for the log. <paramref name="ownFile"/> is skipped.
+    /// </summary>
+    public static string? FindHolder(string legacyFile, string ownFile, Func<RunState, bool> holds, bool liveOnly = false)
     {
-        var state = Load(file);
-        if (state is null) return;
-        if (IsAlive(state.WrapperPid, state.StartedUtc)) return; // another run is in progress
-
-        Log.Warn($"Previous run of {state.Game} (started {state.StartedUtc.ToLocalTime():g}) did not clean up — restoring now");
-        state.Undo();
-        File.Delete(file);
+        var own = Path.GetFullPath(ownFile);
+        foreach (var path in StateFiles(legacyFile))
+        {
+            if (string.Equals(Path.GetFullPath(path), own, StringComparison.OrdinalIgnoreCase)) continue;
+            var s = Load(path);
+            if (s is null || !holds(s)) continue;
+            var alive = IsAlive(s.WrapperPid, s.StartedUtc);
+            if (liveOnly && !alive) continue;
+            return alive
+                ? $"another run ({s.Game}, started {s.StartedUtc.ToLocalTime():g}) has changed it and has not restored it yet"
+                : $"a previous run of {s.Game} left changes that could not be restored yet";
+        }
+        return null;
     }
 
     private static bool IsAlive(int pid, DateTime startedUtc)
