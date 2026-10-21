@@ -87,7 +87,9 @@ public static class GameEngine
                 if (plan.RestoreSnapshot)
                 {
                     f.Handler.RestoreSnapshot(f.Path!, File.ReadAllBytes(f.SnapshotFile!));
-                    Log.Info($"  {f.Id}: restored saved snapshot");
+                    Log.Info(ctx.SnapshotsSave is { } from && ctx.Save is null
+                        ? $"  {f.Id}: restored snapshot from manual save '{from.Slug}'"
+                        : $"  {f.Id}: restored saved snapshot");
                 }
                 if (plan.Changes.Count > 0)
                 {

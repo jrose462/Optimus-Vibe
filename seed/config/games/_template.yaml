@@ -138,6 +138,8 @@ profiles:
 #   description  1-2 sentences: what it targets and what it trades away
 #   targetFps    the framerate the preset aims for (shown in the app; informational)
 #   extends      a `profiles:` entry to inherit from (presets cannot extend other presets)
+#   snapshotsFrom  slug of the user's manual save (same game and device) whose whole-file snapshots (`handler: file` entries)
+#                are restored with the preset; for opaque stores. Presets only; a missing save only logs a warning
 #   display      inherit | none | { width, height, refresh }   (omitted = leave the display alone; `inherit` uses the
 #                device's mode from devices.yaml; a map overrides parts of it). The original mode is restored on exit.
 #   nvidia       NVIDIA driver profile settings for the game's exe (applied only when the device driver is nvidia;

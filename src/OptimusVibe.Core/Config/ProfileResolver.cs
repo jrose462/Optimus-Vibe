@@ -14,6 +14,12 @@ public sealed class ResolvedProfile
     public string? Description { get; init; }
     public int? TargetFps { get; init; }
 
+    /// <summary>
+    /// Recommended presets only: slug of the user's manual save (same game and device) whose whole-file snapshots
+    /// (<c>&lt;fileId&gt;.snap</c>) are restored along with this preset. Null for manual saves and presets without it.
+    /// </summary>
+    public string? SnapshotsFrom { get; init; }
+
     /// <summary>Null = leave the display alone.</summary>
     public DisplayModeDef? Display { get; init; }
 
@@ -35,8 +41,9 @@ public static class ProfileResolver
     public const string Label = "label";
     public const string Description = "description";
     public const string TargetFps = "targetFps";
+    public const string SnapshotsFrom = "snapshotsFrom";
 
-    public static readonly string[] ReservedKeys = [Extends, Display, Nvidia, Amd, Label, Description, TargetFps];
+    public static readonly string[] ReservedKeys = [Extends, Display, Nvidia, Amd, Label, Description, TargetFps, SnapshotsFrom];
 
     /// <summary>Conventional preset names, in display order.</summary>
     public static readonly string[] KnownPresetNames = ["quality", "performance", "battery"];
@@ -118,6 +125,8 @@ public static class ProfileResolver
             Description = description ?? body.GetValueOrDefault(Description)?.ToString(),
             TargetFps = Int(body.GetValueOrDefault(TargetFps)),
             Display = ResolveDisplay(body.GetValueOrDefault(Display), deviceDef),
+            SnapshotsFrom = source.Kind == PresetKind.Recommended && body.GetValueOrDefault(SnapshotsFrom) is { } sf
+                            && Values.ToScalar(sf).Trim() is { Length: > 0 } slug ? slug : null,
         };
         CopyScalars(body.GetValueOrDefault(Nvidia), result.Nvidia);
         CopyScalars(body.GetValueOrDefault(Amd), result.Amd);
@@ -131,6 +140,10 @@ public static class ProfileResolver
         }
         return result;
     }
+
+    /// <summary>A manual save folder name: letters, digits, dot, dash, underscore; no path separators.</summary>
+    public static bool IsSlug(string value) =>
+        value.Length > 0 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && value is not ("." or "..");
 
     private static string Titleize(string name) =>
         name.Length == 0 ? name : char.ToUpperInvariant(name[0]) + name[1..].Replace('-', ' ');

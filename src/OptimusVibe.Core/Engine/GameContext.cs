@@ -38,6 +38,9 @@ public sealed class GameContext
     /// <summary>The manual save in use, when the active preset is a manual one.</summary>
     public ManualSave? Save { get; init; }
 
+    /// <summary>The manual save the whole-file snapshots come from: <see cref="Save"/>, or the one a recommended preset names with snapshotsFrom. Null = no snapshots.</summary>
+    public ManualSave? SnapshotsSave { get; init; }
+
     /// <summary>True when the preset came from an explicit choice (app/CLI) rather than the device default.</summary>
     public bool IsSelected { get; init; }
 
@@ -159,6 +162,9 @@ public sealed class GameContext
             ? ProfileResolver.ResolvePreset(game, device.Name, device.Def, fallback)
             : ProfileResolver.Empty(device.Name);
 
+        // A recommended preset may borrow the whole-file snapshots of one of the user's manual saves (snapshotsFrom).
+        var snapshotSave = save ?? LoadSnapshotsFrom(store, game, device, profile);
+
         var files = new List<ResolvedFile>();
         foreach (var def in game.Files)
         {
@@ -174,7 +180,7 @@ public sealed class GameContext
                 error = ex.Message;
             }
 
-            var snapshot = save is null ? null : System.IO.Path.Combine(save.Dir, def.Id + ".snap");
+            var snapshot = snapshotSave is null ? null : System.IO.Path.Combine(snapshotSave.Dir, def.Id + ".snap");
             files.Add(new ResolvedFile
             {
                 Def = def,
@@ -195,12 +201,32 @@ public sealed class GameContext
             Profile = profile,
             Files = files,
             Save = save,
+            SnapshotsSave = snapshotSave,
             IsSelected = isSelected,
             BigPicture = bp,
             BigPictureUsed = bpWanted && isSelected,
             BigPictureOptedOut = optedOut,
             BigPictureNote = bpNote,
         };
+    }
+
+    private static ManualSave? LoadSnapshotsFrom(ConfigStore store, GameDef game, DeviceSelection device, ResolvedProfile profile)
+    {
+        if (profile.SnapshotsFrom is not { } slug) return null;
+        if (!ProfileResolver.IsSlug(slug))
+        {
+            Log.Warn($"Preset {profile.Source?.Name} has an invalid snapshotsFrom '{slug}' (expected a manual save folder name); applying the preset's other settings only");
+            return null;
+        }
+        try
+        {
+            return store.LoadSave(game.Id, device.Name, slug);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Preset {profile.Source?.Name} wants the whole-file settings from manual save '{slug}', which isn't on this device ({ex.Message}); applying the preset's other settings only");
+            return null;
+        }
     }
 
     /// <summary>The device's defaultPreset if this game has it, else the first preset, else null.</summary>
