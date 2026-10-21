@@ -226,7 +226,7 @@ for Claude's weekly bug squash (Thursdays, Pacific time): Claude audits them and
   Opted out; LB / RB on a controller switch it). The second row, **Settings sync**, shows whether a game's settings
   travel between your devices, with the same answer the game's page gives: *Stays on device* or *Syncs* (from the
   check on this device, else from the game's research; settings seen arriving from another device always count as
-  *Syncs*) or *Maybe* (neither the check nor research has an answer yet). Every pill shows its count, and each tile carries a small cloud, device or question-mark
+  *Syncs*) or *Maybe* (neither the check nor research has an answer yet). Every pill shows its count (the status pills hold the tuned / waiting / opted-out totals; a small chip beside the "Library" title names this device), and each tile carries a small cloud, device or question-mark
   glyph with the reason as its tooltip. On a controller, press D-pad down from the status pills (or up from the first row
   of covers) to reach the sync row.
 - **Request queue**: an installed game with no config is added to `config/requests.yaml` (store, id, name,

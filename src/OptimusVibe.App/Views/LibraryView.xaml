@@ -6,8 +6,8 @@
              xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              xmlns:input="clr-namespace:OptimusVibe.App.Input"
              x:Name="Root">
-    <!-- DataContext: LibraryViewModel. Page title, a "This device" summary, filters, then the cover grid.
-         Compact (about 1280x720 DIPs): the title and one slim summary strip share a row, both filter rows become one scrolling row,
+    <!-- DataContext: LibraryViewModel. Page title, a device chip, filters, then the cover grid.
+         Compact (about 1280x720 DIPs): the title, device chip and queued-games pill share a row, both filter rows become one scrolling row,
          and the game name sits on the cover so two full rows of covers fit above the navigation. -->
     <UserControl.Resources>
         <DataTemplate x:Key="Tile" DataType="{x:Type vm:LibraryTileViewModel}">
@@ -195,19 +195,6 @@
             </Style.Triggers>
         </Style>
 
-        <!-- a "This device" count that is also a status filter (click / tap; LB / RB keep doing it on a controller): highlighted while active -->
-        <Style x:Key="MetricFilter" TargetType="Button" BasedOn="{StaticResource Button.Quiet}">
-            <Setter Property="Padding" Value="8,4,10,4" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Command" Value="{Binding ToggleStatusFilterCommand}" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
     </UserControl.Resources>
 
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Focusable="False">
@@ -221,39 +208,22 @@
 
             <!-- ============================================================ comfortable: title + one friendly sentence -->
             <StackPanel Style="{StaticResource Only.Comfortable}">
-                <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" VerticalAlignment="Center" />
+                    <Border Style="{StaticResource SegmentStrip}" VerticalAlignment="Center" Focusable="False" Margin="16,0,0,0"
+                            ToolTip="This device" AutomationProperties.Name="This device">
+                        <StackPanel Orientation="Horizontal" MinHeight="{DynamicResource SegmentMinHeight}" Margin="{DynamicResource SegmentPadding}">
+                            <TextBlock Text="&#xE7F8;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource SegmentGlyphSize}" Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding DeviceName, Mode=OneWay}" Foreground="{DynamicResource TextDimBrush}" FontWeight="SemiBold" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="10,0,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
                 <TextBlock Text="{Binding Lead}" Style="{StaticResource Text.Lead}" Margin="0,6,0,0" MaxWidth="760" HorizontalAlignment="Left" />
             </StackPanel>
 
-            <!-- comfortable: this device + the one feature card -->
-            <Grid Grid.Row="1" Margin="0,22,0,0" Style="{StaticResource Only.Comfortable}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Border Style="{StaticResource Card}">
-                    <StackPanel>
-                        <TextBlock Text="This device" Style="{StaticResource Text.H2}" />
-                        <TextBlock Style="{StaticResource Text.Caption}" Margin="0,2,0,0">
-                            <Run Text="{Binding DeviceName, Mode=OneWay}" />
-                        </TextBlock>
-                        <UniformGrid Columns="3" Margin="0,20,0,2">
-                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.Managed}" Tag="{Binding IsTunedFilter}"
-                                    ToolTip="Show only tuned games (again for all)" AutomationProperties.Name="Filter: tuned">
-                                <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
-                            </Button>
-                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.NeedsPresets}" Tag="{Binding IsWaitingFilter}"
-                                    ToolTip="Show only games waiting for presets (again for all)" AutomationProperties.Name="Filter: waiting">
-                                <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
-                            </Button>
-                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.OptedOut}" Tag="{Binding IsOptedOutFilter}"
-                                    ToolTip="Show only opted-out games (again for all)" AutomationProperties.Name="Filter: opted out">
-                                <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
-                            </Button>
-                        </UniformGrid>
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="340"
+            <!-- comfortable: the one feature card (collapses with its margin when there is nothing queued) -->
+            <Grid Grid.Row="1" Style="{StaticResource Only.Comfortable}">
+                <Border Style="{StaticResource Card.Feature}" Margin="0,22,0,0" Width="340" HorizontalAlignment="Left"
                         Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="Waiting for presets" Style="{StaticResource Text.H2}" Foreground="{DynamicResource FeatureTextBrush}" />
@@ -274,24 +244,16 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" VerticalAlignment="Center" Margin="4,0,18,0" />
-                <Border Grid.Column="1" Style="{StaticResource Card}" Padding="14,4" HorizontalAlignment="Stretch" VerticalAlignment="Center">
-                    <ScrollViewer Style="{StaticResource FilterScroller}" Focusable="False">
+                <ScrollViewer Grid.Column="1" Style="{StaticResource FilterScroller}" Focusable="False" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="&#xE7F8;" FontFamily="{StaticResource IconFont}" FontSize="16" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding DeviceName, Mode=OneWay}" Style="{StaticResource Text.Dim}" VerticalAlignment="Center" Margin="8,0,22,0" TextWrapping="NoWrap" />
-                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.Managed}" Tag="{Binding IsTunedFilter}" Margin="0,0,10,0"
-                                    ToolTip="Show only tuned games (again for all)" AutomationProperties.Name="Filter: tuned">
-                                <views:MetricRow Glyph="&#xE73E;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding TunedCount}" Unit="tuned" />
-                            </Button>
-                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.NeedsPresets}" Tag="{Binding IsWaitingFilter}" Margin="0,0,10,0"
-                                    ToolTip="Show only games waiting for presets (again for all)" AutomationProperties.Name="Filter: waiting">
-                                <views:MetricRow Glyph="&#xE916;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding WaitingCount}" Unit="waiting" />
-                            </Button>
-                            <Button Style="{StaticResource MetricFilter}" CommandParameter="{x:Static vm:LibraryFilter.OptedOut}" Tag="{Binding IsOptedOutFilter}" Margin="0,0,10,0"
-                                    ToolTip="Show only opted-out games (again for all)" AutomationProperties.Name="Filter: opted out">
-                                <views:MetricRow Glyph="&#xE711;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding OptedOutCount}" Unit="opted out" />
-                            </Button>
-                            <Button Style="{StaticResource Button.Quiet}" Command="{Binding OpenQueueCommand}" Padding="0" VerticalAlignment="Center"
+                        <Border Style="{StaticResource SegmentStrip}" VerticalAlignment="Center" Focusable="False"
+                                ToolTip="This device" AutomationProperties.Name="This device">
+                            <StackPanel Orientation="Horizontal" MinHeight="{DynamicResource SegmentMinHeight}" Margin="{DynamicResource SegmentPadding}">
+                                <TextBlock Text="&#xE7F8;" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource SegmentGlyphSize}" Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding DeviceName, Mode=OneWay}" Foreground="{DynamicResource TextDimBrush}" FontWeight="SemiBold" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </Border>
+                            <Button Style="{StaticResource Button.Quiet}" Command="{Binding OpenQueueCommand}" Padding="0" Margin="12,0,0,0" VerticalAlignment="Center"
                                     ToolTip="See the requests on your game lab board" AutomationProperties.Name="Queued games"
                                     Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
                                 <Border Background="{DynamicResource FeatureBrush}" CornerRadius="14" Padding="12,3,12,4">
@@ -303,7 +265,6 @@
                             </Button>
                         </StackPanel>
                     </ScrollViewer>
-                </Border>
             </Grid>
 
             <!-- ============================================================ filters: status pills + settings sync (stacked; one scrolling row when compact) -->
