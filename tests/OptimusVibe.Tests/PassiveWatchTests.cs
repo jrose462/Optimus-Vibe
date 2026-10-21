@@ -318,4 +318,159 @@ public class PassiveWatchTests
         rewritten.Reapplied.Add("user");
         Assert.NotNull(Runner.PassiveSkipReason(processSeen: true, cancelled: false, rewritten));
     }
+
+    // ------------------------------------------------------------ review fixes
+
+    [Fact]
+    public void Intersect_ALineRewrittenWithANewValueEverySession_KeepsTheFile()
+    {
+        // a timestamp line: its text differs every session, so no single line recurs, but the file changed every time
+        var s1 = Diff([Text("{Documents}\\G\\state.txt", new KeyChange("(line)", null, "t=1"), new KeyChange("(line)", "t=0", null))]);
+        var s2 = Diff([Text("{Documents}\\G\\state.txt", new KeyChange("(line)", null, "t=2"), new KeyChange("(line)", "t=1", null))]);
+        var file = Assert.Single(PassiveWatch.Intersect([s1, s2])!.Files);
+        Assert.Contains(new KeyChange("(line)", null, "t=2"), file.Keys); // the newest session's lines
+
+        // so pass B does not report the timestamp as a setting
+        using var p = new LabProfile();
+        var s = new ProbeSession(p.Target(), p.Options());
+        var passA = PassiveWatch.Intersect([
+            Diff([Text("{Documents}\\Borderlands4\\state.txt", new KeyChange("(line)", null, "t=1"), new KeyChange("(line)", "t=0", null))]),
+            Diff([Text("{Documents}\\Borderlands4\\state.txt", new KeyChange("(line)", null, "t=2"), new KeyChange("(line)", "t=1", null))])])!;
+        var passB = Diff([Text("{Documents}\\Borderlands4\\state.txt", new KeyChange("(line)", null, "t=3"), new KeyChange("(line)", "t=2", null))]);
+        var ev = s.ToEvidence(passA, passB, 2);
+        Assert.Empty(ev.SettingsLines);
+        Assert.Contains("state.txt", ev.PassA);
+    }
+
+    [Fact]
+    public void Intersect_ATextFileOfKeysThatNeverRecur_StillDropsOut()
+    {
+        var s1 = Diff([Text("{Documents}\\G\\user.ini", new KeyChange("[S]Shadows", "3", "1"))]);
+        var s2 = Diff([Text("{Documents}\\G\\user.ini", new KeyChange("(line)", null, "x"), new KeyChange("[S]Textures", "3", "1"))]);
+        Assert.Empty(PassiveWatch.Intersect([s1, s2])!.Files);
+    }
+
+    [Fact]
+    public void Exclusions_LeaveOutWhatTheRunWrote()
+    {
+        var exclude = new PassiveExclusions()
+            .File("{Documents}\\G\\user.ini", ["[S]Shadows"])
+            .File("{Documents}\\G\\engine.ini", ["[E]Lod"])
+            .File("{Documents}\\G\\save.bin", null)
+            .File("{Documents}\\G\\notes.txt", ["Fps"])
+            .Registry(@"HKEY_CURRENT_USER\Software\G", ["Gfx", "(default)"]);
+        var diff = Diff([
+                Text("{Documents}\\G\\user.ini", new KeyChange("[S]Shadows", "1", "3"), new KeyChange("[S]Played", "1", "2")),
+                Text("{Documents}\\G\\engine.ini", new KeyChange("[e]lod", "1", "0")),
+                Binary("{Documents}\\G\\save.bin"),
+                Text("{Documents}\\G\\notes.txt", new KeyChange("(line)", null, "Fps=40")),
+                Binary("{Documents}\\G\\other.sav")],
+            new RegistryChange(@"HKCU\Software\G", "Gfx", "1", "3"),
+            new RegistryChange(@"HKCU\Software\G", "", "a", "b"),
+            new RegistryChange(@"HKCU\Software\G", "Time", "1", "2"));
+
+        var kept = exclude.Apply(diff);
+
+        var ini = kept.Files.Single(f => f.Path.EndsWith("user.ini"));
+        Assert.Equal(["[S]Played"], ini.Keys.Select(k => k.Key));             // the preset's key the game reset is not "state"
+        Assert.DoesNotContain(kept.Files, f => f.Path.EndsWith("engine.ini")); // nothing left of it
+        Assert.DoesNotContain(kept.Files, f => f.Path.EndsWith("save.bin"));   // written whole
+        Assert.DoesNotContain(kept.Files, f => f.Path.EndsWith("notes.txt"));  // plain lines can't be told apart from the written keys
+        Assert.Contains(kept.Files, f => f.Path.EndsWith("other.sav"));
+        Assert.Equal(["Time"], kept.Registry.Select(r => r.Name));
+    }
+
+    /// <summary>A snapshot seam over the fixture's own files: (name, text before, text after), tokenized like the runner's snapshot of the target.</summary>
+    private static RunOptions WatchingFiles(EngineFixture f, List<string> keys, params (string Name, string Before, string After)[] files) => new()
+    {
+        DisplayApply = (_, _) => null,
+        PassiveSnapshot = t =>
+        {
+            keys.Add(t.Key);
+            var session = new ProbeSession(t);
+            var calls = 0;
+            return () =>
+            {
+                var after = calls++ > 0;
+                var s = new ProbeSnapshot();
+                foreach (var (name, before, now) in files)
+                {
+                    var token = session.Tokenize(f.GameFile(name));
+                    var text = after ? now : before;
+                    s.Files[token] = new ProbeFile(token, text.Length, DateTime.UnixEpoch, text.GetHashCode().ToString(), text);
+                }
+                return s;
+            };
+        },
+    };
+
+    [Fact]
+    public void Runner_APresetKeyTheGameResetsEveryLaunch_IsNotPassA()
+    {
+        using var f = KeyedGame();
+        f.WriteGameFile("user.ini", "[S]\r\nShadows=9\r\nTextures=3\r\n");
+        f.WriteGameFile("engine.ini", "[E]\r\nLod=0\r\n");
+        var keys = new List<string>();
+        // every launch: the preset wrote Shadows=1 and Lod=1 (desktop performance); the game puts its own values back and bumps Played
+        for (var i = 0; i < 2; i++)
+            Assert.Equal(0, Runner.Run(f.Load(), Exit0, prompt: false, WatchingFiles(f, keys,
+                ("user.ini", $"[S]\nShadows=1\nTextures=3\nPlayed={i}\n", $"[S]\nShadows=3\nTextures=3\nPlayed={i + 1}\n"),
+                ("engine.ini", "[E]\nLod=1\n", "[E]\nLod=0\n"))));
+
+        var passive = ProbeStore.PassiveA(f.Paths.DataDir, "other:tg1")!;
+        var ini = Assert.Single(passive.Diff.Files);
+        Assert.EndsWith("user.ini", ini.Path);
+        Assert.Equal(["[S]Played"], ini.Keys.Select(k => k.Key));
+    }
+
+    [Fact]
+    public void Runner_DoesNotWatch_AGameWhoseSettingsAreWrittenWhileItRuns()
+    {
+        using var f = new EngineFixture(EngineFixture.GameYaml.Replace("processes: [Test.exe]", "processes: []")
+            .Replace("store: other", "store: other\nstoreIds: { other: tg1 }\napplyTiming: afterProcessStart"));
+        var keys = new List<string>();
+        Runner.Run(f.Load(), Exit0, prompt: false, Watching(keys));
+        Assert.Empty(keys); // never snapshotted: the session could not be kept anyway
+        Assert.Null(ProbeStore.GetPassive(f.Paths.DataDir, "other:tg1"));
+    }
+
+    [Fact]
+    public void Runner_KeysAStoreOtherGame_ByTheStoreItsIdBelongsTo_AsTheAppDoes()
+    {
+        using var f = new EngineFixture(EngineFixture.GameYaml.Replace("processes: [Test.exe]", "processes: []")
+            .Replace("store: other", "store: other\nstoreIds: { epic: Fortnite }"));
+        var keys = new List<string>();
+        Runner.Run(f.Load(), Exit0, prompt: false, Watching(keys));
+
+        // the key the app builds from the detected Epic install
+        var detected = new OptimusVibe.Library.DetectedGame { Store = "epic", StoreId = "Fortnite", Name = "Fortnite" };
+        var appKey = LabTarget.From(detected, null).Key;
+        Assert.Equal("epic:Fortnite", appKey);
+        Assert.Equal([appKey], keys);
+        Assert.NotNull(ProbeStore.GetPassive(f.Paths.DataDir, appKey));
+    }
+
+    [Fact]
+    public void LabTarget_WithoutAnInstall_PrefersTheIdOfItsOwnStore()
+    {
+        var game = new GameDef { Id = "g", Store = "epic", StoreIds = new() { ["xbox"] = "Pfn", ["epic"] = "App" } };
+        Assert.Equal("epic:App", LabTarget.From(null, game).Key);
+        Assert.Equal("steam:42", LabTarget.From(null, new GameDef { Id = "s", Store = "steam", SteamAppId = 42 }).Key);
+        Assert.Equal("other:", LabTarget.From(null, new GameDef { Id = "n", Store = "other" }).Key);
+    }
+
+    [Fact]
+    public void Store_AFileThatCannotBeReadNow_IsNotReplacedWithAnEmptyOne()
+    {
+        using var t = new TempDir();
+        Session(t.Path, new FakeClock(), 1);
+        ProbeStore.Record(t.Path, Key, new ProbeRecord { Utc = DateTime.UtcNow, Evidence = "mapped" });
+
+        using (new FileStream(ProbeStore.FileFor(t.Path), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            ProbeStore.UpdatePassive(t.Path, "steam:2", e => e.Strikes++); // another process mid-replace, or a scanner holding it
+
+        Assert.Equal("mapped", ProbeStore.Get(t.Path, Key)!.Evidence);
+        Assert.Single(ProbeStore.GetPassive(t.Path, Key)!.Runs);
+        Assert.Empty(Directory.GetFiles(t.Path, "*.tmp")); // no temp file left behind
+    }
 }

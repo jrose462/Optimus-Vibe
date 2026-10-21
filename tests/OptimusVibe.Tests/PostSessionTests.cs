@@ -381,6 +381,18 @@ public sealed class PostSessionTests
     }
 
     [Fact]
+    public void NeedsMapping_SaysOneLaunchOnlyWhenNormalLaunchesShowedPassA()
+    {
+        var run = Run(0);
+        var two = Card(In(run) with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence) }, run)!;
+        Assert.Contains("two quick launches", two.Why);
+        Assert.DoesNotContain("one launch", two.Why);
+
+        var one = Card(In(run) with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence), HasPassiveA = true }, run)!;
+        Assert.Equal("Map it: one launch where you change a few graphics options, then quit.", one.Why);
+    }
+
+    [Fact]
     public void AChangedCard_OffersNoPanelAction()
     {
         var run = Run(0, drifted: 10, capture: CaptureAnswer.NotAsked);

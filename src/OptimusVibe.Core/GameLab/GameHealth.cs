@@ -131,7 +131,7 @@ public sealed record GameHealth
                 {
                     State = HealthState.NoPresets, LabWorking = true, FlagReason = flagReason,
                     Headline = $"Game lab is working on it (#{open.Number}, {LabStatusIndex.Chip(open).ToLowerInvariant()})",
-                    Why = map ? "The lab needs to know where this game keeps its settings: one launch where you change a few graphics options."
+                    Why = map ? $"The lab needs to know where this game keeps its settings: {i.MapEffort}."
                         : needsEvidence ? "The lab asked for more files from this PC. Optimus-Vibe sends them by itself."
                         : "The presets arrive by themselves when it's done.",
                     Suggested = map ? HealthAction.MapGame : HealthAction.None,

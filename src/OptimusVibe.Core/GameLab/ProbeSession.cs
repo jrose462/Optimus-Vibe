@@ -145,6 +145,9 @@ public sealed class ProbeSession
     public LabTarget Target => _target;
     public ProbeLimits Limits => _limits;
 
+    /// <summary>A path as this session's snapshots name it (<c>{Documents}\Game\file.ini</c>).</summary>
+    public string Tokenize(string path) => new EvidenceCollector(_options).ProbeFolders(_target).Tokenize(path);
+
     // ------------------------------------------------------------ snapshot
 
     /// <summary>

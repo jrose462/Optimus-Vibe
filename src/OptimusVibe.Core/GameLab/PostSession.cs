@@ -6,7 +6,7 @@ namespace OptimusVibe.GameLab;
 /// <summary>Which post-session card a finished session brings up (at most one, in the order <see cref="PostSession.For"/> checks them).</summary>
 public enum PostSessionKind
 {
-    /// <summary>The lab asked for evidence and nothing is mapped yet: one launch where the player changes a few graphics options.</summary>
+    /// <summary>The lab asked for evidence and nothing is mapped yet: "Map this game" (one launch, or two without a passive pass A).</summary>
     NeedsMapping,
 
     /// <summary>
@@ -196,7 +196,7 @@ public static class PostSession
             return new PostSessionCard
             {
                 Kind = PostSessionKind.NeedsMapping, Run = run, Text = $"The lab needs to know where {name} keeps its settings.",
-                Why = "Map it: one launch where you change a few graphics options, then quit.", Primary = PostSessionAction.MapGame,
+                Why = $"Map it: {i.MapEffort}, then quit.", Primary = PostSessionAction.MapGame,
             };
 
         if (!i.HasPresets || !GameHealth.CountsForCurrentPreset(i, run)) return null;

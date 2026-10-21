@@ -46,6 +46,17 @@ public sealed record HealthInputs
     /// <summary>The stored mapping run for this game, if any.</summary>
     public ProbeRecord? Mapping { get; init; }
 
+    /// <summary>
+    /// Normal launches on this PC already showed what the game rewrites by itself (a passive pass A, <see cref="PassiveWatch"/>), so "Map this
+    /// game" is one launch; otherwise it is two.
+    /// </summary>
+    public bool HasPassiveA { get; init; }
+
+    /// <summary>What "Map this game" asks of the player, for the suggestions that offer it.</summary>
+    public string MapEffort => HasPassiveA
+        ? "one launch where you change a few graphics options"
+        : "two quick launches, one where you change nothing and one where you change a few graphics options";
+
     /// <summary>The newest lab request for the game (open ones first), and whether the lab is set up at all.</summary>
     public LabIssue? LabRequest { get; init; }
     public bool LabReady { get; init; }

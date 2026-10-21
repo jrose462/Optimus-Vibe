@@ -25,6 +25,75 @@ public sealed class PassiveEntry
     [JsonIgnore] public bool Disabled => Strikes >= PassiveWatch.MaxStrikes;
 }
 
+/// <summary>
+/// What the run itself wrote before the "before" snapshot (the preset's keys, whole-file saves and registry values), left out of a passive
+/// session's diff. A real pass A launches the game with nothing written; a normal launch writes the preset first, so a game that resets or
+/// normalises a preset key on every launch would otherwise show that key as "rewritten every session" (state, never restore) and hide it
+/// from pass B. File paths are tokenized like the snapshot's.
+/// </summary>
+public sealed class PassiveExclusions
+{
+    private readonly Dictionary<string, HashSet<string>?> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<string>?> _registry = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsEmpty => _files.Count == 0 && _registry.Count == 0;
+
+    /// <summary>Leaves out <paramref name="keys"/> of a file (null = the whole file: written whole, or its keys can't be matched).</summary>
+    public PassiveExclusions File(string token, IEnumerable<string>? keys)
+    {
+        Add(_files, token, keys);
+        return this;
+    }
+
+    /// <summary>Leaves out <paramref name="names"/> under a registry key (null = every value under it).</summary>
+    public PassiveExclusions Registry(string key, IEnumerable<string>? names)
+    {
+        Add(_registry, NormalizeKey(key), names?.SelectMany(n => n is "(default)" or "" ? new[] { "", "(default)" } : [n]));
+        return this;
+    }
+
+    private static void Add(Dictionary<string, HashSet<string>?> map, string id, IEnumerable<string>? keys)
+    {
+        if (keys is null) { map[id] = null; return; }
+        if (map.TryGetValue(id, out var have) && have is null) return; // already the whole thing
+        have ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        have.UnionWith(keys);
+        map[id] = have;
+    }
+
+    /// <summary>HKEY_CURRENT_USER\... and HKCU\... are the same key.</summary>
+    public static string NormalizeKey(string key)
+    {
+        var k = key.Replace('/', '\\').TrimEnd('\\');
+        return k.StartsWith("HKEY_CURRENT_USER", StringComparison.OrdinalIgnoreCase) ? "HKCU" + k["HKEY_CURRENT_USER".Length..] : k;
+    }
+
+    /// <summary>
+    /// The diff without what the run wrote: a whole excluded file drops out; a text file loses the excluded keys and drops out when none are
+    /// left (or when its changes are plain lines or unreadable, which can't be told apart from the written keys); registry values by key and name.
+    /// </summary>
+    public ProbeDiff Apply(ProbeDiff diff)
+    {
+        if (IsEmpty) return diff;
+        var files = new List<FileChange>();
+        foreach (var f in diff.Files)
+        {
+            if (!_files.TryGetValue(f.Path, out var keys)) { files.Add(f); continue; }
+            if (keys is null || !f.IsText || f.Keys.Count == 0 || f.Keys.Any(k => k.Key == "(line)")) continue;
+            var left = f.Keys.Where(k => !keys.Contains(k.Key)).ToList();
+            if (left.Count == 0) continue;
+            files.Add(f with { Keys = left });
+        }
+        var registry = new List<RegistryChange>();
+        foreach (var r in diff.Registry)
+        {
+            if (!_registry.TryGetValue(NormalizeKey(r.Key), out var names)) { registry.Add(r); continue; }
+            if (names is not null && !names.Contains(r.Name)) registry.Add(r);
+        }
+        return diff with { Files = files, Registry = registry };
+    }
+}
+
 /// <summary>The passive pass A of a game: what it rewrote in at least <see cref="PassiveWatch.MinSessions"/> of <paramref name="Launches"/> normal launches.</summary>
 public sealed record PassivePassA(ProbeDiff Diff, int Launches, DateTime LastUtc);
 
@@ -50,9 +119,12 @@ public sealed class PassiveWatch
     private readonly TimeProvider _time;
     private readonly ProbeSnapshot _before;
     private readonly TimeSpan _beforeTook;
+    private readonly PassiveExclusions? _exclude;
 
-    private PassiveWatch(string dataDir, string key, Func<ProbeSnapshot> snapshot, ProbeLimits limits, TimeProvider time, ProbeSnapshot before, TimeSpan took)
+    private PassiveWatch(string dataDir, string key, Func<ProbeSnapshot> snapshot, ProbeLimits limits, TimeProvider time, ProbeSnapshot before, TimeSpan took,
+        PassiveExclusions? exclude)
     {
+        _exclude = exclude;
         _dataDir = dataDir;
         _key = key;
         _snapshot = snapshot;
@@ -64,9 +136,10 @@ public sealed class PassiveWatch
 
     /// <summary>
     /// Takes the "before" snapshot. Null (nothing watched) when the game is no longer watched on this PC, the snapshot hit the bounds
-    /// (a strike), or anything failed.
+    /// (a strike), or anything failed. <paramref name="exclude"/>: what the run itself wrote, left out of the kept diff.
     /// </summary>
-    public static PassiveWatch? Begin(string dataDir, string gameKey, Func<ProbeSnapshot> snapshot, ProbeLimits? limits = null, TimeProvider? time = null)
+    public static PassiveWatch? Begin(string dataDir, string gameKey, Func<ProbeSnapshot> snapshot, ProbeLimits? limits = null, TimeProvider? time = null,
+        PassiveExclusions? exclude = null)
     {
         try
         {
@@ -82,7 +155,7 @@ public sealed class PassiveWatch
                 Strike(dataDir, gameKey, $"the snapshot hit its bounds ({before.Files.Count} file(s))");
                 return null;
             }
-            return new PassiveWatch(dataDir, gameKey, snapshot, limits ?? new ProbeLimits(), time, before, took);
+            return new PassiveWatch(dataDir, gameKey, snapshot, limits ?? new ProbeLimits(), time, before, took, exclude);
         }
         catch (Exception ex)
         {
@@ -116,7 +189,7 @@ public sealed class PassiveWatch
             var run = new PassiveRun
             {
                 Utc = _time.GetUtcNow().UtcDateTime,
-                Diff = ProbeSession.Diff(_before, after, _limits),
+                Diff = _exclude is null ? ProbeSession.Diff(_before, after, _limits) : _exclude.Apply(ProbeSession.Diff(_before, after, _limits)),
                 SnapshotMs = (int)slowest.TotalMilliseconds,
             };
             var slow = slowest > SlowSnapshot;
@@ -155,7 +228,8 @@ public sealed class PassiveWatch
 
     /// <summary>
     /// What changed in at least <paramref name="min"/> of the sessions (oldest first): files by path (for text files with key changes, only the keys
-    /// that recur; a text file none of whose keys recur is a one-off edit and drops out), and registry values by key and name. The newest
+    /// that recur; a text file none of whose keys recur is a one-off edit and drops out, unless its changes are plain lines, which carry their value in their
+    /// identity: then the file itself recurs), and registry values by key and name. The newest
     /// session's values are kept. Null when there are fewer than <paramref name="min"/> sessions; an empty diff means the game rewrites nothing.
     /// </summary>
     public static ProbeDiff? Intersect(IReadOnlyList<ProbeDiff> sessions, int min = MinSessions)
@@ -176,7 +250,13 @@ public sealed class PassiveWatch
             }
             var recurring = seen.SelectMany(f => f.Keys.Select(KeyId).Distinct(StringComparer.Ordinal))
                 .GroupBy(id => id, StringComparer.Ordinal).Where(g => g.Count() >= min).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
-            if (recurring.Count == 0) continue;
+            if (recurring.Count == 0)
+            {
+                // a plain line carries its value in its identity, so a line rewritten with a new value every session (a timestamp, a counter)
+                // never recurs as such: a file of plain-line changes that changed in enough sessions is rewritten every session
+                if (seen.All(f => f.Keys.All(k => k.Key == "(line)"))) files.Add(latest);
+                continue;
+            }
             var keys = new List<KeyChange>();
             var taken = new HashSet<string>(StringComparer.Ordinal);
             foreach (var f in Enumerable.Reverse(seen))

@@ -57,7 +57,8 @@ public interface IMapGameActions
 /// The "Map this game" step card: launch 1 (change nothing), launch 2 (change many graphics options), then a summary with Send to
 /// game lab / Keep my changes as a manual save. A plain model; <see cref="Views.MapGameWindow"/> shows it full screen and maps A, Y, B to
 /// <see cref="Primary"/>, <see cref="Secondary"/> and <see cref="Back"/>. When normal launches already showed what the game rewrites
-/// (<see cref="IMapGameActions.PassiveA"/>), it starts at launch 2 and that is the only launch.
+/// (<see cref="IMapGameActions.PassiveA"/>), it starts at launch 2 and that is the only launch; Y there ("Use two launches instead") goes back
+/// to a clean launch 1.
 /// </summary>
 public sealed class MapGameModel : ObservableObject
 {
@@ -131,6 +132,7 @@ public sealed class MapGameModel : ObservableObject
             "We already watched what this game rewrites. One launch left: in the graphics menu change a few options (for example the overall preset High → Low, the resolution and the upscaler), apply, and quit.",
         MapPhase.Intro2 => "Launch again. In the graphics menu change as many options as you can (for example the overall preset High → Low, the resolution and the upscaler), apply, and quit.",
         MapPhase.Running1 => "Play until the main menu or a loaded game, then quit. Don't change any settings.",
+        MapPhase.Running2 when FromPassive => "Change a few graphics options, apply them, then quit the game.",
         MapPhase.Running2 => "Change as many graphics options as you can, apply them, then quit the game.",
         MapPhase.Summary => SummaryLead,
         MapPhase.Sent => "Claude will use it to find the file or key your presets should write. You'll get a notice when the presets arrive.",
@@ -158,7 +160,12 @@ public sealed class MapGameModel : ObservableObject
         _ => "",
     };
 
-    public string? SecondaryText => Phase == MapPhase.Summary && _actions.CanKeep && !_kept ? "Keep my changes as a manual save" : null;
+    public string? SecondaryText => Phase switch
+    {
+        MapPhase.Summary when _actions.CanKeep && !_kept => "Keep my changes as a manual save",
+        MapPhase.Intro2 when FromPassive => "Use two launches instead",
+        _ => null,
+    };
     public string BackText => Phase is MapPhase.Summary or MapPhase.Sent or MapPhase.Failed ? "Close" : "Cancel";
 
     public bool HasPrimary => !IsBusy && Phase is not (MapPhase.Running1 or MapPhase.Running2) && (Phase != MapPhase.Summary || _actions.CanSend);
@@ -201,7 +208,9 @@ public sealed class MapGameModel : ObservableObject
             if (_evidence is null) return "";
             var n = _evidence.SettingsLines.Count;
             return n == 0
-                ? "Launch 2 found no settings outside what the game rewrites by itself."
+                ? FromPassive
+                    ? "Your launch found no settings outside what the game rewrites by itself."
+                    : "Launch 2 found no settings outside what the game rewrites by itself."
                 : n == 1 ? "Your changes landed in 1 place." : $"Your changes landed in {n} places.";
         }
     }
@@ -230,7 +239,16 @@ public sealed class MapGameModel : ObservableObject
 
     public void Secondary()
     {
-        if (IsBusy || Phase != MapPhase.Summary || !_actions.CanKeep || _kept) return;
+        if (IsBusy) return;
+        if (Phase == MapPhase.Intro2 && FromPassive)
+        {
+            // the player would rather not rely on what normal launches showed: a clean launch 1 (change nothing) replaces it
+            _passA = null;
+            _passiveLaunches = 0;
+            Phase = MapPhase.Intro1;
+            return;
+        }
+        if (Phase != MapPhase.Summary || !_actions.CanKeep || _kept) return;
         _ = KeepAsync();
     }
 

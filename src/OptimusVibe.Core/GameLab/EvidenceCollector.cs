@@ -33,9 +33,12 @@ public sealed record LabTarget
     public static LabTarget From(DetectedGame? detected, GameDef? game, string? name = null)
     {
         var store = detected?.Store ?? game?.Store ?? "other";
-        var storeId = detected?.StoreId
-                      ?? (game is null ? "" : game.SteamAppId?.ToString() ?? game.StoreIds.Values.FirstOrDefault(v => !string.IsNullOrEmpty(v)) ?? "");
-        if (detected is null && game is { SteamAppId: not null }) store = "steam";
+        var storeId = detected?.StoreId ?? "";
+        if (detected is null && game is not null)
+        {
+            if (game.SteamAppId is { } appId) (store, storeId) = ("steam", appId.ToString());
+            else if (StoreIdOf(game) is { } id) (store, storeId) = id; // the store the id belongs to, as a detected install of it has
+        }
         return new LabTarget
         {
             Name = name ?? game?.Name ?? detected?.Name ?? game?.Id ?? "",
@@ -47,6 +50,18 @@ public sealed record LabTarget
             Game = game,
             Detected = detected,
         };
+    }
+
+    /// <summary>
+    /// A configured game's store id with the store it belongs to: the one of its own store, else the first one (a <c>store: other</c> game
+    /// with <c>storeIds: { epic: Fortnite }</c> is <c>epic:Fortnite</c>, the key a detected Epic install gives it). Null when it has none.
+    /// </summary>
+    private static (string Store, string Id)? StoreIdOf(GameDef game)
+    {
+        if (game.Store is { } own && game.StoreIds.TryGetValue(own, out var ownId) && !string.IsNullOrEmpty(ownId)) return (own, ownId);
+        foreach (var (store, id) in game.StoreIds)
+            if (!string.IsNullOrEmpty(id)) return (store, id);
+        return null;
     }
 }
 
@@ -132,6 +147,9 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
         }
         return bundle;
     }
+
+    /// <summary>The folders a mapping snapshot of <paramref name="t"/> tokenizes paths with (the system ones plus its install folder).</summary>
+    public LabFolders ProbeFolders(LabTarget t) => FoldersFor(t);
 
     private LabFolders FoldersFor(LabTarget t)
     {

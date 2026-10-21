@@ -366,7 +366,7 @@
                                 Visibility="{Binding HasPreview, Converter={StaticResource VisibleWhen}}" />
                         <Button Command="{Binding MapFirstCommand}" Margin="0,0,8,0" AutomationProperties.Name="Map this game first"
                                 Visibility="{Binding ShowMapFirst, Converter={StaticResource VisibleWhen}}"
-                                ToolTip="Two launches show Claude where this game really keeps its settings. You can still send the request without it.">
+                                ToolTip="{Binding MapFirstTip}">
                             <TextBlock Text="Map this game first (recommended)" />
                         </Button>
                         <Button Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Cancel">

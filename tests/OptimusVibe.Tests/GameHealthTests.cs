@@ -131,6 +131,15 @@ public sealed class GameHealthTests
     }
 
     [Fact]
+    public void NoPresets_LabNeedsEvidence_TheMappingWhy_CountsTheLaunches()
+    {
+        var two = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence) });
+        Assert.Contains("two quick launches", two.Why);
+        var one = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence), HasPassiveA = true });
+        Assert.Contains("one launch where you change a few graphics options", one.Why);
+    }
+
+    [Fact]
     public void NoPresets_AClosedRequest_IsNotWorking()
     {
         var h = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.Done, open: false) });

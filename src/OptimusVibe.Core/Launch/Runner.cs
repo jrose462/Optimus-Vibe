@@ -131,6 +131,10 @@ public static class Runner
         }
         var details = new RunDetails();
 
+        // Passive pass A: what the game rewrites by itself, watched around this launch (what the run wrote above is left out). The "before"
+        // snapshot is taken alongside the display and driver switch below and joined before the launch. Never throws.
+        var beginWatch = PassiveWatchWanted(ctx) ? Task.Run(() => BeginPassiveWatch(ctx, options, options?.PassiveSnapshot, applied)) : null;
+
         if (inGame is null) SyncObserver.AfterRun(ctx); // interim baseline in case this wrapper is killed before the game exits
 
         var state = new RunState
@@ -143,8 +147,7 @@ public static class Runner
         ApplyDriver(ctx, state);
         if (!state.IsEmpty) state.Save(ctx.Paths.RunStateFile(ctx.Game.Id));
 
-        // Passive pass A: what the game rewrites by itself, watched around this launch after everything above was written. Never throws.
-        var watch = BeginPassiveWatch(ctx, options, options?.PassiveSnapshot);
+        var watch = JoinPassiveWatch(beginWatch);
 
         int exitCode;
         var processSeen = true;
@@ -168,7 +171,9 @@ public static class Runner
             else state.Save(stateFile); // a driver restore that failed keeps its token for the next start
         }
 
-        watch?.End(PassiveSkipReason(processSeen, options?.Cancel.IsCancellationRequested == true, details));
+        // the "after" snapshot reads the game's files while the result is measured and the capture prompt is open (none of that writes them)
+        var skipWhy = PassiveSkipReason(processSeen, options?.Cancel.IsCancellationRequested == true, details);
+        var endWatch = watch is null ? null : Task.Run(() => watch.End(skipWhy));
 
         // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
         if (inGame is null) AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
@@ -188,8 +193,21 @@ public static class Runner
             else StoreResult(ctx, result, CaptureAnswer.NotAsked);
         }
         if (inGame is null) SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
+        JoinPassiveWatch(endWatch);
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
+    }
+
+    /// <summary>Waits for a background passive-watch step; its result, or null when there was none or it failed. Never throws.</summary>
+    private static T? JoinPassiveWatch<T>(Task<T>? task) where T : class?
+    {
+        if (task is null) return null;
+        try { return task.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            Log.Warn($"session watch: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -341,30 +359,64 @@ public static class Runner
 
     /// <summary>
     /// Starts the passive pass A watch (<see cref="GameLab.PassiveWatch"/>) for a run whose settings Optimus-Vibe manages, when "check presets
-    /// after each session" is on and the game has a store id to key it by (the same key "Map this game" uses). Null otherwise. Never throws.
+    /// after each session" is on and the game has a store id to key it by (the same key "Map this game" uses). Null otherwise. What the run
+    /// wrote before it (<paramref name="applied"/>) is left out of the session's diff (<see cref="PassiveExclusionsFor"/>). Never throws.
     /// </summary>
-    internal static GameLab.PassiveWatch? BeginPassiveWatch(GameContext ctx, RunOptions? options, Func<GameLab.LabTarget, Func<GameLab.ProbeSnapshot>>? snapshotFor = null)
+    internal static GameLab.PassiveWatch? BeginPassiveWatch(GameContext ctx, RunOptions? options, Func<GameLab.LabTarget, Func<GameLab.ProbeSnapshot>>? snapshotFor = null,
+        AppliedState? applied = null)
     {
-        if (ctx.InGame is not null) return null; // set in-game: nothing about the game's settings is watched
+        if (!PassiveWatchWanted(ctx)) return null;
         try
         {
             if (!AppPaths.LoadSettings(ctx.Paths.DataDir).GameLabWatchSessions) return null;
             var target = GameLab.LabTarget.From(null, ctx.Game) with { InstallDir = InstallDir(ctx.Game, options) };
             if (target.StoreId.Length == 0) return null;
-            Func<GameLab.ProbeSnapshot> snapshot;
-            if (snapshotFor is not null) snapshot = snapshotFor(target);
-            else
-            {
-                var session = new GameLab.ProbeSession(target, new GameLab.EvidenceOptions { CurrentConfig = GameLab.LabCloud.CurrentConfigFrom(ctx.Paths) });
-                snapshot = session.Snapshot;
-            }
-            return GameLab.PassiveWatch.Begin(ctx.Paths.DataDir, target.Key, snapshot);
+            var session = new GameLab.ProbeSession(target, new GameLab.EvidenceOptions { CurrentConfig = GameLab.LabCloud.CurrentConfigFrom(ctx.Paths) });
+            Func<GameLab.ProbeSnapshot> snapshot = snapshotFor is not null ? snapshotFor(target) : session.Snapshot;
+            return GameLab.PassiveWatch.Begin(ctx.Paths.DataDir, target.Key, snapshot, exclude: PassiveExclusionsFor(ctx, applied, session.Tokenize));
         }
         catch (Exception ex)
         {
             Log.Warn($"session watch: could not start for {ctx.Game.Id}: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// A run worth watching: its settings are managed (not set in-game) and written before the launch. A game whose settings are written once
+    /// its process is seen (<c>applyTiming: afterProcessStart</c>) has them written while it runs, so its sessions could never be kept.
+    /// </summary>
+    internal static bool PassiveWatchWanted(GameContext ctx) => ctx.InGame is null && LaunchPolicy.AppliesBefore(ctx.Game);
+
+    /// <summary>Handlers whose keys a mapping snapshot reads with the same names, per the file extensions it reads them by.</summary>
+    private static bool KeysMatchProbe(ResolvedFile f) => (f.Handler.Name, Path.GetExtension(f.Path ?? "").ToLowerInvariant()) switch
+    {
+        ("ini", ".ini" or ".cfg" or ".conf") => true,
+        ("json", ".json") => true,
+        ("xml", ".xml" or ".lsx" or ".config") => true,
+        ("keyvalue", _) => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// What this run wrote before the game started (<paramref name="applied"/>): the preset's keys of each text file, the whole file for a whole-file
+    /// save or a format whose keys a snapshot can't match, and registry values. A passive session leaves them out: a normal launch writes them
+    /// first, while a real pass A writes nothing, so a game that resets a preset key on every launch must not make it "state".
+    /// </summary>
+    internal static GameLab.PassiveExclusions PassiveExclusionsFor(GameContext ctx, AppliedState? applied, Func<string, string> tokenize)
+    {
+        var exclude = new GameLab.PassiveExclusions();
+        if (applied is null) return exclude;
+        foreach (var f in ctx.Files)
+        {
+            if (f.Path is null) continue;
+            var whole = applied.SnapshotHashes.ContainsKey(f.Id);
+            var keys = applied.Targets.TryGetValue(f.Id, out var t) && t.Count > 0 ? t.Keys.ToList() : null;
+            if (!whole && keys is null) continue;
+            if (!f.Handler.IsFile) exclude.Registry(f.Path, whole ? null : keys);
+            else exclude.File(tokenize(f.Path), whole || !KeysMatchProbe(f) ? null : keys);
+        }
+        return exclude;
     }
 
     /// <summary>Why a session can't show what the game rewrites by itself; null when it can.</summary>

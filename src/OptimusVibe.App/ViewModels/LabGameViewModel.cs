@@ -207,6 +207,10 @@ public sealed class LabGameViewModel : ObservableObject
     /// <summary>The request card offers to map the game first when nothing is known about where its settings live. It never blocks the request.</summary>
     public bool ShowMapFirst => _confirming is LabKind.New or LabKind.Refresh && _verifyText is null && CanMap && !HasMapping;
 
+    /// <summary>The tooltip of "Map this game first": one launch when normal launches already showed what the game rewrites, else two.</summary>
+    public string MapFirstTip => (HasPassiveA ? "One launch shows" : "Two launches show") +
+        " Claude where this game really keeps its settings. You can still send the request without it.";
+
     private void BeginMap()
     {
         var ctx = Ctx;
@@ -633,6 +637,7 @@ public sealed class LabGameViewModel : ObservableObject
             inputs = inputs with
             {
                 Mapping = Read("mapping run", () => GameLabService.StoredMapping(session, t), null),
+                HasPassiveA = Read("passive mapping", () => GameLabService.PassiveMapping(session, t) is not null, false),
                 CurrentBuild = t.Detected is { } detected ? Read("build", () => GameBuild.Of(detected), null) : null,
             };
         if (ctx.GameId is { } markId)
@@ -1377,6 +1382,7 @@ public sealed class LabGameViewModel : ObservableObject
         IsLoadingPreview = false;
         OnPropertyChanged(nameof(IsConfirming));
         OnPropertyChanged(nameof(ShowMapFirst));
+        OnPropertyChanged(nameof(MapFirstTip));
         OnPropertyChanged(nameof(ConfirmTitle));
         CommandManager.InvalidateRequerySuggested();
         return any;
@@ -1396,6 +1402,7 @@ public sealed class LabGameViewModel : ObservableObject
         IsLoadingPreview = true;
         OnPropertyChanged(nameof(IsConfirming));
         OnPropertyChanged(nameof(ShowMapFirst));
+        OnPropertyChanged(nameof(MapFirstTip));
         OnPropertyChanged(nameof(ConfirmTitle));
         OnPropertyChanged(nameof(ConfirmLead));
         OnPropertyChanged(nameof(PrivacyNote));
