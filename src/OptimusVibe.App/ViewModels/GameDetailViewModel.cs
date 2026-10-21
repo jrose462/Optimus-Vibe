@@ -115,6 +115,8 @@ public sealed class GameDetailViewModel : ObservableObject
     {
         get
         {
+            // The toggle always shows (greyed out without a TV preset) so the page keeps the same controls for every game.
+            if (!HasBigPicturePreset) return "This game has no Big Picture (TV) preset on this device yet.";
             var ctx = _snap.Context;
             if (ctx?.BigPicture is not { Active: true } bp) return null;
             if (ctx.BigPictureUsed) return $"TV in use ({bp.Reason}): Big Picture preset is picked automatically.";

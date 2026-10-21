@@ -382,25 +382,21 @@
                     </Border>
                 </Grid>
 
-                <!-- status row: game lab on the left, settings sync + per-game options on the right; stacked when narrow (code-behind) -->
-                <Grid x:Name="StatusRow" Margin="{DynamicResource BlockGapMd}" SizeChanged="OnStatusRowSizeChanged">
+                <!-- status row: game lab on the left, settings sync + per-game options on the right (always side by side) -->
+                <Grid Margin="{DynamicResource BlockGapMd}">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition x:Name="StatusLeft" Width="*" />
-                        <ColumnDefinition x:Name="StatusGap" Width="0" />
-                        <ColumnDefinition x:Name="StatusRight" Width="0" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
 
                 <!-- game lab: the game's health, one suggested action, the rest under More -->
-                <views:LabGamePanel x:Name="LabPanel" DataContext="{Binding Lab}" VerticalAlignment="Top"
+                <views:LabGamePanel DataContext="{Binding Lab}" VerticalAlignment="Top" HorizontalContentAlignment="Stretch"
                                     Visibility="{Binding DataContext.HasGame, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}" />
 
-                <StackPanel x:Name="StatusSide" Grid.Row="1" Margin="{DynamicResource BlockGapMd}">
+                <StackPanel Grid.Column="2">
                 <!-- settings sync: do this game's graphics settings travel between machines? -->
-                <Border x:Name="SyncCard" Style="{StaticResource Card}" HorizontalAlignment="Left" MaxWidth="760"
+                <Border Style="{StaticResource Card}"
                         Visibility="{Binding HasSync, Converter={StaticResource VisibleWhen}}">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -444,11 +440,11 @@
 
                 <!-- Big Picture (TV): per game opt-out and the current state -->
                 <CheckBox IsChecked="{Binding NeverBigPicture}" Margin="{DynamicResource AskMargin}" HorizontalAlignment="Left"
-                          Visibility="{Binding HasBigPicturePreset, Converter={StaticResource VisibleWhen}}"
+                          Visibility="{Binding HasGame, Converter={StaticResource VisibleWhen}}" IsEnabled="{Binding HasBigPicturePreset}"
                           ToolTip="Keep this game on its normal preset even when a 4K TV or a 4K stream is detected (this device only).">
                     <StackPanel>
                         <TextBlock Text="Never use Big Picture for this game" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding BigPictureText}" Style="{StaticResource AskDetail}"
+                        <TextBlock Text="{Binding BigPictureText}" Style="{StaticResource AskDetail}" TextWrapping="Wrap"
                                    Visibility="{Binding HasBigPictureText, Converter={StaticResource VisibleWhen}}" />
                     </StackPanel>
                 </CheckBox>
