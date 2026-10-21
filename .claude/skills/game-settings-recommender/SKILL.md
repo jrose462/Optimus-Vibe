@@ -40,7 +40,8 @@ mirror (edit the app repo copy, then re-copy it).
 Read before writing presets: `references/hardware.md` (what the two devices can do),
 `references/preset-guidelines.md` (rules per preset, cost of settings, research sources),
 `references/engine-notes.md` (where UE/Unity/Frostbite/etc. keep settings and the real key names),
-`references/awkward-stores.md` (binary/opaque files, composite values, research fallbacks, store ids, cloud sync).
+`references/awkward-stores.md` (binary/opaque files, composite values, research fallbacks, store ids, cloud sync),
+`references/settings-store-archetypes.md` (the ten archetypes A-J, launch args by engine).
 `scripts/strings.js` (strings view of binary files and exes). `<skill>` below = this skill's folder.
 Docs: the app repo's `CLAUDE.md` and `README.md`; in the config repo `config/games/_template.yaml` (every field and
 handler syntax) and any existing `config/games/<id>.yaml` as a worked example.
@@ -93,6 +94,31 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
 `src\OptimusVibe.Cli\bin\Debug\net8.0-windows\win-x64\optimus-vibe.exe` (build it with
 `dotnet build src/OptimusVibe.Cli` in the app repo if missing), (in the app repo checkout) `dotnet run --project src/OptimusVibe.Cli --`. Always pass
 `--config <config repo>\config` unless `gp setup` already points there.
+
+### (0) Wiki, archetype, mapping pass (before presets)
+
+1. **PCGamingWiki via the MediaWiki API** (normal pages 403; never write "wiki 403/unreachable" in sources):
+   `Invoke-RestMethod -UserAgent 'Mozilla/5.0' 'https://www.pcgamingwiki.com/w/api.php?action=parse&prop=wikitext&page=<Title>&formatversion=2&format=json'`
+   (wikitext is `.parse.wikitext`). Resolve the title first with `...api.php?action=query&list=search&srsearch=<name>&format=json`
+   (e.g. `Doom (2016)`). Extract: Game data/config and saves paths, the cloud table, Fixbox blocks, Command line
+   arguments, the Video table (fps caps, upscalers). Record the wiki title and fetch date under `recommendation.sources`.
+   Real launches (Map this game, `probe`) and Test preset results outrank wiki claims.
+2. **Classify** with `references/settings-store-archetypes.md`: is the readable file rewritten on exit? is it inside the
+   saves path or `remotecache.vdf`? is there a port-specific second file? are there composite values? does the launcher
+   gate the start? Write `archetype:` and `mappable:` in the header comment before `presets:`.
+3. **Mapping pass is mandatory**: run `optimus-vibe map <id>` then `probe`, changing each option once (quality tiers,
+   upscaler type and mode, AA, fps cap, vsync, window mode, refresh). Paste keys and spellings exactly. No
+   `# TODO verify` keys ship. Prose `In-game:` sentences are allowed only for HDR, TDP or options absent from every store.
+4. **Prefer machine-local files over cloud-synced ones**: check each candidate with `remotecache.vdf` / `cloud-check`.
+   If only a synced file exists (or wiki/cloud says settings sync), generate both device presets with distinct
+   `snapshotsFrom` names (`<game>-<device>-<preset>`) and say in the `description` that the other device will receive
+   the change.
+5. **Composite values**: until sub-field patching exists, write the whole string from a real `inspect` output, record
+   the source device, note order sensitivity.
+6. **Verify**: after the first managed launch run `run --verify` on desktop and Ally and store the results; a game is
+   "trusted" only after `held`. After every map/verify, rewrite stale header comments from the evidence.
+7. Launch args by engine (table in the archetypes reference) are preferred over touching synced files once the args
+   feature lands.
 
 ### (a) Identify the game
 

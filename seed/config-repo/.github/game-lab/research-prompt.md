@@ -100,6 +100,14 @@ Rules:
 - Install-folder files may be named with the `{InstallDir}` token (e.g. `{InstallDir}/Config/Engine.ini`), and
   `{SteamLibrary:<appid>}` still works for Steam games.
 
+**Also report in every mapping run** (launcher-level facts): the launcher process list, launcher log lines, time from
+start to game exe, whether Battle.net logged a `LaunchBinary` line, any EA/Epic/Larian prompts, and whether the game
+ignores `WM_CLOSE`. List NEW/CHG files across the game's own folders (install dir, AppData, Documents, Saved Games),
+not only the wiki's file, and check for a refresh-rate key and an exclusive/borderless key. Classify the game with
+`app/.claude/skills/game-settings-recommender/references/settings-store-archetypes.md` and state the archetype in `notes:`.
+PCGamingWiki is reachable through the MediaWiki API (`api.php?action=parse&page=<Title>&prop=wikitext&format=json&formatversion=2`,
+`list=search` for titles); real launches outrank wiki claims.
+
 **`### Verify run`** is the result of "Test preset": the preset was applied, the owner changed nothing, played, quit,
 and the app compared the files. `verdict: held` means the game kept every value. `verdict: overridden` lists the keys
 (or whole files) the game changed back by itself: the file you mapped is not the one the game obeys, or the game
