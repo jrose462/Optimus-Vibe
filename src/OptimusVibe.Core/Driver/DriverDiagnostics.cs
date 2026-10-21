@@ -79,10 +79,13 @@ public static class DriverDiagnostics
         {
             var row = status.Rows.FirstOrDefault(r => r.Key == candidate);
             if (row is null || !int.TryParse(row.Value, out var cur)) continue;
-            var range = row.Range.Split("..");
+            // Range reads "min..max" or "min..max step N"; move by one driver step so the value isn't rounded back (the Ally's RIS uses step 10).
+            var parts = row.Range.Split(" step ");
+            var range = parts[0].Split("..");
+            var step = parts.Length == 2 && int.TryParse(parts[1], out var st) && st > 0 ? st : 1;
             var max = range.Length == 2 && int.TryParse(range[1], out var m) ? m : 100;
             var min = range.Length == 2 && int.TryParse(range[0], out var n) ? n : 0;
-            var next = cur + 1 <= max ? cur + 1 : cur - 1;
+            var next = cur + step <= max ? cur + step : cur - step;
             if (next < min) continue;
             key = candidate;
             original = cur.ToString();

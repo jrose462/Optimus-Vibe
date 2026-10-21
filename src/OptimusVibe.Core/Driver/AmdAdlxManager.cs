@@ -355,7 +355,7 @@ public sealed class AmdAdlxManager : IDriverSettings
                     AdlxStatus.Unsupported => "unsupported",
                     _ => $"error: {session.LastError}",
                 };
-                var range = s.Kind == AmdKind.Int && session.TryGetRange(s.Id, out var min, out var max, out _) ? $"{min}..{max}" : "";
+                var range = s.Kind == AmdKind.Int && session.TryGetRange(s.Id, out var min, out var max, out var step) ? (step > 1 ? $"{min}..{max} step {step}" : $"{min}..{max}") : "";
                 rows.Add(new StatusRow(s.Key, value, range));
             }
         }
