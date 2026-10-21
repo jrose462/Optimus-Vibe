@@ -10,3 +10,9 @@
 #   optimus-vibe opt-in steam:1285190
 # Claude: never edit optOut unless the user asks you to.
 optOut: []
+# setInGame (added by the app, not listed until used): games (by GAME ID, the games/<id>.yaml name) the user flagged "set in-game" because
+# the game ignores the settings Optimus-Vibe writes. Optimus-Vibe still sets display and NVIDIA but writes no settings for them.
+#   setInGame:
+#     forspoken: { reason: "the game rewrites its binary settings store on every boot", since: "2026-10-20", issue: 12 }
+# Flag / clear from the app (game page) or with `optimus-vibe set-in-game <game> --reason "..."` / `optimus-vibe manage-settings <game>`.
+# Claude: never edit setInGame; a game the lab decides about gets `flagged:` in its own games/<id>.yaml instead.

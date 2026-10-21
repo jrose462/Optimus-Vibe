@@ -63,6 +63,13 @@ launch option `"<path>\OptimusVibe.exe" run <id> -- %command%` itself while Stea
 - **`config/library.yaml` is user-owned.** Its `optOut:` list (`store:id` keys) records games the user does not
   want managed. Never add or remove entries unless the user explicitly asks; suggest `optimus-vibe opt-out <key>`
   instead.
+- **Set in-game (`flagged:` / `setInGame:`).** A game that ignores every setting Optimus-Vibe writes gets "settings off, rest on": no preset,
+  saved-setting, `snapshotsFrom` or autoSnapshot writes, no re-apply, no drift/capture or sync-check prompt, Test preset off; display, NVIDIA,
+  `launch.args`, the watchdog and Map this game stay. Two sources, either counts (`Library/GameFlags.Effective`, read into `GameContext.InGame`):
+  the game file's `flagged:` (`reason` required; the lab/skill decide, see the archetypes reference) and `library.yaml` `setInGame:` (by game id;
+  the user's click or `optimus-vibe set-in-game <game> --reason "..."`, cleared by `manage-settings <game>`; synced like opt-outs). The app only
+  *suggests* it (two overridden Test preset results in a row, `RunResultEntry.OverriddenStreak`; or a mapping run whose pass B changed only binary files),
+  and confirming files a `research-later` issue (not `game-lab`) in the config repo. Never edit `setInGame` unless the user asks.
 - Sync: `git` provider = a checkout synced with the git CLI (desktop); `github` provider = a managed copy under
   `%LOCALAPPDATA%\OptimusVibe\repos\` synced through the GitHub API after device-code/PAT sign-in (the Ally; no
   git). Both push to the user's config repo, so pull before editing the queue.
@@ -117,7 +124,7 @@ For a binary settings file a launcher cloud-syncs between devices (Jedi: Survivo
 | `games/<id>.yaml` | **Claude** (via the skill) | One file per game. `_template.yaml` documents every field and handler syntax |
 | `schema/game.schema.json` | Claude | JSON Schema for game YAML; keep it in sync with `Config/Models.cs` |
 | `saves/<game>/<device>/<slug>/` | **User** (app / `save`) | Manual saves, git-synced |
-| `library.yaml` | **User** (app / `opt-out` / `opt-in`) | `optOut:` list of `store:id` keys not to manage. Never edit unless asked |
+| `library.yaml` | **User** (app / `opt-out` / `opt-in` / `set-in-game` / `manage-settings`) | `optOut:` list of `store:id` keys not to manage; `setInGame:` map of game id to why its settings are left to the game. Never edit unless asked |
 | `requests.yaml` | App appends, **Claude** removes handled entries | Queue of installed games without a config (work it with the skill) |
 
 ## Store-specific launch notes

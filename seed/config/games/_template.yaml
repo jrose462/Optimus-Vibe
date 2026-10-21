@@ -62,6 +62,15 @@ processes:
 # How the preset reaches the game (informational; the app shows an honest one-line status from it):
 #   archetype: plain-honoured    # plain-honoured | binary-truth | text-mirror | composite | local-cloud-split | first-run | registry | launcher-gated | server-held
 #   mappable: true               # false = settings cannot be set from outside the game; presets are advice only
+# "Set in-game": for a game that ignores every file/registry key we write (opaque store rewritten each boot). With `flagged:` the app
+# stops writing presets, saved settings, snapshots and auto copies, stops re-applying them and asking about them, and turns Test preset
+# off. Display, NVIDIA, launch.args and the launch watchdog still apply; the preset's in-game steps/notes are still shown.
+# Pair it with `mappable: false` (without `flagged:` the validator warns that presets are still written). `reason` is required.
+#   flagged:
+#     reason: the game rewrites its binary settings store on every boot   # one line, shown in the app
+#     since: "2026-10-20"
+#     evidence: Test preset overridden twice; mapping run changed only system.save   # no personal data
+#     issue: 12                    # the `research-later` issue in this repo asking the game lab to look deeper later
 
 # --- settings stores ----------------------------------------------------------------------------------------------
 # Path tokens: {Documents} {LocalAppData} {AppData} {LocalLow} {SavedGames} {UserProfile} {ProgramData}
