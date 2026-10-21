@@ -59,6 +59,27 @@ public sealed record HealthInputs
     /// <summary>This device keeps an autoSnapshot copy of the game's cloud-synced settings file.</summary>
     public bool HasAutoSnapshotCopy { get; init; }
 
+    /// <summary>
+    /// The preset that applies now (<see cref="RunResult.Preset"/>'s form, "recommended:performance"). Runs and tests of another preset do
+    /// not count for or against it. Null = don't filter.
+    /// </summary>
+    public string? CurrentPreset { get; init; }
+
+    /// <summary>The user's own flag in library.yaml exists (it can be lifted from the app: "Manage settings again").</summary>
+    public bool HasUserFlag { get; init; }
+
+    /// <summary>The flag's research task is closed (the lab is done looking).</summary>
+    public bool ResearchFinished { get; init; }
+
+    /// <summary>
+    /// The paths of the game's configured file blocks (any handler, <see cref="FileDef.Path"/>), so a mapping run whose "binary" files are
+    /// ones Optimus-Vibe already writes (a <c>gvas</c> <c>.sav</c>) does not suggest the flag.
+    /// </summary>
+    public IReadOnlyList<string> ConfiguredFiles { get; init; } = [];
+
+    /// <summary>The game is installed here and can be launched (Test preset, Map this game are possible).</summary>
+    public bool CanLaunch { get; init; }
+
     // ---------------------------------------------------------------- derived
 
     /// <summary>The passive verdict of every normal run in <see cref="Recent"/>, oldest first.</summary>

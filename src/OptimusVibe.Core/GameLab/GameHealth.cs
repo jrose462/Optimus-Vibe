@@ -1,0 +1,301 @@
+using System.Globalization;
+using OptimusVibe.CloudSync;
+using OptimusVibe.Launch;
+using OptimusVibe.Library;
+
+namespace OptimusVibe.GameLab;
+
+/// <summary>
+/// One game's health on one device, in the order <see cref="GameHealth.Evaluate"/> checks them: the first that matches wins.
+/// </summary>
+public enum HealthState
+{
+    /// <summary>The game is flagged "set in-game" (game file or library.yaml): its settings are left to the game, there is no run history.</summary>
+    Flagged,
+
+    /// <summary>No presets for this device (no config, or a config without this device). An open lab request is shown here too.</summary>
+    NoPresets,
+
+    /// <summary>Not flagged, but the evidence says the game ignores the settings Optimus-Vibe writes: the flag is suggested (never applied).</summary>
+    CantBeSetFromOutside,
+
+    /// <summary>The installed build differs from the newest build the presets are known to work on.</summary>
+    GameUpdated,
+
+    /// <summary>The last launch or the last test found preset settings the game changed.</summary>
+    GameChangedSettings,
+
+    /// <summary>A launcher's cloud sync may be changing the settings (a contradiction, changes while Optimus-Vibe wasn't running, a sync rewrite).</summary>
+    SyncUnsure,
+
+    /// <summary>The preset held: a held Test preset, or <see cref="GameHealth.WorkingAfter"/> passively held launches in a row.</summary>
+    Working,
+
+    /// <summary>Has presets, no clear evidence on this device yet. It resolves itself as the user plays.</summary>
+    NotChecked,
+}
+
+/// <summary>The one action a health state suggests (at most one). Every one of them is an existing command of the game page.</summary>
+public enum HealthAction
+{
+    None,
+    RequestPresets,
+    RefreshPresets,
+    TestPreset,
+    MapGame,
+    FlagSetInGame,
+    ManageAgain,
+}
+
+/// <summary>
+/// The per-game, per-device health shown on the game page: one status line (<see cref="Headline"/>), one dim "why" line and at most one
+/// suggested action. Derived only from data already held (<see cref="HealthInputs"/>); pure, no I/O.
+/// </summary>
+public sealed record GameHealth
+{
+    /// <summary>Passively held launches in a row (or one held Test preset) that make a game "Working".</summary>
+    public const int WorkingAfter = 3;
+
+    public required HealthState State { get; init; }
+    public required string Headline { get; init; }
+
+    /// <summary>One dim line saying why; null when there is nothing to add.</summary>
+    public string? Why { get; init; }
+
+    public HealthAction Suggested { get; init; }
+
+    /// <summary>Why the "set in-game" flag is worth suggesting (<see cref="FlagSuggestion"/>), whatever the state; null when it isn't.</summary>
+    public string? FlagReason { get; init; }
+
+    /// <summary>A lab request for the game is open (a secondary chip unless presets are missing).</summary>
+    public bool LabWorking { get; init; }
+
+    /// <summary>States worth a chip on the library tile.</summary>
+    public bool NeedsAttention => State is HealthState.GameUpdated or HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside;
+
+    public const string ResearchFinishedLine = "Research finished - try managing settings again?";
+    public const string ConfigFlagLine = "The game lab set this flag, so only it can lift it. It does that when its research finds a way to set this game's settings.";
+
+    /// <summary>The button text of a suggested action.</summary>
+    public static string ActionText(HealthAction action) => action switch
+    {
+        HealthAction.RequestPresets => "Request presets",
+        HealthAction.RefreshPresets => "Ask the game lab to re-check",
+        HealthAction.TestPreset => "Test preset",
+        HealthAction.MapGame => "Map this game",
+        HealthAction.FlagSetInGame => "Flag as set in-game",
+        HealthAction.ManageAgain => "Manage settings again",
+        _ => "",
+    };
+
+    /// <summary>The health of a game on a device: the first state that matches, in the order of <see cref="HealthState"/>.</summary>
+    public static GameHealth Evaluate(HealthInputs i)
+    {
+        var open = i.LabRequest is { IsOpen: true } issue ? issue : null;
+        var flagReason = FlagSuggestion(i);
+
+        // 1. flagged: no run history exists for it, so nothing below applies
+        if (i.Flag is { } flag)
+        {
+            var manage = i.HasUserFlag && i.ResearchFinished;
+            return new GameHealth
+            {
+                State = HealthState.Flagged, Headline = GameFlags.StatusLine(flag), LabWorking = open is not null,
+                Why = !i.HasUserFlag ? ConfigFlagLine : manage ? ResearchFinishedLine : null,
+                Suggested = manage ? HealthAction.ManageAgain : HealthAction.None,
+            };
+        }
+
+        // 2. no presets for this device
+        if (!i.HasPresets)
+        {
+            if (open is not null)
+            {
+                var needsEvidence = open.Status == LabStatus.NeedsEvidence;
+                var map = needsEvidence && i.Mapping is null && i.CanLaunch;
+                return new GameHealth
+                {
+                    State = HealthState.NoPresets, LabWorking = true, FlagReason = flagReason,
+                    Headline = $"Game lab is working on it (#{open.Number}, {LabStatusIndex.Chip(open).ToLowerInvariant()})",
+                    Why = map ? "The lab needs to know where this game keeps its settings: one launch where you change a few graphics options."
+                        : needsEvidence ? "The lab asked for more files from this PC. Optimus-Vibe sends them by itself."
+                        : "The presets arrive by themselves when it's done.",
+                    Suggested = map ? HealthAction.MapGame : HealthAction.None,
+                };
+            }
+            return new GameHealth
+            {
+                State = HealthState.NoPresets, Headline = "No presets for this device yet", FlagReason = flagReason,
+                // without the lab the panel already says why and links to Settings
+                Why = !i.LabReady ? null
+                    : i.HasConfig ? "The game has presets for your other devices. The game lab can add this one."
+                    : "Claude researches the game's settings and writes presets for your devices.",
+                Suggested = i.LabReady ? HealthAction.RequestPresets : HealthAction.None,
+            };
+        }
+
+        var labWorking = open is not null;
+
+        // 3. the evidence says the game ignores the settings (suggested only, never flagged automatically)
+        if (flagReason is not null)
+            return new GameHealth
+            {
+                State = HealthState.CantBeSetFromOutside, Headline = "This game may need to be set in-game", FlagReason = flagReason, LabWorking = labWorking,
+                Why = $"It seems to ignore Optimus-Vibe's settings: {flagReason}.", Suggested = HealthAction.FlagSetInGame,
+            };
+
+        // 4. the game updated since the presets last worked
+        if (i.GameUpdated)
+            return new GameHealth
+            {
+                State = HealthState.GameUpdated, Headline = "Game updated since these presets were made", LabWorking = labWorking,
+                Why = i.GameUpdatedByStore
+                    ? "A new build is installed. The game may have moved or renamed some settings."
+                    : "The game's files changed. It may have moved or renamed some settings.",
+                Suggested = i.LabReady && i.HasConfig && !labWorking ? HealthAction.RefreshPresets : i.CanLaunch ? HealthAction.TestPreset : HealthAction.None,
+            };
+
+        var runs = Runs.Of(i);
+
+        // 5. the game changed some of the preset's settings
+        if (runs.Changed is { } changed)
+        {
+            var fromTest = changed.IsVerify;
+            return new GameHealth
+            {
+                State = HealthState.GameChangedSettings, LabWorking = labWorking,
+                Headline = $"The game changed some settings ({changed.Drift.Count} of {changed.Applied})",
+                Why = $"{(fromTest ? "Last test" : "Last launch")}, {Day(changed.Utc)}: {RunResults.Names(changed, 3)}",
+                Suggested = fromTest
+                    ? (i.LabReady && i.HasConfig && !labWorking ? HealthAction.RefreshPresets : HealthAction.None)
+                    : (i.CanLaunch ? HealthAction.TestPreset : HealthAction.None),
+            };
+        }
+
+        // 6. cloud sync may be changing them
+        var sync = i.CloudSync;
+        var syncContradiction = sync?.Contradiction;
+        var syncExternal = sync is { HasExternalChanges: true, Confidence: <= SyncConfidence.Low };
+        if (syncContradiction is not null || syncExternal || runs.LastPassive == PassiveVerdict.SyncSuspect)
+            return new GameHealth
+            {
+                State = HealthState.SyncUnsure, Headline = "Settings may be changed by cloud sync", LabWorking = labWorking,
+                Why = syncContradiction is not null ? Sentence(syncContradiction)
+                    : runs.LastPassive == PassiveVerdict.SyncSuspect ? "A launcher's cloud sync rewrote the settings during your last launch."
+                    : "The settings changed while Optimus-Vibe wasn't running.",
+            };
+
+        // 7. working
+        if (runs.HeldStreak >= WorkingAfter || runs.VerifyHeld)
+        {
+            var verified = runs.VerifyHeld ? $"Verified on this device, {Day(runs.Verify!.Utc)}." : null;
+            return new GameHealth
+            {
+                State = HealthState.Working, LabWorking = labWorking,
+                Headline = runs.HeldStreak >= WorkingAfter
+                    ? $"Working. Presets held on your last {runs.HeldStreak} launches."
+                    : "Working. The game kept the preset in your last test.",
+                Why = verified ?? $"Last checked {Day(runs.LastNormal!.Utc)}.",
+            };
+        }
+
+        // 8. not checked yet: it resolves itself as the user plays
+        var ambiguous = runs.HeldStreak == 0 && runs.Counted >= WorkingAfter && i.CanLaunch;
+        return new GameHealth
+        {
+            State = HealthState.NotChecked, Headline = "Not checked on this device yet", LabWorking = labWorking,
+            Why = runs.HeldStreak > 0
+                ? $"The preset held on your last {(runs.HeldStreak == 1 ? "launch" : $"{runs.HeldStreak} launches")}. {WorkingAfter - runs.HeldStreak} more to be sure."
+                : ambiguous ? "Your last launches didn't show clearly whether the game keeps the preset."
+                : "Optimus-Vibe checks it by itself after you play.",
+            Suggested = ambiguous ? HealthAction.TestPreset : HealthAction.None,
+        };
+    }
+
+    /// <summary>
+    /// Why flagging the game "set in-game" is worth suggesting (never applied on its own): two overridden Test preset results in a row, two
+    /// passively overridden launches, or a mapping run whose changes were all in binary files Optimus-Vibe can't edit. A mapping run doesn't
+    /// count when every such file is one the game's config already writes (an Unreal <c>.sav</c> through the <c>gvas</c> handler).
+    /// Null when the game is flagged already, has no config, or nothing suggests it.
+    /// </summary>
+    public static string? FlagSuggestion(HealthInputs i)
+    {
+        if (i.Flag is not null || !i.HasConfig) return null;
+        if (GameFlags.SuggestsFromVerify(i.OverriddenStreak)) return GameFlags.VerifySuggestionReason(i.OverriddenStreak);
+        if (GameFlags.SuggestsFromPassive(i.PassiveOverriddenStreak)) return GameFlags.PassiveSuggestionReason(i.PassiveOverriddenStreak);
+        if (i.Mapping is { SuggestSetInGame: true } m && !AllConfigured(m.OpaqueFiles, i.ConfiguredFiles))
+            return m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit";
+        return null;
+    }
+
+    /// <summary>Every opaque file of a mapping run is (by file name) one of the game's configured files.</summary>
+    public static bool AllConfigured(IReadOnlyList<string> opaqueFiles, IReadOnlyList<string> configuredFiles)
+    {
+        if (opaqueFiles.Count == 0 || configuredFiles.Count == 0) return false;
+        var names = configuredFiles.Select(FileName).Where(n => n.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return opaqueFiles.All(f => names.Contains(FileName(f)));
+    }
+
+    private static string FileName(string path)
+    {
+        var p = path.Replace('\\', '/').TrimEnd('/');
+        var slash = p.LastIndexOf('/');
+        return slash < 0 ? p : p[(slash + 1)..];
+    }
+
+    private static string Day(DateTime utc) =>
+        (utc.Kind == DateTimeKind.Local ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime()).ToString("MMM d", CultureInfo.InvariantCulture);
+
+    private static string Sentence(string s) => s.TrimEnd().EndsWith('.') ? s.Trim() : s.Trim() + ".";
+
+    /// <summary>What the run history says about the current preset, newest evidence first.</summary>
+    private sealed class Runs
+    {
+        public RunResult? Verify { get; private init; }
+        public RunResult? LastNormal { get; private init; }
+        public PassiveVerdict LastPassive { get; private init; }
+        public int HeldStreak { get; private init; }
+        public int Counted { get; private init; }
+        public bool VerifyHeld => Verify is { } v && RunResults.Verdict(v) == RunVerdict.Held;
+        public RunResult? Changed { get; private init; }
+
+        public static Runs Of(HealthInputs i)
+        {
+            bool Counts(RunResult r) => i.CurrentPreset is null || string.Equals(r.Preset, i.CurrentPreset, StringComparison.OrdinalIgnoreCase);
+            var verdicts = i.PassiveVerdicts;
+            var verify = i.LastVerify is { } v && Counts(v) ? v : null;
+
+            var last = -1;
+            for (var k = i.Recent.Count - 1; k >= 0 && last < 0; k--)
+                if (Counts(i.Recent[k])) last = k;
+            var lastNormal = last >= 0 ? i.Recent[last] : null;
+            var lastPassive = last >= 0 ? verdicts[last] : PassiveVerdict.Unknown;
+
+            // held launches in a row, newest back; a run of another preset ends the streak
+            var held = 0;
+            for (var k = i.Recent.Count - 1; k >= 0 && Counts(i.Recent[k]) && verdicts[k] == PassiveVerdict.Held; k--) held++;
+
+            // the newest evidence wins: a launch after the test speaks for itself, a held launch after an overridden test clears it
+            RunResult? changed = null;
+            if (lastNormal is not null && (verify is null || lastNormal.Utc > verify.Utc) && NormalChanged(lastNormal, lastPassive))
+                changed = lastNormal;
+            else if (verify is not null && RunResults.Verdict(verify) == RunVerdict.Overridden &&
+                     !i.Recent.Where((r, k) => Counts(r) && r.Utc > verify.Utc && verdicts[k] == PassiveVerdict.Held).Any())
+                changed = verify;
+
+            return new Runs
+            {
+                Verify = verify, LastNormal = lastNormal, LastPassive = lastPassive, HeldStreak = held, Changed = changed,
+                Counted = i.Recent.Count(Counts),
+            };
+        }
+
+        /// <summary>
+        /// A normal run counts as "the game changed settings" when its passive verdict says so, or (the old "Test preset?" hint) when most
+        /// of the preset drifted and the player did not keep it as a save, unless it points at cloud sync.
+        /// </summary>
+        private static bool NormalChanged(RunResult r, PassiveVerdict verdict) =>
+            verdict == PassiveVerdict.Overridden ||
+            (RunResults.NeedsHint(r) && r.Capture != CaptureAnswer.Saved && verdict is not (PassiveVerdict.SyncSuspect or PassiveVerdict.UserSaved or PassiveVerdict.Held));
+    }
+}
