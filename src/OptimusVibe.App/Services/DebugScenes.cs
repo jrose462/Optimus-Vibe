@@ -237,10 +237,13 @@ public static class DebugScenes
             case "verify-flagged":
             case "verify-flagged-done":
             case "verify-flagged-config":
-                if (tuned is null) break;
-                vm.OpenLibraryDetail(tuned);
-                await Task.Delay(800);
-                tuned.Lab.ShowDemo(scene["verify-".Length..]);
+                if (tuned is not null)
+                {
+                    vm.OpenLibraryDetail(tuned);
+                    await Task.Delay(800);
+                    tuned.Lab.ShowDemo(scene["verify-".Length..]);
+                }
+                else await Task.Delay(800); // no tiles (a config with no installed games): the manage page below still has a panel
                 vm.SelectedDetail?.Lab.ShowDemo(scene["verify-".Length..]); // the manage page has its own panel
                 await Task.Delay(500);
                 if (Descendants<LabGamePanel>(window).FirstOrDefault(p => p.IsVisible) is { } panel)
