@@ -311,10 +311,19 @@ public sealed class AmdAdlxManager : IDriverSettings
     {
         if (AmdSettingTable.SwitchFor(id) is not { } sw) return false;
         if (session.Read(sw, out var on) != AdlxStatus.Ok || on != 0) return false;
+        // Switching a feature on can switch a conflicting one off (RIS on turns RSR off on the Ally): remember every switch and put the others back.
+        var before = new Dictionary<AmdSettingId, int>();
+        foreach (var f in AmdSettingTable.SnapshotOrder.Where(f => AmdSettingTable.IsFlag(f) && f != sw))
+            if (session.Read(f, out var v) == AdlxStatus.Ok) before[f] = v;
         if (session.Write(sw, 1) != AdlxStatus.Ok) return false;
         var st = session.Write(id, value);
         var off = session.Write(sw, 0);
         if (off != AdlxStatus.Ok) Log.Warn($"AMD: switched {Label(sw)} on to change {key} but could not switch it back off; it is restored after the game exits.");
+        foreach (var (f, v) in before)
+        {
+            if (session.Read(f, out var now) != AdlxStatus.Ok || now == v) continue;
+            if (session.Write(f, v) != AdlxStatus.Ok) Log.Warn($"AMD: changing {key} switched {Label(f)} to {Fmt(f, now)} and it could not be put back; it is restored after the game exits.");
+        }
         if (st == AdlxStatus.Ok) Log.Info($"AMD: {key} can only be changed while {Label(sw)} is on; switched it on for the change and back off.");
         return st == AdlxStatus.Ok;
     }
