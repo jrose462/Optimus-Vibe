@@ -133,8 +133,10 @@ public static class AutoFindings
 
     /// <summary>
     /// Consent was withdrawn: removes every automatic request still waiting in the outbox (one the user filed by hand stays). Returns how many.
+    /// With <paramref name="gameId"/>, only that game's: it was just flagged "set in-game", and a flagged game gets no automatic findings (its
+    /// research task asks the lab instead), so one queued before the flag must not go out after it.
     /// </summary>
-    public static int WithdrawQueued(OutboxStore store)
+    public static int WithdrawQueued(OutboxStore store, string? gameId = null)
     {
         var removed = 0;
         foreach (var item in store.List())
@@ -142,14 +144,20 @@ public static class AutoFindings
             if (item.Kind != OutboxKind.LabRequest) continue;
             try
             {
-                if (item.LabRequest.Automatic && store.Remove(item.Id)) removed++;
+                var request = item.LabRequest;
+                if (!request.Automatic) continue;
+                if (gameId is not null && !string.Equals(request.GameId, gameId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (store.Remove(item.Id)) removed++;
             }
             catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or NullReferenceException)
             {
                 Log.Warn($"outbox: could not read lab request {item.Id}: {ex.Message}");
             }
         }
-        if (removed > 0) Log.Info($"game lab: automatic findings are off; withdrew {removed} waiting request(s)");
+        if (removed > 0)
+            Log.Info(gameId is null
+                ? $"game lab: automatic findings are off; withdrew {removed} waiting request(s)"
+                : $"game lab: {gameId} is set in-game; withdrew {removed} waiting automatic request(s)");
         return removed;
     }
 

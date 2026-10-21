@@ -91,6 +91,12 @@ public sealed record HealthInputs
     /// </summary>
     public IReadOnlyList<string> ConfiguredFiles { get; init; } = [];
 
+    /// <summary>
+    /// Evidence older than this does not count (<see cref="RunResultEntry.EvidenceSinceUtc"/>): the game was flagged on this device, or the user
+    /// chose to manage its settings again. Runs, tests and the mapping run from before are ignored by the health and the flag suggestion.
+    /// </summary>
+    public DateTime? EvidenceSinceUtc { get; init; }
+
     /// <summary>The game is installed here and can be launched (Test preset, Map this game are possible).</summary>
     public bool CanLaunch { get; init; }
 
@@ -178,6 +184,7 @@ public sealed record HealthInputs
             GameId = gameId, Device = device,
             Last = e?.Last, LastVerify = e?.LastVerify, Recent = e?.Recent ?? [],
             OverriddenStreak = e?.OverriddenStreak ?? 0, PassiveOverriddenStreak = e?.PassiveOverriddenStreak ?? 0,
+            EvidenceSinceUtc = e?.EvidenceSinceUtc,
         };
     }
 }

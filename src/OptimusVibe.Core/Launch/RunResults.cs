@@ -172,6 +172,13 @@ public sealed class RunResultEntry
     /// nothing applied) leaves it alone. Two in a row is what suggests flagging the game "set in-game" (<see cref="Library.GameFlags.SuggestsFromVerify"/>).
     /// </summary>
     public int OverriddenStreak { get; set; }
+
+    /// <summary>
+    /// Evidence older than this does not count for the game's health or for suggesting the "set in-game" flag: set when the game ran flagged
+    /// on this device (<see cref="RunResults.MarkFlagged"/>) and when the user chose to manage its settings again (<see cref="RunResults.ResetStreak"/>).
+    /// Whatever led to the flag was answered by it; once lifted, the preset is judged on fresh launches and tests. Null = everything counts.
+    /// </summary>
+    public DateTime? EvidenceSinceUtc { get; set; }
 }
 
 /// <summary>
@@ -289,17 +296,61 @@ public static class RunResults
     }
 
     /// <summary>
-    /// Starts both streaks over, verify and passive (the user chose to manage the game's settings again: it must be tested again before the flag
-    /// is suggested).
+    /// Starts both streaks over, verify and passive, and stamps <see cref="RunResultEntry.EvidenceSinceUtc"/> (the user chose to manage the game's
+    /// settings again: it must be tested again before the flag is suggested, so the runs, tests and mapping run from before don't count).
     /// </summary>
-    public static void ResetStreak(string dataDir, string gameId, string device) => Modify(dataDir, m =>
+    public static void ResetStreak(string dataDir, string gameId, string device, DateTime? nowUtc = null) => Modify(dataDir, m =>
     {
-        if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return false;
-        if (e.OverriddenStreak == 0 && e.PassiveOverriddenStreak == 0) return false;
+        if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(device)) return false;
+        var e = EntryFor(m, gameId, device);
         e.OverriddenStreak = 0;
         e.PassiveOverriddenStreak = 0;
+        e.EvidenceSinceUtc = nowUtc ?? DateTime.UtcNow;
         return true;
     });
+
+    /// <summary>
+    /// The game ran flagged "set in-game" on this device: starts both streaks over and stamps <see cref="RunResultEntry.EvidenceSinceUtc"/> so that, should the flag be lifted
+    /// (here or on another device), what led to it does not suggest it again. Writes only when the stamp is missing or older than the newest
+    /// stored run (a flagged run records none, so once per flag). Never throws.
+    /// </summary>
+    public static void MarkFlagged(string dataDir, string gameId, string device, DateTime? nowUtc = null)
+    {
+        try
+        {
+            Modify(dataDir, m =>
+            {
+                if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(device)) return false;
+                var e = EntryFor(m, gameId, device);
+                if (e.EvidenceSinceUtc is { } mark && !(NewestRunUtc(e) is { } newest && newest > mark)) return false;
+                e.OverriddenStreak = 0;
+                e.PassiveOverriddenStreak = 0;
+                e.EvidenceSinceUtc = nowUtc ?? DateTime.UtcNow;
+                return true;
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not mark {gameId} as flagged in the run history: {ex.Message}");
+        }
+    }
+
+    private static RunResultEntry EntryFor(Model m, string gameId, string device)
+    {
+        if (!m.Games.TryGetValue(gameId, out var devices) || devices is null) m.Games[gameId] = devices = new(StringComparer.OrdinalIgnoreCase);
+        if (!devices.TryGetValue(device, out var e) || e is null) devices[device] = e = new RunResultEntry();
+        e.Recent ??= [];
+        return e;
+    }
+
+    private static DateTime? NewestRunUtc(RunResultEntry e)
+    {
+        DateTime? newest = e.Last?.Utc;
+        if (e.LastVerify is { } v && (newest is null || v.Utc > newest)) newest = v.Utc;
+        foreach (var r in e.Recent)
+            if (newest is null || r.Utc > newest) newest = r.Utc;
+        return newest;
+    }
 
     /// <summary>The last run (or, with <paramref name="verifyOnly"/>, the last verify run) of a game on a device; null when none.</summary>
     public static RunResult? Get(string dataDir, string gameId, string device, bool verifyOnly = false)

@@ -107,6 +107,8 @@ public static class Runner
         if (inGame is not null)
         {
             Log.Info(GameFlags.RunLine(inGame));
+            // what led to the flag must not suggest it again once it is lifted (never throws)
+            RunResults.MarkFlagged(ctx.Paths.DataDir, ctx.Game.Id, ctx.Device.Name);
             if (options?.Verify == true) Log.Info("Test preset: nothing to test, this game's settings are left to the game");
         }
 

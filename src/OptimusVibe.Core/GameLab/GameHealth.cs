@@ -238,18 +238,44 @@ public sealed record GameHealth
     /// streak is counted from the current preset's own launches (<see cref="PassiveOverridden"/>), not from the device-wide stored counter.
     /// Null when the game is flagged already, has no config, or nothing suggests it.
     /// </summary>
-    public static string? FlagSuggestion(HealthInputs i)
+    public static string? FlagSuggestion(HealthInputs i) => FlagEvidence(i)?.Reason;
+
+    /// <summary>
+    /// <see cref="FlagSuggestion"/> with where it comes from: the rule that fired and the run behind it, so flagging the game keeps the right
+    /// evidence (<see cref="FlagFinding.Summary"/> in the flag, <see cref="FlagFinding.RunText"/> in the research task). Evidence from before
+    /// <see cref="HealthInputs.EvidenceSinceUtc"/> (the game was flagged, or its settings managed again since) never counts. Null when nothing
+    /// suggests the flag.
+    /// </summary>
+    public static FlagFinding? FlagEvidence(HealthInputs i)
     {
         if (i.Flag is not null || !i.HasConfig) return null;
         var heldUtc = Runs.NewestHeld(i);
         var presetsUtc = i.Presets?.MadeUtc;
-        bool Stale(DateTime utc) => (heldUtc is { } h && h > utc) || (presetsUtc is { } p && p > utc);
+        bool Stale(DateTime utc) => (heldUtc is { } h && h > utc) || (presetsUtc is { } p && p > utc) || (i.EvidenceSinceUtc is { } s && s > utc);
 
-        if (VerifyStreakStands(i) && GameFlags.SuggestsFromVerify(i.OverriddenStreak)) return GameFlags.VerifySuggestionReason(i.OverriddenStreak);
+        if (VerifyStreakStands(i) && GameFlags.SuggestsFromVerify(i.OverriddenStreak))
+        {
+            var test = i.LastVerify is { } v && Runs.CountsFor(i, v) && RunResults.Verdict(v) == RunVerdict.Overridden ? v : null;
+            return new FlagFinding(FlagSource.Verify, GameFlags.VerifySuggestionReason(i.OverriddenStreak), test);
+        }
         var passive = PassiveOverridden(i);
-        if (GameFlags.SuggestsFromPassive(passive)) return GameFlags.PassiveSuggestionReason(passive);
+        if (GameFlags.SuggestsFromPassive(passive))
+            return new FlagFinding(FlagSource.Passive, GameFlags.PassiveSuggestionReason(passive), NewestPassiveOverridden(i));
         if (i.Mapping is { SuggestSetInGame: true } m && !AllConfigured(m.OpaqueFiles, i.ConfiguredFiles) && !Stale(m.Utc))
-            return m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit";
+            return new FlagFinding(FlagSource.Mapping, m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit", null);
+        return null;
+    }
+
+    /// <summary>The newest passively overridden normal run of the current preset (one <see cref="PassiveOverridden"/> counts), or null.</summary>
+    private static RunResult? NewestPassiveOverridden(HealthInputs i)
+    {
+        var verdicts = i.PassiveVerdicts;
+        for (var k = i.Recent.Count - 1; k >= 0; k--)
+        {
+            if (!Runs.CountsFor(i, i.Recent[k])) continue;
+            if (verdicts[k] == PassiveVerdict.Held) return null;
+            if (verdicts[k] == PassiveVerdict.Overridden) return i.Recent[k];
+        }
         return null;
     }
 
@@ -330,9 +356,10 @@ public sealed record GameHealth
         /// <summary>When the current preset last held: a held Test preset or a passively held launch, whichever is newer; null when never.</summary>
         public DateTime? NewestHeldUtc { get; private init; }
 
-        /// <summary>A run (or test) of the preset that applies now; every run counts when that isn't known.</summary>
+        /// <summary>A run (or test) of the preset that applies now (every run counts when that isn't known), not from before <see cref="HealthInputs.EvidenceSinceUtc"/>.</summary>
         public static bool CountsFor(HealthInputs i, RunResult r) =>
-            i.CurrentPreset is null || string.Equals(r.Preset, i.CurrentPreset, StringComparison.OrdinalIgnoreCase);
+            (i.EvidenceSinceUtc is not { } since || r.Utc >= since) &&
+            (i.CurrentPreset is null || string.Equals(r.Preset, i.CurrentPreset, StringComparison.OrdinalIgnoreCase));
 
         public static DateTime? NewestHeld(HealthInputs i)
         {
@@ -382,4 +409,34 @@ public sealed record GameHealth
             verdict == PassiveVerdict.Overridden ||
             (RunResults.NeedsHint(r) && r.Capture != CaptureAnswer.Saved && verdict is not (PassiveVerdict.SyncSuspect or PassiveVerdict.UserSaved or PassiveVerdict.Held));
     }
+}
+
+/// <summary>Which evidence suggests flagging a game "set in-game" (<see cref="GameHealth.FlagEvidence"/>).</summary>
+public enum FlagSource
+{
+    /// <summary>Overridden Test preset results in a row (<see cref="GameFlags.SuggestsFromVerify"/>).</summary>
+    Verify,
+
+    /// <summary>Passively overridden normal launches (<see cref="GameFlags.SuggestsFromPassive"/>).</summary>
+    Passive,
+
+    /// <summary>A mapping run whose changes were all in binary files Optimus-Vibe can't edit (<see cref="ProbeRecord.SuggestSetInGame"/>).</summary>
+    Mapping,
+}
+
+/// <summary>
+/// Why the "set in-game" flag is suggested (<see cref="Reason"/>, the confirm card's "Why") and the run behind it, if any: the last overridden
+/// test, or the newest passively overridden launch. A mapping run has none (its evidence is the stored mapping, which requests attach anyway).
+/// </summary>
+public sealed record FlagFinding(FlagSource Source, string Reason, RunResult? Run)
+{
+    /// <summary>The short evidence kept in the flag (<see cref="Config.FlagDef.Evidence"/>): what the run found, else the reason.</summary>
+    public string Summary => Run is { } r && r.Drift.Count > 0
+        ? Source == FlagSource.Verify
+            ? $"Test preset: the game changed {r.Drift.Count} of {r.Applied} setting(s) in the last test ({RunResults.Names(r, 3)})"
+            : $"Normal launches: the game changed {r.Drift.Count} of {r.Applied} setting(s) in the last launch ({RunResults.Names(r, 3)})"
+        : Reason;
+
+    /// <summary>The run's full evidence text for the research task (<see cref="RunResults.EvidenceText"/>), null without a run.</summary>
+    public string? RunText => Run is { } r ? RunResults.EvidenceText(r) : null;
 }
