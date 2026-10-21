@@ -368,7 +368,7 @@
                 </Grid>
 
                 <!-- status block: game lab across the full width, settings sync and the per-game options below it -->
-                <Grid Margin="{DynamicResource BlockGapMd}">
+                <Grid x:Name="StatusBlock" Margin="{DynamicResource BlockGapMd}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
