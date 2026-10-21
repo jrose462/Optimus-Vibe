@@ -1,3 +1,4 @@
+using OptimusVibe.Driver;
 using OptimusVibe.Config;
 using OptimusVibe.Handlers;
 
@@ -169,6 +170,9 @@ public static class Validator
                     var resolved = ProfileResolver.ResolvePreset(game, device, deviceDef, preset);
                     CheckBlocks(game, resolved, $"{where}: presets.{device}.{preset}", report);
                     CheckSnapshotsFrom(store, game, device, preset, presets[preset], hasRawFile, where, report);
+                    foreach (var (ak, av) in resolved.Amd)
+                        if (AmdSettingTable.Validate(ak, av) is { } amdError)
+                            report.Errors.Add($"{where}: presets.{device}.{preset}.amd.{ak}: {amdError}");
                     if (resolved.FileBlocks.Count == 0 && resolved.Display is null && resolved.Nvidia.Count == 0 && resolved.Amd.Count == 0)
                         report.Warnings.Add($"{where}: presets.{device}.{preset} sets nothing");
                 }

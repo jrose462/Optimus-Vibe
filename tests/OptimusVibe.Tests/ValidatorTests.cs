@@ -81,6 +81,15 @@ public sealed class ValidatorTests : IDisposable
     }
 
     [Fact]
+    public void AmdKeysAreValidated()
+    {
+        var r = Run(ValidGame.Replace("amd: { AFMF: false }", "amd: { AfmfEnabled: maybe, Turbo: 1, ChillMaxFps: 45 }"));
+        Assert.Contains(r.Errors, e => e.Contains("amd.AfmfEnabled"));
+        Assert.Contains(r.Errors, e => e.Contains("amd.Turbo") && e.Contains("unknown amd setting"));
+        Assert.DoesNotContain(r.Errors, e => e.Contains("amd.ChillMaxFps"));
+    }
+
+    [Fact]
     public void ValidSample_WithValidSave_NoErrors()
     {
         _store.WriteSave("sample", "desktop", new ManualSave
