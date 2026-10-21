@@ -261,7 +261,7 @@
             "keyvalue",
             "file"
           ],
-          "description": "ini: nested by [section]. json: dotted paths with [n] and [field=value] filters. xml: XPath. registry: value names under a key. keyvalue: one setting per line (format/template). gvas: Unreal GVAS SaveGame (.sav), keys are property paths (Name, Struct.Member, Array[i]) with an optional ":type" hint to add a property the save omits. file: whole-file snapshot only, no keys."
+          "description": "ini: nested by [section]. json: dotted paths with [n] and [field=value] filters. xml: XPath. registry: value names under a key. keyvalue: one setting per line (format/template). gvas: Unreal GVAS SaveGame (.sav), keys are property paths (Name, Struct.Member, Array[i]) with an optional \":type\" hint to add a property the save omits (enums: \":enum(EnumType)\" or \":byte(EnumType)\", e.g. Mode:enum(EWindowMode::Type)). A key the save cannot take is skipped and reported; the rest are applied. file: whole-file snapshot only, no keys."
         },
         "path": {
           "type": "string",
@@ -341,7 +341,7 @@
     },
     "settingsBlock": {
       "type": "object",
-      "description": "Settings for one file id. ini: { \"Section\": { Key: value } } (top-level scalars are keys before the first section). json: nested maps are joined with '.', or use full paths as keys. xml: XPath keys. registry: value names. keyvalue: keys. gvas: property paths such as ResolutionSizeX, ShadowQuality:int (add if absent), ResolutionSize.X.",
+      "description": "Settings for one file id. ini: { \"Section\": { Key: value } } (top-level scalars are keys before the first section). json: nested maps are joined with '.', or use full paths as keys. xml: XPath keys. registry: value names. keyvalue: keys. gvas: property paths such as ResolutionSizeX, ShadowQuality:int (add if absent), ResolutionSize.X, Mode:enum(EWindowMode::Type) (enum with its type), Name#1 (array-dim tag).",
       "additionalProperties": {
         "anyOf": [
           {

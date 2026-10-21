@@ -118,7 +118,9 @@ files:
 
   # Unreal GVAS SaveGame (a binary .sav, e.g. Jedi Survivor GameUserSettings.sav). Keys are property paths: Name, Struct.Member,
   # Array[i]. Unreal omits properties that equal their default; to add one, give its type after a colon (ShadowQuality:int; int uint
-  # int64 float double bool byte str name enum). Only scalars are written; the rest of the file is kept byte for byte. Combine with
+  # int64 float double bool byte str name enum(EnumType)). Enums need their type: Mode:enum(EWindowMode::Type): EWindowMode::Fullscreen;
+  # enum-as-byte: Key:byte(EFoo): EFoo::Bar (a number is refused for an enum byte). One key the save cannot take does not block the
+  # others (it is reported and skipped). Only scalars are written; the rest of the file is kept byte for byte. Combine with
   # autoSnapshot: the device copy is restored first, then the preset keys are written on top (keybinds etc. come from the copy).
   # - id: usersav
   #   handler: gvas

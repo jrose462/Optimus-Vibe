@@ -41,7 +41,10 @@ Classification questions:
   `*Quality` ints are missing on the desktop copy, present on the Ally one). A key that may be absent needs a type hint after a colon so the handler can insert it:
   `ShadowQuality:int: 0` (hints: int uint int64 uint64 int16 uint16 int8 float double bool byte str name enum). Always hint properties you set; the hint is ignored on read
   and an error if it contradicts the type already in the file. The file must exist (the handler never creates a save).
-- Drift caveat: when a preset sets a property to its default value, the game may drop it again on exit, which `run --verify` reports as `(missing)`/overridden. That is the game normalising the file, not a rejected value.
+- **Enums need their type in the hint**: `WindowMode:enum(EWindowMode::Type): EWindowMode::Fullscreen` (a namespaced enum is typed `EWindowMode::Type` but its values read `EWindowMode::Fullscreen`; an enum class `EFoo` has values `EFoo::Bar`), and enum-as-byte `Quality:byte(EFoo): EFoo::Bar`. A bare `:enum` insert is refused because the type cannot be told from the value. Copy the type from `inspect` (the bracketed type is only the property kind; the enum type is the one shown next to an existing value, or read the property's tag). An existing enum byte takes only a value name (`EFoo::Bar`), never a number.
+- A fixed-size C array member shows in `inspect` as `Name`, `Name#1`, `Name#2`: address them with that key.
+- One key the save cannot take (wrong type, container, unknown path without a hint) does not block the rest: the other keys are written and the plan/apply output names each refused key. Keys without a hint on a gvas entry draw a validator warning because the property may be absent from a save.
+- Drift caveat: when a preset sets a property to its default value, the game may drop it again on exit. For gvas files that is logged as a note ("no longer in the save") and is not counted as an override, because the defaults are unknown; it is the game normalising the file, not a rejected value.
 - Values the .sav does not hold (frame limit, window mode, HDR on Jedi Survivor) stay in their other file or in-game; do not invent properties.
 
 Not an archetype: **a game that is not installed** (no AppData folder, no map run; keys are recollection or exe strings).
