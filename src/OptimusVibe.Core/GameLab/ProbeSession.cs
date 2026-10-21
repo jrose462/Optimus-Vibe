@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using OptimusVibe.Handlers;
 using OptimusVibe.Logging;
@@ -42,7 +43,7 @@ public sealed class ProbeLimits
 /// <param name="Text">The decoded text of a small text file; null for binary or big files.</param>
 public sealed record ProbeFile(string Token, long Size, DateTime ModifiedUtc, string? Sha256, string? Text)
 {
-    public bool IsText => Text is not null;
+    [JsonIgnore] public bool IsText => Text is not null;
 }
 
 /// <summary>Everything a mapping run saw before or after a launch.</summary>
@@ -55,6 +56,9 @@ public sealed class ProbeSnapshot
     public Dictionary<string, IReadOnlyList<(string Name, string Value)>> Registry { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public List<string> Notes { get; } = [];
+
+    /// <summary>A bound was hit (files or registry keys left out), so the snapshot is not the whole picture.</summary>
+    public bool Truncated { get; set; }
 
     /// <summary>The folders (tokenized) that were walked, for the evidence header.</summary>
     public List<string> WatchedDirs { get; } = [];
@@ -70,7 +74,7 @@ public sealed record KeyChange(string Key, string? Before, string? After);
 public sealed record FileChange(string Path, ProbeChangeKind Kind, long? SizeBefore, long? SizeAfter, bool IsText, string? HashBefore, string? HashAfter,
     string Format, IReadOnlyList<KeyChange> Keys, int KeysOmitted)
 {
-    public bool IsBinary => !IsText;
+    [JsonIgnore] public bool IsBinary => !IsText;
 }
 
 public sealed record RegistryChange(string Key, string Name, string? Before, string? After);
@@ -78,7 +82,7 @@ public sealed record RegistryChange(string Key, string Name, string? Before, str
 /// <summary>What one launch changed.</summary>
 public sealed record ProbeDiff(IReadOnlyList<FileChange> Files, IReadOnlyList<RegistryChange> Registry, IReadOnlyList<string> Notes, IReadOnlyList<string>? Watched = null)
 {
-    public bool IsEmpty => Files.Count == 0 && Registry.Count == 0;
+    [JsonIgnore] public bool IsEmpty => Files.Count == 0 && Registry.Count == 0;
 }
 
 /// <summary>
@@ -174,6 +178,7 @@ public sealed class ProbeSession
         {
             snap.Notes.Add($"Reading the folders stopped early: {Clean(ex.Message, folders)}");
         }
+        if (budget.FilesCut > 0) snap.Truncated = true;
         if (budget.FilesCut > 0) snap.Notes.Add($"{budget.FilesCut} more file(s) were not fingerprinted (limit {_limits.MaxFiles} files).");
         if (budget.Unhashed > 0) snap.Notes.Add($"{budget.Unhashed} file(s) were compared by size and time only (limit {_limits.MaxHashBytes / (1024 * 1024)} MB hashed).");
 
@@ -181,6 +186,7 @@ public sealed class ProbeSession
         {
             var regBudget = _limits.MaxRegistryKeys;
             foreach (var key in scope.RegistryKeys) DumpRegistry(key, 2, snap, ref regBudget);
+            if (regBudget <= 0) snap.Truncated = true;
             if (regBudget <= 0) snap.Notes.Add($"Registry dump stopped at {_limits.MaxRegistryKeys} keys.");
         }
         catch (Exception ex)
@@ -431,8 +437,10 @@ public sealed class ProbeSession
     /// Pass A (launch, change nothing, quit) is what the game rewrites by itself: progress and state, never to be restored. Pass B (launch,
     /// change many graphics options, quit) shows where settings live: only the changes beyond pass A are listed as settings. The text is
     /// tokenized, sanitized and policy-checked like all lab evidence. <paramref name="passB"/> null = only pass A has run.
+    /// <paramref name="passiveLaunches"/> above 0: pass A is not a mapping launch but what the game rewrote in at least
+    /// <see cref="PassiveWatch.MinSessions"/> of that many normal launches (<see cref="PassiveWatch"/>), and the text says so.
     /// </summary>
-    public ProbeEvidence ToEvidence(ProbeDiff passA, ProbeDiff? passB)
+    public ProbeEvidence ToEvidence(ProbeDiff passA, ProbeDiff? passB, int passiveLaunches = 0)
     {
         var folders = new EvidenceCollector(_options).DiscoverProbeScope(_target).Folders;
         var notes = new List<string>();
@@ -454,7 +462,9 @@ public sealed class ProbeSession
         // ---- pass A
         var sbA = new StringBuilder();
         sbA.AppendLine("## Pass A: rewritten every session (progress/state, never restore)");
-        sbA.AppendLine("The game was launched, nothing was changed, and it was quit. Everything below changed anyway.");
+        sbA.AppendLine(passiveLaunches > 0
+            ? $"Watched over {passiveLaunches} normal launches: only what changed in at least {PassiveWatch.MinSessions} of them is listed, so one-off changes the player made are left out."
+            : "The game was launched, nothing was changed, and it was quit. Everything below changed anyway.");
         if (a.Length == 0 && passA.Registry.Count == 0) sbA.AppendLine("(no files or registry values changed)");
         foreach (var f in a)
         {
@@ -519,7 +529,9 @@ public sealed class ProbeSession
 
         var header = new StringBuilder();
         header.AppendLine($"mapping run for {_target.Name} ({_target.Key})");
-        header.AppendLine("pass A: launched, changed nothing, quit. pass B: launched, changed many graphics options, quit.");
+        header.AppendLine(passiveLaunches > 0
+            ? $"pass A: from {passiveLaunches} normal launches (what changed in at least {PassiveWatch.MinSessions} of them). pass B: launched, changed many graphics options, quit."
+            : "pass A: launched, changed nothing, quit. pass B: launched, changed many graphics options, quit.");
         header.AppendLine($"limits: {_limits.MaxFiles} files, {_limits.MaxHashBytes / (1024 * 1024)} MB hashed, {_limits.MaxRegistryKeys} registry keys; binary contents are never sent, only size and hash.");
         var watched = (passA.Watched ?? []).Concat(passB?.Watched ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         header.AppendLine(watched.Count == 0 ? "watched folders: none found" : "watched folders: " + string.Join("; ", watched));

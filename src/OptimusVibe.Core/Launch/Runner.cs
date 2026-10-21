@@ -50,6 +50,9 @@ public sealed class RunOptions
 
     /// <summary>Test seam: stands in for the store scan that finds a game's install when the run knows no install folder (<see cref="Runner.RunBuild"/>).</summary>
     internal Func<GameDef, DetectedGame?>? FindInstall { get; init; }
+
+    /// <summary>Test seam: stands in for the <see cref="GameLab.ProbeSession"/> snapshot of the passive pass A watch (<see cref="Runner.BeginPassiveWatch"/>).</summary>
+    internal Func<GameLab.LabTarget, Func<GameLab.ProbeSnapshot>>? PassiveSnapshot { get; init; }
 }
 
 /// <summary>
@@ -140,6 +143,9 @@ public static class Runner
         ApplyDriver(ctx, state);
         if (!state.IsEmpty) state.Save(ctx.Paths.RunStateFile(ctx.Game.Id));
 
+        // Passive pass A: what the game rewrites by itself, watched around this launch after everything above was written. Never throws.
+        var watch = BeginPassiveWatch(ctx, options, options?.PassiveSnapshot);
+
         int exitCode;
         var processSeen = true;
         try
@@ -161,6 +167,8 @@ public static class Runner
             if (state.Undo()) { if (File.Exists(stateFile)) File.Delete(stateFile); }
             else state.Save(stateFile); // a driver restore that failed keeps its token for the next start
         }
+
+        watch?.End(PassiveSkipReason(processSeen, options?.Cancel.IsCancellationRequested == true, details));
 
         // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
         if (inGame is null) AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
@@ -330,6 +338,41 @@ public static class Runner
         GameScanners.Stores.Contains(game.Store, StringComparer.OrdinalIgnoreCase)
             ? LibraryService.FindInstall(game, GameScanners.ScanAll([game.Store]))
             : null;
+
+    /// <summary>
+    /// Starts the passive pass A watch (<see cref="GameLab.PassiveWatch"/>) for a run whose settings Optimus-Vibe manages, when "check presets
+    /// after each session" is on and the game has a store id to key it by (the same key "Map this game" uses). Null otherwise. Never throws.
+    /// </summary>
+    internal static GameLab.PassiveWatch? BeginPassiveWatch(GameContext ctx, RunOptions? options, Func<GameLab.LabTarget, Func<GameLab.ProbeSnapshot>>? snapshotFor = null)
+    {
+        if (ctx.InGame is not null) return null; // set in-game: nothing about the game's settings is watched
+        try
+        {
+            if (!AppPaths.LoadSettings(ctx.Paths.DataDir).GameLabWatchSessions) return null;
+            var target = GameLab.LabTarget.From(null, ctx.Game) with { InstallDir = InstallDir(ctx.Game, options) };
+            if (target.StoreId.Length == 0) return null;
+            Func<GameLab.ProbeSnapshot> snapshot;
+            if (snapshotFor is not null) snapshot = snapshotFor(target);
+            else
+            {
+                var session = new GameLab.ProbeSession(target, new GameLab.EvidenceOptions { CurrentConfig = GameLab.LabCloud.CurrentConfigFrom(ctx.Paths) });
+                snapshot = session.Snapshot;
+            }
+            return GameLab.PassiveWatch.Begin(ctx.Paths.DataDir, target.Key, snapshot);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"session watch: could not start for {ctx.Game.Id}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Why a session can't show what the game rewrites by itself; null when it can.</summary>
+    internal static string? PassiveSkipReason(bool processSeen, bool cancelled, RunDetails details) =>
+        !processSeen ? "the game process was never seen"
+        : cancelled ? "the run was cancelled"
+        : details.Reapplied.Count > 0 ? "settings were written while the game ran"
+        : null;
 
     /// <summary>The first build seen after the lab's presets arrived without one counts as theirs (<see cref="GameLab.LabStateStore.ObservePresetsBuild"/>). Never throws.</summary>
     private static void ObservePresetsBuild(GameContext ctx, string? build)

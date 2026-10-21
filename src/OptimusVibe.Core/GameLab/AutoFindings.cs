@@ -88,9 +88,9 @@ public static class AutoFindings
 
     public const string WatchSessionsTitle = "Let Optimus-Vibe check presets after each session";
     public const string WatchSessionsText =
-        "After you play, show a card when the game changed the preset, and let what your sessions show go to the game lab when " +
-        "\"Send findings to the game lab automatically\" is on. Off: no card and nothing is sent from your sessions (the game's page still " +
-        "shows how its settings held). Nothing is launched.";
+        "After you play, show a card when the game changed the preset, note which of its files change by themselves (so \"Map this game\" " +
+        "needs only one launch), and let what your sessions show go to the game lab when \"Send findings to the game lab automatically\" is on. " +
+        "Off: no card and nothing is sent from your sessions (the game's page still shows how its settings held). Nothing is launched.";
 
     public const string SettingTitle = "Send findings to the game lab automatically";
 

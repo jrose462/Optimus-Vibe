@@ -276,8 +276,9 @@ public sealed class AppSettings
     public bool GameLabAutoRequest { get; set; } = true;
 
     /// <summary>
-    /// Game lab (this machine): after each session, read the game's settings and show what it kept or changed (post-session card). Local only:
-    /// nothing leaves the PC and nothing is launched.
+    /// Game lab (this machine): after each session, read the game's settings and show what it kept or changed (post-session card), and watch which of
+    /// its files it rewrites by itself (passive pass A of "Map this game", <see cref="GameLab.PassiveWatch"/>). Nothing is launched, and nothing
+    /// leaves the PC except with a lab request (one the player files, or an automatic one with GameLabAutoFindings on).
     /// </summary>
     public bool GameLabWatchSessions { get; set; } = true;
 
