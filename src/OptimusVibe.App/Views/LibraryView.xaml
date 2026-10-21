@@ -185,6 +185,21 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <!-- where the filter strip sits: under the header on the desktop; compact, to the right of the title and device chip -->
+        <Style x:Key="FilterPlacement" TargetType="ScrollViewer" BasedOn="{StaticResource FilterScroller}">
+            <Setter Property="Grid.Row" Value="2" />
+            <Setter Property="Grid.ColumnSpan" Value="2" />
+            <Setter Property="Margin" Value="{DynamicResource FilterMargin}" />
+            <Style.Triggers>
+                <Trigger Property="svc:Density.IsCompact" Value="True">
+                    <Setter Property="Grid.Row" Value="0" />
+                    <Setter Property="Grid.Column" Value="1" />
+                    <Setter Property="Grid.ColumnSpan" Value="1" />
+                    <Setter Property="Margin" Value="18,0,0,0" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="SyncRow" TargetType="StackPanel">
             <Setter Property="Orientation" Value="Horizontal" />
             <Setter Property="Margin" Value="0,4,0,6" />
@@ -205,9 +220,13 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
             <!-- ============================================================ comfortable: title + one friendly sentence -->
-            <StackPanel Style="{StaticResource Only.Comfortable}">
+            <StackPanel Grid.ColumnSpan="2" Style="{StaticResource Only.Comfortable}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" VerticalAlignment="Center" />
                     <Border Style="{StaticResource SegmentStrip}" VerticalAlignment="Center" Focusable="False" Margin="16,0,0,0"
@@ -222,7 +241,7 @@
             </StackPanel>
 
             <!-- comfortable: the one feature card (collapses with its margin when there is nothing queued) -->
-            <Grid Grid.Row="1" Style="{StaticResource Only.Comfortable}">
+            <Grid Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource Only.Comfortable}">
                 <Border Style="{StaticResource Card.Feature}" Margin="0,22,0,0" Width="340" HorizontalAlignment="Left"
                         Visibility="{Binding HasQueuedNote, Converter={StaticResource VisibleWhen}}">
                     <DockPanel>
@@ -237,11 +256,11 @@
                 </Border>
             </Grid>
 
-            <!-- ============================================================ compact: title + one slim summary strip -->
+            <!-- ============================================================ compact: title + device chip (the filters sit to the right) -->
             <Grid x:Name="CompactTop" Style="{StaticResource Only.Compact}" Margin="0,0,0,2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="Library" Style="{StaticResource Text.PageTitle}" VerticalAlignment="Center" Margin="4,0,18,0" />
                 <ScrollViewer Grid.Column="1" Style="{StaticResource FilterScroller}" Focusable="False" VerticalAlignment="Center">
@@ -267,8 +286,8 @@
                     </ScrollViewer>
             </Grid>
 
-            <!-- ============================================================ filters: status pills + settings sync (stacked; one scrolling row when compact) -->
-            <ScrollViewer x:Name="FilterScroller" Grid.Row="2" Style="{StaticResource FilterScroller}" Margin="{DynamicResource FilterMargin}" Focusable="False">
+            <!-- ============================================================ filters: status pills + settings sync (stacked; one scrolling row beside the chip when compact) -->
+            <ScrollViewer x:Name="FilterScroller" Style="{StaticResource FilterPlacement}" Focusable="False">
                 <StackPanel Style="{StaticResource FilterRows}">
                     <!-- status pills (outlined pill strip) + scan status -->
                     <StackPanel Orientation="Horizontal">
@@ -331,7 +350,7 @@
             </ScrollViewer>
 
             <!-- the grid -->
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="3" Grid.ColumnSpan="2">
                 <ListBox x:Name="TileList" Margin="{DynamicResource TileListMargin}" Padding="{DynamicResource TileListPadding}"
                          Style="{StaticResource TileGrid}" ItemContainerStyle="{StaticResource LibraryTile}"
                          ItemsSource="{Binding Tiles}" SelectedItem="{Binding SelectedTile}" ItemTemplate="{StaticResource Tile}"
