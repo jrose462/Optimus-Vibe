@@ -188,9 +188,9 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
 4. If you are on the desktop, the Ally X file is not visible; same game version = same keys, but values like
    resolution may differ — note that in comments.
 5. Binary/opaque stores (e.g. a UE `GameUserSettings.sav`): `inspect` dumps them as garbled text — expected.
-   Map them as `handler: file` (manual saves snapshot them whole) and handle their options with in-game steps.
-   If the user has a manual save for that device, a preset can restore its whole-file snapshots with
-   `snapshotsFrom: <save slug>` (folder under `config/saves/<game>/<device>/`); keyed values still apply. Only ask for it
+   Map them as `handler: file` with `autoSnapshot: perPreset` (Optimus-Vibe keeps a per-device copy per preset and restores it before launch; no manual saves needed) and handle their options with in-game steps (first launch per preset on each device: set it up in-game once).
+   To restore a specific named manual save instead, a preset can use its whole-file snapshots with
+   `snapshotsFrom: <save slug>` (wins over autoSnapshot; folder under `config/saves/<game>/<device>/`); keyed values still apply. Only ask for it
    when the game really ignores the keyed file; never invent a slug.
    Composite values (one key holding a struct/list, e.g. `GraphicsSettings=(("Name", "Value"),...)`): write the
    whole value exactly as on disk. Both are detailed in `references/awkward-stores.md`.

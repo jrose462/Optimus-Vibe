@@ -58,7 +58,7 @@ public static class Program
             AppCommands.VersionCommand(), AppCommands.UpdateAppCommand(), AppCommands.ReportBugCommand(),
             SteamCommands.SteamOptionsCommand(),
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
-            CloudCheckCommands.CloudCheckCommand(), DeviceCommands.DevicesCommand(),
+            CloudCheckCommands.CloudCheckCommand(), AutoSnapshotCommands.AutoSnapshotCommand(), DeviceCommands.DevicesCommand(),
             GameLabCommands.LabCommand(), GameLabCommands.ProbeCommand(), OutboxCommands.OutboxCommand(),
         };
         return root.Parse(args).Invoke();
@@ -178,7 +178,7 @@ public static class Program
             bool dry = pr.GetValue(dryRun);
             PrintHeader(ctx);
             var plans = GameEngine.Plan(ctx);
-            PrintPlan(plans);
+            PrintPlan(plans, ctx);
 
             if (ctx.Profile.Display is not null)
                 Console.WriteLine($"  display: {ctx.Profile.Display} (applied only by `run`, restored on exit)");
@@ -404,6 +404,8 @@ public static class Program
                 bool exists = f.Handler.Exists(f.Path);
                 Console.WriteLine($"   -> {f.Path} {(exists ? "" : "(MISSING)")}");
                 if (f.SnapshotFile is not null) Console.WriteLine($"   snapshot: {f.SnapshotFile}");
+                if (AutoSnapshots.RestoreText(f, ctx.Preset, ctx.Profile) is { } autoText) Console.WriteLine($"   {autoText}");
+                else if (f.AutoKey is not null) Console.WriteLine("   auto-snapshot: no copy kept yet for this preset");
                 if (!exists) continue;
 
                 if (f.Targets.Count > 0)
@@ -774,7 +776,7 @@ public static class Program
         else if (ctx.BigPictureNote is { } note) Console.WriteLine($"  {note}");
     }
 
-    private static void PrintPlan(List<FilePlan> plans)
+    private static void PrintPlan(List<FilePlan> plans, GameContext? ctx = null)
     {
         foreach (var p in plans)
         {
@@ -785,7 +787,7 @@ public static class Program
                 continue;
             }
             Console.WriteLine($"  {f.Id}: {f.Path}");
-            if (p.RestoreSnapshot) Console.WriteLine("    restore captured snapshot");
+            if (p.RestoreSnapshot) Console.WriteLine("    " + (AutoSnapshots.RestoreText(f, ctx?.Preset, ctx?.Profile) ?? "restore captured snapshot"));
             if (p.Changes.Count == 0 && !p.RestoreSnapshot) Console.WriteLine("    up to date");
             foreach (var c in p.Changes)
                 Console.WriteLine($"    {c.Key}: {c.Current ?? "(missing)"} -> {c.Target}");

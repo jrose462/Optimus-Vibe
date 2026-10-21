@@ -89,11 +89,11 @@ Rules:
 - Never map a file from pass A as a whole-file snapshot (`handler: file`) without saying in `notes:` that it may hold
   progress, and never as a preset's `snapshotsFrom` source on its own.
 - If pass B lists no text file and only an opaque (binary) file, the settings live in that file and cannot be written
-  key by key. Write the preset's keys you can (display, driver, other files) and set `snapshotsFrom: <slug>` to the
-  owner's manual save when the evidence names one (a manual save folder name under `config/saves/<game>/<device>/`).
-  If no manual save is named, say in `notes:` that the owner should make one in the app ("Keep my changes as a manual
-  save" after Map this game, or Saves -> Save current) and keep the file listed under `files:` with `handler: file` so
-  the save captures it. Binary contents are never in the evidence: do not guess what is inside.
+  key by key. Write the preset's keys you can (display, driver, other files), add `autoSnapshot: perPreset` to that file entry (`handler: file`; no manual saves needed, Optimus-Vibe keeps a per-device copy per preset), and use `snapshotsFrom: <slug>` only to pin the
+  owner's specific manual save when the evidence names one (a manual save folder name under `config/saves/<game>/<device>/`).
+  If none is named, say in `notes:` that the first launch per preset on each device needs the in-game setup done once (the app keeps it for next time); a manual
+  save (Saves -> Save current) remains optional. Keep the file listed under `files:` with `handler: file` so
+  it is captured. Binary contents are never in the evidence: do not guess what is inside.
 - A game that writes an option only after it was changed in game (DOOM-style) shows those keys only in pass B: map them
   all, they are what the preset can now set.
 - A mapping run with nothing in pass B means the settings are outside the watched folders and registry keys: ask for

@@ -94,6 +94,21 @@ First match wins, so keep the more specific device first. Never assume hardware:
 **Never edit, regenerate, or delete anything under `config/saves/`.** It holds the user's tuning. If a change to
 a game file would break a save (renamed file id, removed key), tell the user and let them decide.
 
+## Auto snapshots (`autoSnapshot`)
+
+For a binary settings file a launcher cloud-syncs between devices (Jedi: Survivor's `GameUserSettings.sav` via the EA app, Forspoken's
+`system.save` via Steam Cloud) that presets cannot edit: add `autoSnapshot: perPreset | perDevice` to its `files:` entry (normally `handler: file`).
+
+- **Store**: `%LOCALAPPDATA%\OptimusVibe\auto-snapshots\<game>\<device>\<presetKey>\<fileId>.snap` + `.json` (sha256, utc, preset, sessionNote). `presetKey` is the active
+  preset (`performance`, `manual-<slug>`) for `perPreset`, `_device` for `perDevice`. Local only (never in the config repo), written atomically, outside the backups rotation.
+- **Before launch**: restored like any snapshot, and re-restored after the game starts if a cloud sync replaced it (`applyTiming`). Only when no manual save is
+  active and the preset has no `snapshotsFrom` (precedence: manual save > `snapshotsFrom` > `autoSnapshot`) and a stored copy exists.
+- **After the session** (`run`, normal and verify; not probe runs; only if the game process was seen and the run was not cancelled): the file's contents are kept
+  for the active key (skipped when unchanged); the first capture is noted "first session". Whole-file drift on such a file never triggers the "keep as a manual save?"
+  prompt and does not count against a normal run's result; verify runs report it as before.
+- **UI/CLI**: the game page shows a quiet status line with "Forget this device's copy"; `optimus-vibe auto-snapshot <game> [--forget [--preset x]]` lists or forgets copies;
+  `inspect` and `apply --dry-run` show "restore auto copy (<preset>, <date>)". The validator warns when it is used on a keyed handler.
+
 ## Config layout (`config/` in the config repo; the starter copy is `seed/config/` here)
 
 | Path | Owner | What |

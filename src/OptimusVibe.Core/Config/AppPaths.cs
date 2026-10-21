@@ -12,6 +12,8 @@ public sealed class AppPaths
     public string GamesDir => Path.Combine(ConfigRoot, "games");
     public string SavesDir => Path.Combine(ConfigRoot, "saves");
     public string BackupsDir => Path.Combine(DataDir, "backups");
+    /// <summary>This device's own copies of cloud-synced whole files (autoSnapshot). Local only, never in the config repo, outside the backups rotation.</summary>
+    public string AutoSnapshotsDir => Path.Combine(DataDir, "auto-snapshots");
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string StateFile => Path.Combine(DataDir, "state.json");
     public string SelectionsFile => Path.Combine(DataDir, "selections.json");

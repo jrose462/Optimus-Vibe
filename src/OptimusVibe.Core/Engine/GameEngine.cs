@@ -123,7 +123,9 @@ public static class GameEngine
                 if (plan.RestoreSnapshot)
                 {
                     f.Handler.RestoreSnapshot(f.Path!, File.ReadAllBytes(f.SnapshotFile!));
-                    Log.Info(ctx.SnapshotsSave is { } from && ctx.Save is null
+                    Log.Info(f.AutoCopy is not null
+                        ? $"  {f.Id}: restored this device's copy for {AutoSnapshots.Describe(f.Def, ctx.Preset, ctx.Profile)} (auto)"
+                        : ctx.SnapshotsSave is { } from && ctx.Save is null
                         ? $"  {f.Id}: restored snapshot from manual save '{from.Slug}'"
                         : $"  {f.Id}: restored saved snapshot");
                 }

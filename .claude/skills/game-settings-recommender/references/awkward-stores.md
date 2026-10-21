@@ -12,8 +12,8 @@ frame generation, ray tracing, motion blur, film grain and chromatic aberration 
   UTF-16 strings of 6 or more characters.
   UE `.sav` (GVAS) files show property names followed by type names like `BoolProperty` / `IntProperty` / `EnumProperty`.
 - **Map it as `handler: file`** with its own id (e.g. `sav`). Presets cannot set anything in it (the validator
-  rejects keys), but manual saves snapshot it whole (`<fileId>.snap`), so once the user tunes in-game and saves,
-  the setup is restored on every launch.
+  rejects keys). Add `autoSnapshot: perPreset` to that file entry (`perDevice` for one copy per device regardless of preset): Optimus-Vibe keeps a per-device copy per preset after each session and restores it before the next launch, so no manual saves are needed. First launch per preset on each device: set it up in-game once. Manual saves still snapshot it whole (`<fileId>.snap`), so once the user tunes in-game and saves,
+  the setup is restored on every launch; use `snapshotsFrom` when a specific named save should win (precedence: manual save > `snapshotsFrom` > `autoSnapshot`).
 - **Never hand-edit binary values.** Wrong offsets or lengths corrupt the file.
 - **In-game steps instead of keys**: put the settings the user must change in-game into each preset's
   `description`, e.g. "In-game: Upscaler FSR 3 Performance, Frame Gen off, RT off; then save a manual save." Also

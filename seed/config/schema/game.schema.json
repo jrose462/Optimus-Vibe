@@ -292,6 +292,11 @@
           "type": "boolean",
           "default": false,
           "description": "Create the file if absent (otherwise it is skipped with a warning)."
+        },
+        "autoSnapshot": {
+          "type": "string",
+          "enum": ["perPreset", "perDevice"],
+          "description": "Keep this device's own copy of the whole file between sessions (for files a launcher cloud-syncs that presets cannot edit; normally with handler: file). perPreset: one copy per active preset (recommended name or manual save). perDevice: one copy for the device. Restored before launch when no manual save is active and the preset has no snapshotsFrom (precedence: manual save > snapshotsFrom > autoSnapshot), then re-restored if a cloud sync replaces it. Updated after each session in which the game ran. Stored locally in the data folder, never synced. Omit for off."
         }
       },
       "allOf": [

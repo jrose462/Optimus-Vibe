@@ -139,6 +139,9 @@ public static class Runner
             if (File.Exists(ctx.Paths.StateFile)) File.Delete(ctx.Paths.StateFile);
         }
 
+        // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
+        AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
+
         if (applied is not null)
         {
             var verify = options?.Verify == true;
@@ -192,6 +195,8 @@ public static class Runner
         try
         {
             drift = GameEngine.FindDrift(ctx, applied);
+            // a normal run's whole-file change on an autoSnapshot file is expected (kept automatically); verify reports it as before
+            if (!verify) drift = drift.Where(d => !AutoSnapshots.IsExpectedDrift(ctx, d)).ToList();
         }
         catch (Exception ex)
         {
@@ -567,6 +572,8 @@ public static class Runner
                 return null;
             }
             drift ??= GameEngine.FindDrift(ctx, applied);
+            // whole-file drift on an autoSnapshot file is kept automatically, so it never asks; keyed drift still does
+            drift = drift.Where(d => !AutoSnapshots.IsExpectedDrift(ctx, d)).ToList();
             if (drift.Count == 0) return null;
 
             foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");

@@ -126,6 +126,7 @@ public static class Validator
                 continue;
             }
             if (string.IsNullOrWhiteSpace(f.Path)) report.Errors.Add($"{fw}: path is required");
+            CheckAutoSnapshot(f, fw, report);
             foreach (var token in PathResolver.TokensIn(f.Path).Where(t => !PathResolver.KnownTokens.Contains(t, StringComparer.OrdinalIgnoreCase)))
                 report.Errors.Add($"{fw}: unknown path token {{{token}}}");
             if (f.Handler.Equals("registry", StringComparison.OrdinalIgnoreCase))
@@ -192,6 +193,18 @@ public static class Validator
                 catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}/{save.Slug}: {ex.Message}"); }
             }
         }
+    }
+
+    private static void CheckAutoSnapshot(FileDef f, string fw, ValidationReport report)
+    {
+        if (f.AutoSnapshot is null) return;
+        if (AutoSnapshots.ModeOf(f) is null)
+        {
+            report.Errors.Add($"{fw}: autoSnapshot must be one of {string.Join(", ", AutoSnapshots.Modes)} (leave it out for off)");
+            return;
+        }
+        if (!f.Handler.Equals("file", StringComparison.OrdinalIgnoreCase))
+            report.Warnings.Add($"{fw}: autoSnapshot on a '{f.Handler}' file keeps the whole file between sessions; it is meant for 'handler: file' (binary settings the presets can't edit)");
     }
 
     private static void CheckLaunchFields(GameDef game, string where, ValidationReport report)

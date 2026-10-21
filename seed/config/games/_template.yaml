@@ -68,6 +68,10 @@ processes:
 #   {ProgramFiles} {ProgramFilesX86} {SteamRoot} {SteamLibrary:<appid>} {SteamUserData:<appid>}
 #   plus %ENV% variables. A * or ? in a path segment picks the newest match (e.g. per-account folders).
 # Common flags: readOnlyAfterApply (game resets settings on boot), createIfMissing (default: skip with a warning).
+#   autoSnapshot: perPreset | perDevice  (usually on a `handler: file` entry) keeps this device's own copy of a binary file that a
+#     launcher cloud-syncs between devices: restored before launch, re-restored if a sync replaces it, updated after each session.
+#     perPreset = one copy per active preset; perDevice = one for the device. Local only (never in the config repo).
+#     Precedence: manual save > snapshotsFrom > autoSnapshot. Omitted = off.
 files:
   # INI (Unreal GameUserSettings.ini, most .ini/.cfg files). Blocks are nested by [section];
   # top-level scalars are keys before the first section. Section names are used verbatim (case-insensitive).

@@ -116,6 +116,31 @@
             <TextBlock Text="{Binding HintText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
                        Visibility="{Binding HasHint, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Last launch note" />
 
+            <!-- this device's kept copy of a cloud-synced settings file (autoSnapshot) -->
+            <StackPanel Visibility="{Binding HasAutoSnapshot, Converter={StaticResource VisibleWhen}}" KeyboardNavigation.DirectionalNavigation="Contained">
+                <TextBlock Text="{Binding AutoSnapshotLine}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
+                           AutomationProperties.Name="Settings file kept on this device" />
+                <Button Style="{StaticResource Button.Quiet}" Command="{Binding ForgetAutoCommand}" Content="Forget this device's copy" HorizontalAlignment="Left" Margin="0,4,0,0"
+                        Visibility="{Binding ShowForgetAuto, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Forget this device's copy"
+                        ToolTip="Delete the settings file Optimus-Vibe kept for this preset. The next launch starts from whatever the game has." />
+                <Border Style="{StaticResource Card.Inset}" Margin="0,8,0,0" Visibility="{Binding IsForgetConfirming, Converter={StaticResource VisibleWhen}}"
+                        KeyboardNavigation.DirectionalNavigation="Contained">
+                    <StackPanel>
+                        <TextBlock Text="Forget this device's copy?" Style="{StaticResource Text.H3}" TextWrapping="Wrap" />
+                        <TextBlock Text="Optimus-Vibe will stop restoring it. You can set the game up again in-game and it is kept after you play." Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        <WrapPanel Margin="0,14,0,0">
+                            <Button Style="{StaticResource Button.Primary}" Command="{Binding ConfirmForgetCommand}" Margin="0,0,8,0" MinWidth="130"
+                                    input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Forget copy">
+                                <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Forget it" /></StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" AutomationProperties.Name="Cancel">
+                                <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                            </Button>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
             <!-- Test preset: confirm before launching -->
             <Border Style="{StaticResource Card.Inset}" Margin="0,12,0,0" Visibility="{Binding IsTestConfirming, Converter={StaticResource VisibleWhen}}"
                     KeyboardNavigation.DirectionalNavigation="Contained">
