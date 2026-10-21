@@ -234,4 +234,56 @@ public sealed class ValidatorTests : IDisposable
         var r = Run(ValidGame.Replace("- id: prefs", "- id: label").Replace("prefs: {", "label: {"));
         Assert.Contains(r.Errors, e => e.Contains("files.label") && e.Contains("reserved"));
     }
+
+    [Fact]
+    public void LaunchAndTimingFields_ValidAreAccepted()
+    {
+        var r = Run(ValidGame.Replace("processes: [Sample.exe]", """
+            processes: [Sample.exe]
+            applyTiming: both
+            settleSeconds: 8
+            archetype: binary-truth
+            mappable: true
+            launch:
+              uri: steam://rungameid/123
+              args: ["+com_adaptiveTickMaxHz", "120"]
+              waitSeconds: 600
+              launcherProcesses: [EADesktop.exe]
+            """).Replace("targetFps: 165", "targetFps: 165\n      launch: { args: [-skipStartScreen] }").Replace("display: inherit", "display: keep"));
+        Assert.Empty(r.Errors);
+        Assert.Empty(r.Warnings);
+    }
+
+    [Fact]
+    public void LaunchAndTimingFields_BadValuesAreErrors()
+    {
+        var r = Run(ValidGame.Replace("processes: [Sample.exe]", """
+            processes: [Sample.exe]
+            applyTiming: sometimes
+            settleSeconds: 999
+            archetype: mystery
+            launch:
+              uri: steam://rungameid/123
+              waitSeconds: 0
+              launcherProcesses: [Launcher]
+            """));
+        Assert.Contains(r.Errors, e => e.Contains("applyTiming"));
+        Assert.Contains(r.Errors, e => e.Contains("settleSeconds"));
+        Assert.Contains(r.Errors, e => e.Contains("archetype"));
+        Assert.Contains(r.Errors, e => e.Contains("waitSeconds"));
+        Assert.Contains(r.Errors, e => e.Contains("launcherProcesses"));
+    }
+
+    [Fact]
+    public void LaunchArgs_AsOneStringWithValue_WarnsAndBadPresetLaunchIsAnError()
+    {
+        var r = Run(ValidGame.Replace("processes: [Sample.exe]", """
+            processes: [Sample.exe]
+            launch:
+              uri: steam://rungameid/123
+              args: ["+cvar 120"]
+            """).Replace("targetFps: 165", "targetFps: 165\n      launch: { exe: x }"));
+        Assert.Contains(r.Warnings, w => w.Contains("single tokens"));
+        Assert.Contains(r.Errors, e => e.Contains("launch.exe"));
+    }
 }

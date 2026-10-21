@@ -110,6 +110,8 @@ public static class Validator
         if (!game.Store.Equals("steam", StringComparison.OrdinalIgnoreCase) && game.Launch is null)
             report.Warnings.Add($"{where}: non-Steam game without launch.exe/launch.uri — `shortcut` will have nothing to start");
 
+        CheckLaunchFields(game, where, report);
+
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in game.Files)
         {
@@ -189,6 +191,28 @@ public static class Validator
                 try { ProfileResolver.ResolveSave(game, device, deviceDef, save); }
                 catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}/{save.Slug}: {ex.Message}"); }
             }
+        }
+    }
+
+    private static void CheckLaunchFields(GameDef game, string where, ValidationReport report)
+    {
+        if (game.ApplyTiming is { } timing && !OptimusVibe.Launch.LaunchPolicy.ApplyTimings.Contains(timing.Trim(), StringComparer.OrdinalIgnoreCase))
+            report.Errors.Add($"{where}: applyTiming must be one of {string.Join(", ", OptimusVibe.Launch.LaunchPolicy.ApplyTimings)}");
+        if (game.SettleSeconds is < 0 or > 300)
+            report.Errors.Add($"{where}: settleSeconds must be between 0 and 300");
+        if (game.Archetype is { } arch && !OptimusVibe.Launch.LaunchPolicy.Archetypes.Contains(arch.Trim(), StringComparer.OrdinalIgnoreCase))
+            report.Errors.Add($"{where}: archetype must be one of {string.Join(", ", OptimusVibe.Launch.LaunchPolicy.Archetypes)}");
+        if (game.Launch is { } launch)
+        {
+            if (launch.WaitSeconds is <= 0 or > 3600) report.Errors.Add($"{where}: launch.waitSeconds must be between 1 and 3600");
+            foreach (var p in launch.LauncherProcesses.Where(p => !p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+                report.Errors.Add($"{where}: launch.launcherProcesses entry '{p}' must end in .exe");
+            if (launch.Args.Any(a => string.IsNullOrWhiteSpace(a)))
+                report.Errors.Add($"{where}: launch.args has an empty entry");
+            if (launch.Args.Any(a => a.Contains(' ') && (a.StartsWith('-') || a.StartsWith('+')) && !a.Contains('=')))
+                report.Warnings.Add($"{where}: launch.args entries are single tokens: write [\"+cvar\", \"value\"], not [\"+cvar value\"]");
+            if (launch.Args.Count > 0 && launch.Exe is null && launch.Uri is not null && !launch.Uri.StartsWith("steam://", StringComparison.OrdinalIgnoreCase))
+                report.Warnings.Add($"{where}: launch.args are ignored for this launch.uri (only Steam games and exe launches take arguments)");
         }
     }
 

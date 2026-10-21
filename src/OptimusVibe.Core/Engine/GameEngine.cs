@@ -15,6 +15,9 @@ public sealed class FilePlan
     /// <summary>Reason the file is skipped (unresolvable path, not created yet...).</summary>
     public string? Skip { get; init; }
 
+    /// <summary>The skip is only because the settings file does not exist yet (first-run games): worth retrying once the game has run.</summary>
+    public bool Missing { get; init; }
+
     public bool HasWork => Skip is null && (RestoreSnapshot || Changes.Count > 0);
 }
 
@@ -49,7 +52,7 @@ public static class GameEngine
             bool exists = f.Handler.Exists(f.Path);
             if (!exists && !snapshot && !f.Def.CreateIfMissing)
             {
-                plans.Add(new FilePlan { File = f, Skip = "not found — launch the game once so it creates its settings" });
+                plans.Add(new FilePlan { File = f, Skip = "not found — launch the game once so it creates its settings", Missing = true });
                 continue;
             }
 
@@ -61,6 +64,39 @@ public static class GameEngine
             plans.Add(new FilePlan { File = f, Changes = changes, RestoreSnapshot = snapshot });
         }
         return plans;
+    }
+
+    /// <summary>
+    /// The work left after the game started (a launcher's cloud sync may have rewritten the files): plain files only the keys that drifted,
+    /// snapshot files only when the file no longer matches what was restored. Files the first apply had to skip are planned again.
+    /// </summary>
+    public static List<FilePlan> PlanReapply(GameContext ctx, AppliedState applied)
+    {
+        var result = new List<FilePlan>();
+        foreach (var plan in Plan(ctx))
+        {
+            if (plan.Skip is not null) { result.Add(plan); continue; }
+            var f = plan.File;
+            if (!plan.RestoreSnapshot) { result.Add(plan); continue; }
+
+            // snapshot file: restore again only when it differs from what the first restore left
+            bool intact = false;
+            try
+            {
+                intact = applied.SnapshotHashes.TryGetValue(f.Id, out var hash) && f.Path is not null && f.Handler.Exists(f.Path)
+                         && BackupStore.Hash([f.Handler.Snapshot(f.Path)]) == hash;
+            }
+            catch (Exception ex) { Log.Warn($"  {f.Id}: could not compare with the restored snapshot: {ex.Message}"); }
+            var drifted = f.Path is not null && f.Handler.Exists(f.Path) && f.Targets.Count > 0
+                ? f.Handler.Read(f.Def, f.Path, f.Targets.Keys)
+                : new Dictionary<string, string?>();
+            var changes = f.Targets
+                .Where(t => !Values.Equivalent(drifted.GetValueOrDefault(t.Key), t.Value))
+                .Select(t => new KeyChange(t.Key, drifted.GetValueOrDefault(t.Key), t.Value))
+                .ToList();
+            result.Add(new FilePlan { File = f, Changes = intact ? changes : plan.Changes, RestoreSnapshot = !intact });
+        }
+        return result;
     }
 
     public static AppliedState Apply(GameContext ctx, List<FilePlan> plans)
@@ -99,7 +135,7 @@ public static class GameEngine
                 if (f.Def.ReadOnlyAfterApply) f.Handler.SetReadOnly(f.Path!, true);
 
                 state.Targets[f.Id] = new Dictionary<string, string>(f.Targets);
-                if (f.Targets.Count == 0)
+                if (f.Targets.Count == 0 || plan.RestoreSnapshot) // a restored snapshot is remembered even when keys follow it, so re-apply re-restores only a changed one
                     state.SnapshotHashes[f.Id] = BackupStore.Hash([f.Handler.Snapshot(f.Path!)]);
             }
             catch (Exception ex)

@@ -135,7 +135,7 @@ public static class Program
                 p?.WaitForExit();
                 return p?.ExitCode ?? 2;
             }
-            return Runner.Run(ctx, command, prompt: !pr.GetValue(noPrompt), new RunOptions { Verify = pr.GetValue(verify), Probe = pr.GetValue(probe) });
+            return Runner.Run(ctx, command, prompt: !pr.GetValue(noPrompt), new RunOptions { Verify = pr.GetValue(verify), Probe = pr.GetValue(probe), OnStatus = (_, message) => Console.Error.WriteLine(message) });
         }));
         return cmd;
     }
