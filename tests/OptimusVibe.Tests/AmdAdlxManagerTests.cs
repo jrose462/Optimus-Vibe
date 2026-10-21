@@ -397,6 +397,30 @@ public class AmdAdlxManagerTests
     }
 
     [Fact]
+    public void Briefly_switching_a_feature_on_puts_back_a_conflicting_feature_it_turned_off()
+    {
+        // On the Ally, RIS on turns RSR off. The game must still run with RSR on, as before.
+        var api = Ally();
+        api.NeedsSwitchOn = true;
+        api.Values[AmdSettingId.RisEnabled] = 0;
+        api.Values[AmdSettingId.RsrEnabled] = 1;
+        api.Values[AmdSettingId.RisSharpness] = 80;
+        api.Ranges[AmdSettingId.RisSharpness] = (10, 100);
+        api.TurnsOff[AmdSettingId.RisEnabled] = [AmdSettingId.RsrEnabled];
+        var m = new AmdAdlxManager(api);
+
+        var token = m.Apply(Game(), S(("RisSharpness", "90")));
+        Assert.NotNull(token);
+        Assert.Equal(90, api.Values[AmdSettingId.RisSharpness]);
+        Assert.Equal(0, api.Values[AmdSettingId.RisEnabled]);
+        Assert.Equal(1, api.Values[AmdSettingId.RsrEnabled]);
+
+        Assert.True(m.Restore(token!));
+        Assert.Equal(80, api.Values[AmdSettingId.RisSharpness]);
+        Assert.Equal(1, api.Values[AmdSettingId.RsrEnabled]);
+    }
+
+    [Fact]
     public void Status_text_is_pasteable_and_reports_unavailable_driver()
     {
         var lines = DriverDiagnostics.AmdStatus(new AmdAdlxManager(new FakeAdlx { Available = false }));
