@@ -189,6 +189,19 @@ public static class DebugScenes
                 await Task.Delay(800);
                 if (scene == "detail-saves" && vm.SelectedDetail is { } d) d.SelectedTabIndex = GameDetailViewModel.ManualTab;
                 break;
+            case "detail-pad-down":
+                // Issue #50: D-pad Down from the Recommended tab header must reach the first preset card.
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(800);
+                window.LibraryDetail.GameDetail.FocusSelectedTab();
+                OptimusVibe.App.Input.FocusCue.SetShow(window, true);
+                var moved = System.Windows.Input.Keyboard.FocusedElement is UIElement from
+                    && window.TryMove(from, System.Windows.Input.FocusNavigationDirection.Down);
+                OptimusVibe.Logging.Log.Info($"debug scene detail-pad-down: moved={moved}, focus now {System.Windows.Input.Keyboard.FocusedElement?.GetType().Name} " +
+                         $"'{(System.Windows.Input.Keyboard.FocusedElement as FrameworkElement)?.DataContext}'");
+                await Task.Delay(300);
+                break;
             case "manage":
                 if (tuned is null) break;
                 vm.OpenLibraryDetail(tuned);
