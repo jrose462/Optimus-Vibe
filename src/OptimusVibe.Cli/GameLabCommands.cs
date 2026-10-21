@@ -211,6 +211,85 @@ internal static class GameLabCommands
         return "No installed, configured game to test with; skipped.";
     }
 
+    // ------------------------------------------------------------ probe (mapping run)
+
+    /// <summary>
+    /// `probe &lt;game&gt;`: two real launches, fingerprinting the game's settings folders and registry keys around each. Pass A: change
+    /// nothing. Pass B: change many graphics options. Prints the evidence the game lab would get; <c>--send</c> files it as a request.
+    /// </summary>
+    public static Command ProbeCommand()
+    {
+        var game = new Argument<string>("game") { Description = "Game id (config\\games), store key (steam:1234) or name of an installed game." };
+        var send = new Option<bool>("--send") { Description = "Send the mapping run to the game lab (files a request in your config repo)." };
+        var kind = new Option<string?>("--kind") { Description = "With --send: new | refresh (default: new for a game without config, else refresh)." };
+        var passA = new Option<bool>("--pass-a-only") { Description = "Run only the first pass (change nothing) and print what the game rewrites by itself." };
+        var cmd = new Command("probe", "Map a game from two real launches: what it rewrites by itself, and where its settings live. Reads this PC only unless --send.")
+        {
+            game, send, kind, passA,
+        };
+        cmd.SetAction(Guard(pr =>
+        {
+            var r = ResolveGame(pr, pr.GetValue(game)!);
+            var target = r.Target;
+            if (target.InstallDir is null) throw new ConfigException($"{target.Name} isn't installed on this PC, so there is nothing to map.");
+            var dataDir = r.Paths?.DataDir ?? AppPaths.DefaultDataDir;
+            var k = pr.GetValue(send) ? ParseKind(pr.GetValue(kind), target) : DefaultKind(target);
+            var session = new ProbeSession(target, new EvidenceOptions { CurrentConfig = r.Paths is not null ? LabCloud.CurrentConfigFrom(r.Paths) : null });
+
+            void Pause(string text)
+            {
+                Console.WriteLine(text);
+                if (Console.IsInputRedirected) return;
+                Console.Write("Press Enter to launch the game... ");
+                Console.ReadLine();
+            }
+
+            Console.WriteLine($"Mapping {target.Name} ({target.Key}).");
+            var s0 = session.Snapshot();
+            Console.WriteLine($"Watching {s0.WatchedDirs.Count} folder(s), {s0.Files.Count} file(s), {s0.Registry.Count} registry key(s).");
+            Pause("\nPass A: the game starts, you change NOTHING, and quit at the main menu or after loading in.");
+            ProbeLauncher.Launch(target, dataDir);
+            var s1 = session.Snapshot();
+            var a = ProbeSession.Diff(s0, s1);
+            Console.WriteLine($"Pass A done: {a.Files.Count} file(s) and {a.Registry.Count} registry value(s) changed by the game itself.");
+
+            ProbeDiff? b = null;
+            if (!pr.GetValue(passA))
+            {
+                Pause("\nPass B: the game starts, you change as many graphics options as you can (preset High -> Low, resolution, upscaler...), apply, and quit.");
+                ProbeLauncher.Launch(target, dataDir);
+                var s2 = session.Snapshot();
+                b = ProbeSession.Diff(s1, s2);
+                Console.WriteLine($"Pass B done: {b.Files.Count} file(s) and {b.Registry.Count} registry value(s) changed.");
+            }
+
+            var evidence = session.ToEvidence(a, b);
+            Console.WriteLine();
+            Console.WriteLine(evidence.Render());
+            ProbeStore.Record(dataDir, target.Key, ProbeStore.FromEvidence(evidence));
+            Console.WriteLine($"\nSaved on this PC; the next lab request for this game includes it ({ProbeStore.FileFor(dataDir)}).");
+            if (b is null || !pr.GetValue(send)) return 0;
+
+            var c = Connect(pr);
+            var collector = new EvidenceCollector(new EvidenceOptions
+            {
+                CloudCheck = r.Store is not null && r.Device is not null ? LabCloud.ForChecker(r.Store, r.Device) : null,
+                CurrentConfig = r.Paths is not null ? LabCloud.CurrentConfigFrom(r.Paths) : null,
+                Probe = _ => evidence.Render(),
+            });
+            var outcome = Wait(OutboxFlow.FileLabRequestAsync(new OutboxStore(), new GameLabClient(c.Api, c.Repo, c.Branch), k, target, r.Device?.Name ?? "unknown", collector));
+            if (outcome.Filed is not { } filed)
+            {
+                Console.WriteLine(OutboxCommands.OfflineQueued);
+                return 0;
+            }
+            Console.WriteLine(filed.Message);
+            Console.WriteLine(filed.Url);
+            return 0;
+        }));
+        return cmd;
+    }
+
     // ------------------------------------------------------------ status
 
     private static Command StatusCommand()

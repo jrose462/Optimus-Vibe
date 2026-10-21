@@ -107,8 +107,57 @@ public static class DebugScenes
         window.Top = 20;
     }
 
+    private sealed class DemoMapActions : OptimusVibe.App.ViewModels.IMapGameActions
+    {
+        public bool CanSend => true;
+        public bool CanKeep => true;
+        public Task<OptimusVibe.GameLab.ProbeDiff?> RunPassAsync(int pass) => Task.FromResult<OptimusVibe.GameLab.ProbeDiff?>(null);
+        public OptimusVibe.GameLab.ProbeEvidence BuildEvidence() => SampleMapEvidence(true);
+        public Task<string?> SendAsync() => Task.FromResult<string?>("Sent");
+        public Task<string?> KeepAsync() => Task.FromResult<string?>("Kept");
+        public void GameStarting() { }
+        public void GameExited() { }
+    }
+
+    private static OptimusVibe.GameLab.ProbeEvidence SampleMapEvidence(bool settings) => new("", "", "",
+        ["GameUserSettings.ini: 2 settings changed", "Saved\\profile.sav: changed (binary)", "3 registry value(s) rewritten"],
+        settings
+            ? ["GameUserSettings.ini: 9 settings changed", "graphics.sav: changed (binary)", "2 registry value(s) changed"]
+            : [],
+        settings ? ["{LocalAppData}\\Demo\\Saved\\graphics.sav"] : [], []);
+
+    /// <summary>The "Map this game" window with sample data: intro | launch2 | summary | summary-kept | summary-none | sent | failed.</summary>
+    private static async Task ShowMapSceneAsync(string phase, string shot)
+    {
+        var model = new OptimusVibe.App.ViewModels.MapGameModel("Hades II", new DemoMapActions());
+        var passA = new OptimusVibe.GameLab.ProbeDiff(
+            [new OptimusVibe.GameLab.FileChange("{LocalAppData}\\Demo\\Saved\\profile.sav", OptimusVibe.GameLab.ProbeChangeKind.Changed, 100, 120, false, "aa", "bb", "", [], 0)],
+            [], []);
+        switch (phase)
+        {
+            case "launch2": model.ShowDemo("intro2", passA); break;
+            case "summary": model.ShowDemo("summary", passA, SampleMapEvidence(true)); break;
+            case "summary-kept": model.ShowDemo("summary", passA, SampleMapEvidence(true), kept: true); break;
+            case "summary-none": model.ShowDemo("summary", passA, SampleMapEvidence(false)); break;
+            case "sent": model.ShowDemo("sent", passA, SampleMapEvidence(true)); break;
+            case "failed": model.ShowDemo("failed"); break;
+            default: model.ShowDemo("intro1"); break;
+        }
+        var w = new MapGameWindow(model);
+        ApplyWindowOverride(w);
+        w.Show();
+        if (Environment.GetEnvironmentVariable("OPTIMUSVIBE_PAD") == "1")
+            OptimusVibe.App.Input.PadState.SetIsConnected(w, true);
+        await Task.Delay(1500);
+        Save((FrameworkElement)w.Content, shot);
+        w.Close();
+        Application.Current.Shutdown();
+    }
+
     /// <summary>
     /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, game-request,
+    /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
+    /// map-sent | map-failed (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
     /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
     /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint (the Test preset cards, with sample data).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
@@ -188,6 +237,28 @@ public static class DebugScenes
                     await Task.Delay(300);
                 }
                 break;
+            case "map-first":
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(800);
+                tuned.Lab.ShowDemo("map-first");
+                vm.SelectedDetail?.Lab.ShowDemo("map-first");
+                await Task.Delay(500);
+                if (Descendants<LabGamePanel>(window).FirstOrDefault(p => p.IsVisible) is { } mapPanel)
+                {
+                    mapPanel.BringIntoView(new Rect(0, 0, mapPanel.ActualWidth, mapPanel.ActualHeight));
+                    await Task.Delay(300);
+                }
+                break;
+            case "map-intro":
+            case "map-launch2":
+            case "map-summary":
+            case "map-summary-kept":
+            case "map-summary-none":
+            case "map-sent":
+            case "map-failed":
+                await ShowMapSceneAsync(scene["map-".Length..], shot);
+                return;
             case "game-request":
                 var tile = vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.NeedsPresets) ?? vm.Library.Tiles.FirstOrDefault();
                 if (tile is null) break;

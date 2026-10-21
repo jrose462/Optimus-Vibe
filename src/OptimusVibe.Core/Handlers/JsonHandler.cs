@@ -65,6 +65,40 @@ public sealed class JsonHandler : SettingsHandler
         TextFile.SaveText(path, text, encoding);
     }
 
+    /// <summary>Every leaf as a path (<c>graphics.dlss</c>, <c>items[2].value</c>) with its value; null when the text is not JSON. At most 5000 leaves.</summary>
+    public override IReadOnlyList<(string Key, string Value)>? ReadAll(string text)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(text, documentOptions: DocOptions); }
+        catch (JsonException) { return null; }
+        var result = new List<(string, string)>();
+        void Walk(string path, JsonNode? node)
+        {
+            if (result.Count >= 5000) return;
+            switch (node)
+            {
+                case JsonObject o:
+                    foreach (var (k, v) in o)
+                    {
+                        var seg = k.IndexOfAny(['.', '[', ']']) >= 0 ? $"['{k}']" : k;
+                        Walk(path.Length == 0 ? seg : seg.StartsWith('[') ? path + seg : path + "." + seg, v);
+                    }
+                    break;
+                case JsonArray a:
+                    for (var i = 0; i < a.Count; i++) Walk($"{path}[{i}]", a[i]);
+                    break;
+                case null:
+                    if (path.Length > 0) result.Add((path, "null"));
+                    break;
+                default:
+                    if (path.Length > 0) result.Add((path, NodeToString(node)));
+                    break;
+            }
+        }
+        Walk("", root);
+        return result;
+    }
+
     private static JsonNode? Load(string path)
     {
         if (!File.Exists(path)) return null;

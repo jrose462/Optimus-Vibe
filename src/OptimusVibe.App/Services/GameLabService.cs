@@ -8,7 +8,7 @@ using OptimusVibe.Sync;
 namespace OptimusVibe.App.Services;
 
 /// <summary>What the "Request presets" confirmation shows: counts and tokenized paths, never file contents.</summary>
-public sealed record EvidencePreview(int Files, int Directories, int RegistryKeys, IReadOnlyList<string> Items, IReadOnlyList<string> Notes)
+public sealed record EvidencePreview(int Files, int Directories, int RegistryKeys, IReadOnlyList<string> Items, IReadOnlyList<string> Notes, bool HasMapping = false)
 {
     public string Summary
     {
@@ -18,6 +18,7 @@ public sealed record EvidencePreview(int Files, int Directories, int RegistryKey
             if (Files > 0) parts.Add(Files == 1 ? "1 settings file" : $"{Files} settings files");
             if (Directories > 0) parts.Add(Directories == 1 ? "1 folder listing" : $"{Directories} folder listings");
             if (RegistryKeys > 0) parts.Add(RegistryKeys == 1 ? "1 registry key" : $"{RegistryKeys} registry keys");
+            if (HasMapping) parts.Add("the mapping run");
             return parts.Count == 0 ? "Only the game's name and install facts" : string.Join(", ", parts);
         }
     }
@@ -27,7 +28,7 @@ public sealed record EvidencePreview(int Files, int Directories, int RegistryKey
     {
         var items = bundle.Sections.Select(s => s.Heading[4..]).ToList(); // "### File: {Documents}\x" -> "File: {Documents}\x"
         return new EvidencePreview(bundle.Count(EvidenceKind.File), bundle.Count(EvidenceKind.Directory), bundle.Count(EvidenceKind.Registry),
-            items, bundle.Notes.ToList());
+            items, bundle.Notes.ToList(), bundle.Count(EvidenceKind.Probe) > 0);
     }
 }
 
@@ -86,7 +87,18 @@ public sealed class GameLabService
         CloudCheck = LabCloud.ForChecker(session.Store, session.Device),
         CurrentConfig = LabCloud.CurrentConfigFrom(session.Paths),
         VerifyRun = verifyRun is null ? null : _ => verifyRun,
+        Probe = t => StoredMapping(session, t)?.Evidence,
     });
+
+    /// <summary>How long a stored mapping run keeps being attached to requests (a patch can move the settings).</summary>
+    public static readonly TimeSpan MappingMaxAge = TimeSpan.FromDays(90);
+
+    /// <summary>The game's last mapping run on this PC, when it is recent enough to attach to a request; null otherwise.</summary>
+    public static ProbeRecord? StoredMapping(AppSession session, LabTarget target)
+    {
+        var record = ProbeStore.Get(session.Paths.DataDir, target.Key);
+        return record is not null && DateTime.UtcNow - record.Utc <= MappingMaxAge && record.Evidence.Length > 0 ? record : null;
+    }
 
     public static EvidencePreview Preview(AppSession session, LabTarget target, string? verifyRun = null) =>
         EvidencePreview.From(CollectorFor(session, verifyRun).Collect(target));

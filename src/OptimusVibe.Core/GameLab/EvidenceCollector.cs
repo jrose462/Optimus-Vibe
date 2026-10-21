@@ -68,6 +68,11 @@ public sealed class EvidenceOptions
     /// </summary>
     public Func<LabTarget, string?>? VerifyRun { get; init; }
 
+    /// <summary>
+    /// Text for the "Mapping run" section (what two real launches changed, see <see cref="ProbeSession"/>); null/empty = no section.
+    /// </summary>
+    public Func<LabTarget, string?>? Probe { get; init; }
+
     /// <summary>Overrides for sanitizing (tests); default: the real user / machine / profile.</summary>
     public string? UserProfile { get; init; }
     public string? UserName { get; init; }
@@ -203,6 +208,12 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
             var text = _o.CloudCheck?.Invoke(t);
             if (!string.IsNullOrWhiteSpace(text))
                 bundle.Sections.Add(new EvidenceSection(EvidenceKind.CloudCheck, "", Clean(text, folders)));
+        });
+        TryAdd(bundle, "mapping run", () =>
+        {
+            var text = _o.Probe?.Invoke(t);
+            if (!string.IsNullOrWhiteSpace(text))
+                bundle.Sections.Add(new EvidenceSection(EvidenceKind.Probe, "", Clean(text, folders)));
         });
         TryAdd(bundle, "verify run", () =>
         {
@@ -740,28 +751,95 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
 
     // ------------------------------------------------------------ registry
 
+    private List<string> DiscoverRegistryKeys(HashSet<string> gameKeys, HashSet<string> pubKeys)
+    {
+        const string software = @"HKCU\Software";
+        var keys = new List<string>();
+        foreach (var name in _o.Registry.SubKeyNames(software))
+        {
+            if (name.Equals("Microsoft", StringComparison.OrdinalIgnoreCase)) continue;
+            var key = software + "\\" + name;
+            if (Matches(name, gameKeys)) keys.Add(key);
+            else if (pubKeys.Count > 0 && Matches(name, pubKeys))
+                foreach (var sub in _o.Registry.SubKeyNames(key))
+                    if (Matches(sub, gameKeys)) keys.Add(key + "\\" + sub);
+        }
+        return keys.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
+    }
+
     private void CollectRegistry(HashSet<string> gameKeys, HashSet<string> pubKeys, EvidenceBundle bundle, LabFolders folders)
     {
         try
         {
-            const string software = @"HKCU\Software";
-            var keys = new List<string>();
-            foreach (var name in _o.Registry.SubKeyNames(software))
-            {
-                if (name.Equals("Microsoft", StringComparison.OrdinalIgnoreCase)) continue;
-                var key = software + "\\" + name;
-                if (Matches(name, gameKeys)) keys.Add(key);
-                else if (pubKeys.Count > 0 && Matches(name, pubKeys))
-                    foreach (var sub in _o.Registry.SubKeyNames(key))
-                        if (Matches(sub, gameKeys)) keys.Add(key + "\\" + sub);
-            }
-            foreach (var key in keys.Distinct(StringComparer.OrdinalIgnoreCase).Take(8))
+            foreach (var key in DiscoverRegistryKeys(gameKeys, pubKeys))
                 AddRegistryKey(bundle, key, depth: 1, folders);
         }
         catch (Exception ex)
         {
             bundle.Notes.Add($"Registry lookup failed: {Clean(ex.Message, folders)}");
         }
+    }
+
+    // ------------------------------------------------------------ mapping-run scope
+
+    /// <summary>What a mapping run watches for one game; see <see cref="DiscoverProbeScope"/>.</summary>
+    /// <param name="Dirs">Candidate settings/save folders (absolute), walked recursively.</param>
+    /// <param name="Files">Single files to watch outside those folders: the install's config files and the files the config already maps (absolute).</param>
+    /// <param name="RegistryKeys">HKCU\Software\... keys (discovered by name or publisher, plus the mapped ones).</param>
+    public sealed record ProbeScope(IReadOnlyList<string> Dirs, IReadOnlyList<string> Files, IReadOnlyList<string> RegistryKeys,
+        IReadOnlyList<string> Notes, LabFolders Folders);
+
+    /// <summary>
+    /// The folders, files and registry keys a mapping run should fingerprint: the same candidates the evidence collector finds by name
+    /// or publisher, the install's config folders and the files / keys the game's current config already maps. Never throws.
+    /// </summary>
+    public ProbeScope DiscoverProbeScope(LabTarget t)
+    {
+        var bundle = new EvidenceBundle();
+        var dirs = new List<string>();
+        var files = new List<string>();
+        var regKeys = new List<string>();
+        var folders = FoldersFor(t);
+        try
+        {
+            var install = SafeDir(t.InstallDir);
+            var engine = install is null ? new EngineHints() : DetectEngine(install);
+            var publisher = t.Publisher ?? DetectPublisher(install, t.Exes);
+            var keys = NameKeys(t, engine);
+            var pubKeys = PublisherKeys(publisher);
+            dirs.AddRange(FindCandidateFolders(folders, keys, pubKeys, bundle));
+            if (install is not null) files.AddRange(InstallConfigFiles(install).Select(f => f.Path));
+
+            if (MappedStores(t) is { IsEmpty: false } mapped)
+            {
+                foreach (var pattern in mapped.Files.Take(EvidencePolicy.MaxFilePatterns))
+                {
+                    if (EvidencePolicy.CheckPath(pattern, folders, out var abs) is { } why)
+                    {
+                        bundle.Notes.Add($"Mapped file {Clean(pattern, folders)} not watched: {why}.");
+                        continue;
+                    }
+                    files.AddRange(ExpandGlob(abs, EvidencePolicy.MaxMatchesPerPattern));
+                }
+                foreach (var key in mapped.Registry.Take(EvidencePolicy.MaxRegistryKeys))
+                {
+                    if (EvidencePolicy.CheckRegistryKey(key, out var norm) is { } why) bundle.Notes.Add($"Mapped registry key {Clean(key, folders)} not watched: {why}.");
+                    else regKeys.Add(norm);
+                }
+            }
+            try { regKeys.AddRange(DiscoverRegistryKeys(keys, pubKeys)); }
+            catch (Exception ex) { bundle.Notes.Add($"Registry lookup failed: {Clean(ex.Message, folders)}"); }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"game lab: mapping scope for {t.Name} failed: {ex.Message}");
+            bundle.Notes.Add($"Looking for the game's folders stopped early: {Clean(ex.Message, folders)}");
+        }
+        return new ProbeScope(
+            dirs.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            files.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            regKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            bundle.Notes, folders);
     }
 
     private void AddRegistryKey(EvidenceBundle bundle, string key, int depth, LabFolders folders)

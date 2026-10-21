@@ -31,6 +31,12 @@ public sealed class RunOptions
     /// Suppresses the post-game capture prompt; the result is stored as a verify run.
     /// </summary>
     public bool Verify { get; init; }
+
+    /// <summary>
+    /// A mapping run (`run --probe`): nothing is applied, no display or driver change, no capture prompt; the game is only launched and
+    /// waited for while the caller fingerprints files and registry keys around it. Leaves a probe-active.json marker for the duration.
+    /// </summary>
+    public bool Probe { get; init; }
 }
 
 /// <summary>
@@ -70,6 +76,11 @@ public static class Runner
             return LaunchPlain(command.Length > 0 ? command : LaunchCommand(options));
         }
 
+        // A mapping run, or a run of a game the app/CLI is mapping right now (probe-active.json, e.g. the player started it from
+        // Steam): the game must start exactly as it is, so nothing is applied.
+        if (options?.Probe == true || ProbeMarker.IsActive(ctx.Paths.DataDir, ctx.Game.Id))
+            return ProbeLaunch(ctx.Game, ctx.Paths.DataDir, command, options);
+
         RunState.RecoverStale(ctx.Paths.StateFile);
         Log.Info($"=== run {ctx.Game.Id} as '{ctx.Device.Name}' ({ctx.Device.Reason}), preset {ctx.Preset?.ToString() ?? "(none)"} ===");
         if (ctx.BigPictureUsed) Log.Info($"Big Picture (TV): {ctx.BigPicture!.Reason}");
@@ -104,7 +115,7 @@ public static class Runner
         var processSeen = true;
         try
         {
-            exitCode = LaunchAndWait(ctx, command, options, out processSeen);
+            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen);
         }
         finally
         {
@@ -121,6 +132,38 @@ public static class Runner
         SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
+    }
+
+    /// <summary>
+    /// A mapping launch for a game that may have no preset (or no config at all): holds the run mutex, starts the game exactly as it is
+    /// and waits for it to exit. Returns the game's exit code. The caller fingerprints around it (<see cref="GameLab.ProbeSession"/>).
+    /// </summary>
+    public static int RunProbe(GameDef game, string dataDir, string[] command, RunOptions? options = null)
+    {
+        using var guard = RunGuard.TryAcquire(MutexName(game.Id));
+        if (guard is null)
+        {
+            Log.Info($"nested run: pass-through ({game.Id} is already being managed by another run)");
+            return LaunchPlain(command.Length > 0 ? command : LaunchCommand(options));
+        }
+        return ProbeLaunch(game, dataDir, command, options);
+    }
+
+    private static int ProbeLaunch(GameDef game, string dataDir, string[] command, RunOptions? options)
+    {
+        Log.Info($"=== mapping run {game.Id}: nothing is applied, changed or asked ===");
+        ProbeMarker.Set(dataDir, game.Id);
+        try
+        {
+            var exitCode = LaunchAndWait(game, command, options, out var seen);
+            if (!seen) Log.Warn($"{game.Id}: the game process was never seen, so this pass may have missed the game's changes");
+            Log.Info($"=== {game.Id} exited ({exitCode}) ===");
+            return exitCode;
+        }
+        finally
+        {
+            ProbeMarker.Clear(dataDir, game.Id);
+        }
     }
 
     /// <summary>
@@ -220,28 +263,28 @@ public static class Runner
         }
     }
 
-    private static int LaunchAndWait(GameContext ctx, string[] command, RunOptions? options, out bool processSeen)
+    private static int LaunchAndWait(GameDef game, string[] command, RunOptions? options, out bool processSeen)
     {
         processSeen = true; // false only when we waited for a game process that never appeared, or could not tell
-        var watched = ctx.Game.Processes.Select(p => Path.GetFileNameWithoutExtension(p)).ToArray();
+        var watched = game.Processes.Select(p => Path.GetFileNameWithoutExtension(p)).ToArray();
 
         // No `processes:` → after a URI launch, watch for new processes running from the install folder.
         string? installDir = null;
         HashSet<int>? baseline = null;
         if (watched.Length == 0)
         {
-            installDir = InstallDir(ctx, options);
+            installDir = InstallDir(game, options);
             if (installDir is not null) baseline = ProcessWatch.PidsUnder(installDir);
         }
 
-        using var started = Start(ctx, command, options);
+        using var started = Start(game, command, options);
 
         Func<bool> isRunning;
         string what;
         if (watched.Length > 0)
         {
             isRunning = () => watched.Any(IsRunning);
-            what = string.Join(", ", ctx.Game.Processes);
+            what = string.Join(", ", game.Processes);
         }
         else if (started is null && installDir is not null)
         {
@@ -305,11 +348,11 @@ public static class Runner
         }
     }
 
-    private static string? InstallDir(GameContext ctx, RunOptions? options)
+    private static string? InstallDir(GameDef game, RunOptions? options)
     {
         if (!string.IsNullOrWhiteSpace(options?.InstallDir))
             return Directory.Exists(options.InstallDir) ? Path.GetFullPath(options.InstallDir) : null;
-        if (ctx.Game.SteamAppId is not { } appId) return null;
+        if (game.SteamAppId is not { } appId) return null;
         try
         {
             var dir = new SteamLocator().InstallDir(appId);
@@ -333,7 +376,7 @@ public static class Runner
     /// Precedence: `-- command` (Steam's %command%) → <see cref="RunOptions.Launch"/> → the game's launch.exe / launch.uri
     /// → steam://rungameid/&lt;steamAppId&gt;. Returns null for URI / shell targets.
     /// </summary>
-    private static Process? Start(GameContext ctx, string[] command, RunOptions? options)
+    private static Process? Start(GameDef game, string[] command, RunOptions? options)
     {
         if (command.Length > 0)
         {
@@ -348,7 +391,7 @@ public static class Runner
             return StartCommand(fromOptions);
         }
 
-        var launch = ctx.Game.Launch;
+        var launch = game.Launch;
         if (!string.IsNullOrEmpty(launch?.Exe))
         {
             var exe = IsShellTarget(launch.Exe) ? launch.Exe : new PathResolver().Expand(launch.Exe);
@@ -356,8 +399,8 @@ public static class Runner
             return StartCommand([exe, .. launch.Args]);
         }
 
-        var uri = launch?.Uri ?? (ctx.Game.SteamAppId is { } id ? $"steam://rungameid/{id}" : null)
-                  ?? throw new ConfigException($"{ctx.Game.Id}: nothing to launch — pass `-- %command%` or set launch.exe/launch.uri");
+        var uri = launch?.Uri ?? (game.SteamAppId is { } id ? $"steam://rungameid/{id}" : null)
+                  ?? throw new ConfigException($"{game.Id}: nothing to launch — pass `-- %command%` or set launch.exe/launch.uri");
         Log.Info($"Launching: {uri}");
         ShellOpen(uri);
         return null;

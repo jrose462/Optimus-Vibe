@@ -79,6 +79,41 @@ public sealed class KeyValueTextHandler : SettingsHandler
         file.Save(path);
     }
 
+    /// <summary>
+    /// The key/value lines of free text, guessing the line format from <see cref="Presets"/> (the one that matches the most lines, at least 3).
+    /// Null when no preset fits, so the caller falls back to a plain line diff. <paramref name="format"/> names the preset that was used.
+    /// </summary>
+    public static IReadOnlyList<(string Key, string Value)>? ReadAllGuessing(string text, out string? format)
+    {
+        format = null;
+        IReadOnlyList<(string Key, string Value)>? best = null;
+        foreach (var name in Presets.Keys)
+        {
+            var hits = ReadAllWith(text, name);
+            if (hits.Count >= 3 && (best is null || hits.Count > best.Count)) { best = hits; format = name; }
+        }
+        return best;
+    }
+
+    /// <summary>The key/value lines of free text in one of the <see cref="Presets"/> formats; a repeated key gets " #2", " #3"...</summary>
+    public static IReadOnlyList<(string Key, string Value)> ReadAllWith(string text, string preset)
+    {
+        var regex = BuildRegex(Presets[preset]);
+        var hits = new List<(string, string)>();
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in text.Split('\n'))
+        {
+            var m = regex.Match(raw.TrimEnd('\r'));
+            if (!m.Success) continue;
+            var key = m.Groups["key"].Value;
+            var n = seen.GetValueOrDefault(key) + 1;
+            seen[key] = n;
+            hits.Add((n == 1 ? key : $"{key} #{n}", m.Groups["value"].Value.Trim('"')));
+        }
+        return hits;
+    }
+
+
     private static Dictionary<string, (int Line, string Value)> Parse(List<string> lines, Regex regex)
     {
         var result = new Dictionary<string, (int, string)>(StringComparer.OrdinalIgnoreCase);

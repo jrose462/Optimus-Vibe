@@ -111,6 +111,29 @@ public sealed partial class IniHandler : SettingsHandler
         lines.Insert(insertAt, entry);
     }
 
+    /// <summary>Every "[Section]Key" with its value, in file order; a repeated key (Unreal's +Array lines) gets " #2", " #3"... after it.</summary>
+    public override IReadOnlyList<(string Key, string Value)>? ReadAll(string text)
+    {
+        var result = new List<(string, string)>();
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var section = "";
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            var sm = SectionRegex().Match(line);
+            if (sm.Success) { section = sm.Groups["section"].Value; continue; }
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith(';') || trimmed.StartsWith('#')) continue;
+            var km = KeyRegex().Match(line);
+            if (!km.Success) continue;
+            var key = MakeKey(section, km.Groups["key"].Value.Trim());
+            var n = seen.GetValueOrDefault(key) + 1;
+            seen[key] = n;
+            result.Add((n == 1 ? key : $"{key} #{n}", km.Groups["value"].Value));
+        }
+        return result;
+    }
+
     /// <summary>(section, key) lower-cased → first occurrence.</summary>
     private static Dictionary<(string, string), (int Line, string Value)> Parse(List<string> lines)
     {
