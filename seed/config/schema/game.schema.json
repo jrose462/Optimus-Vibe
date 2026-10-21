@@ -478,7 +478,7 @@
               "$ref": "#/$defs/driverBlock"
             }
           ],
-          "description": "AMD ADLX global 3D settings, applied on launch and restored on exit. Ignored unless the device driver is amd. Not implemented yet (see docs/amd-adlx.md)."
+          "description": "AMD ADLX global 3D settings, applied on launch and restored on exit. Ignored unless the device driver is amd. Keys: FrtcFps, ChillEnabled, ChillMinFps, ChillMaxFps, RsrEnabled, RsrSharpness, AfmfEnabled, AntiLag, RisEnabled, RisSharpness, WaitForVSync, EnhancedSync, BoostEnabled, BoostMinResolution (see docs/amd-adlx.md)."
         }
       },
       "additionalProperties": {
@@ -544,7 +544,7 @@
               "$ref": "#/$defs/driverBlock"
             }
           ],
-          "description": "AMD ADLX global 3D settings, applied on launch and restored on exit. Ignored unless the device driver is amd. Not implemented yet (see docs/amd-adlx.md)."
+          "description": "AMD ADLX global 3D settings, applied on launch and restored on exit. Ignored unless the device driver is amd. Keys: FrtcFps, ChillEnabled, ChillMinFps, ChillMaxFps, RsrEnabled, RsrSharpness, AfmfEnabled, AntiLag, RisEnabled, RisSharpness, WaitForVSync, EnhancedSync, BoostEnabled, BoostMinResolution (see docs/amd-adlx.md)."
         }
       },
       "additionalProperties": {

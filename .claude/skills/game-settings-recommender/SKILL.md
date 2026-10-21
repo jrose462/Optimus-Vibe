@@ -86,8 +86,7 @@ presets:
 recommendation: { generated: "YYYY-MM-DD", gameVersion: "...", sources: [ "...", ... ] }
 ```
 
-Reserved preset keys: `extends` (must name a `profiles:` entry), `display`, `nvidia`, `amd` (not implemented —
-leave commented), `label`, `description`, `targetFps`, `snapshotsFrom` (a manual save slug, see below). Every other key is a file id from `files:`.
+Reserved preset keys: `extends` (must name a `profiles:` entry), `display`, `nvidia`, `amd` (ADLX global settings; see references/hardware.md "Driver keys"), `label`, `description`, `targetFps`, `snapshotsFrom` (a manual save slug, see below). Every other key is a file id from `files:`.
 Device defaults (`devices.yaml` `defaultPreset`): desktop → `quality`, ally-x → `performance`.
 
 ## Workflow: add a game
@@ -224,7 +223,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
   ("Frame caps"); the Ally X always keeps `refresh: 120`.
 - Desktop: `display: inherit`; `nvidia: { FrameRateLimiter: 162 }`. With frame generation on, rely on the driver
   cap/Reflex and leave the in-game limiter off (it can cap the *base* framerate).
-  Ally X: `display: { width: 1920, height: 1080, refresh: 120 }`; leave `amd:` commented out.
+  Ally X: `display: { width: 1920, height: 1080, refresh: 120 }`; add an `amd:` block only for the driver-level levers in references/hardware.md "Driver keys" (frame cap, AFMF off, VSync); never for what the game exposes itself.
 - Put a short comment next to any non-obvious value, and, where (c) could not confirm a value, leave it out of the presets and say so in `notes:`.
 - Keep the `# yaml-language-server: $schema=../schema/game.schema.json` header and a header comment naming the
   file location, format, and what was verified vs not.

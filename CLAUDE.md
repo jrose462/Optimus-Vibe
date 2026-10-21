@@ -90,7 +90,7 @@ First match wins, so keep the more specific device first. Never assume hardware:
 - **Recommended presets** (Claude-written, app tab "Recommended"): `presets.<device>.<name>` in
   `config/games/<id>.yaml`. Conventional names: desktop `quality` / `performance`; ally-x `performance` /
   `battery`. Each has `label`, `description`, `targetFps`, usually `extends: base`, plus `display`, `nvidia`,
-  (`amd`, not implemented yet — `docs/amd-adlx.md`) and file blocks. `profiles:` holds shared bases only (usually
+  `amd` (global ADLX settings, applied at launch and restored on exit; `docs/amd-adlx.md`) and file blocks. `profiles:` holds shared bases only (usually
   `base`); `extends` may only name a `profiles:` entry. `recommendation:` records date, game version and sources.
 - **Manual saves** (user-made, app tab "Manual saves"): `config/saves/<game>/<device>/<slug>/save.yaml`
   (+ `<fileId>.snap` whole-file copies). Made with the app, the post-game prompt, or `optimus-vibe save`. They
