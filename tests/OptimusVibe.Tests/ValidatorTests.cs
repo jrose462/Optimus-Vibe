@@ -106,9 +106,9 @@ public sealed class ValidatorTests : IDisposable
     [Fact]
     public void AmdBlockInABaseProfile_IsValidatedToo()
     {
-        var r = Run(ValidGame.Replace("base:\n    user: { S: { Shadows: 3 } }", "base:\n    user: { S: { Shadows: 3 } }\n    amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }")
-            .Replace("          base:\r\n            user: { S: { Shadows: 3 } }", "          base:\r\n            user: { S: { Shadows: 3 } }\r\n            amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }")
-            .Replace("          base:\n            user: { S: { Shadows: 3 } }", "          base:\n            user: { S: { Shadows: 3 } }\n            amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }"));
+        var yaml = ValidGame.ReplaceLineEndings("\n");   // the source file's line endings vary with git checkout settings
+        var r = Run(yaml.Replace("base:\n    user: { S: { Shadows: 3 } }", "base:\n    user: { S: { Shadows: 3 } }\n    amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }"));
+        Assert.NotEqual(yaml, yaml.Replace("base:\n    user: { S: { Shadows: 3 } }", ""));
         Assert.Contains(r.Errors, e => e.Contains("profiles.base") && e.Contains("amd.Turbo"));
         Assert.Contains(r.Errors, e => e.Contains("profiles.base") && e.Contains("set the same setting"));
     }
