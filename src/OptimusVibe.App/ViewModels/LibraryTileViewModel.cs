@@ -53,9 +53,13 @@ public sealed class LibraryTileViewModel : ObservableObject
         _ => TileStatus.NotInstalled,
     };
 
+    /// <summary>A managed game flagged "set in-game": it stays under the Managed filter, but its settings are left to the game.</summary>
+    public bool IsSetInGame => Status == TileStatus.Managed && _entry.SetInGame is not null;
+
     /// <summary>Chip text: the active preset ("Performance", "Manual: Steady 40") or the status.</summary>
     public string StatusText => Status switch
     {
+        TileStatus.Managed when IsSetInGame => "Set in-game",
         TileStatus.Managed => _gameItem?.BadgeText is { Length: > 0 } b ? b : "Managed",
         TileStatus.NeedsPresets => "Needs presets",
         TileStatus.OptedOut => "Opted out",
@@ -66,6 +70,7 @@ public sealed class LibraryTileViewModel : ObservableObject
     /// <summary>One short muted line under the title on a tile.</summary>
     public string StatusLine => Status switch
     {
+        TileStatus.Managed when IsSetInGame => "Set in-game",
         TileStatus.Managed => _gameItem?.BadgeText is { Length: > 0 } b
             ? (b.StartsWith("Manual", StringComparison.OrdinalIgnoreCase) ? b : b + " preset")
             : "Tuned",
@@ -127,7 +132,8 @@ public sealed class LibraryTileViewModel : ObservableObject
 
     public string PlayHint => Status switch
     {
-        TileStatus.Managed => "Your preset is applied, then restored after you quit",
+        TileStatus.Managed when IsSetInGame => "Display and NVIDIA are applied; the game's own settings are left to the game",
+        TileStatus.Managed =>"Your preset is applied, then restored after you quit",
         TileStatus.NeedsPresets => "Starts normally — presets aren't ready yet",
         TileStatus.OptedOut => "Starts normally — Optimus-Vibe leaves its settings alone",
         _ => "",

@@ -159,7 +159,8 @@ public static class DebugScenes
     /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
     /// map-sent | map-failed (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
     /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
-    /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data).
+    /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data);
+    /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
     /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
@@ -229,6 +230,13 @@ public static class DebugScenes
             case "verify-auto":
             case "verify-auto-first":
             case "verify-auto-forget":
+            case "verify-suggest":
+            case "verify-suggest-map":
+            case "verify-suggest-result":
+            case "verify-flag-confirm":
+            case "verify-flagged":
+            case "verify-flagged-done":
+            case "verify-flagged-config":
                 if (tuned is null) break;
                 vm.OpenLibraryDetail(tuned);
                 await Task.Delay(800);

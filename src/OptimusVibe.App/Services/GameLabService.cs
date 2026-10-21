@@ -161,6 +161,22 @@ public sealed class GameLabService
         return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// "Flag as set in-game": files a research-later issue in the config repo (the lab's evidence plus the reason and open questions; not the
+    /// game-lab label, so nothing starts by itself).
+    /// </summary>
+    public async Task<FiledRequest> FileResearchLaterAsync(Connection c, AppSession session, LabTarget target, string reason, string? verifyRun = null,
+        CancellationToken ct = default)
+    {
+        if (IsDemo)
+            return new FiledRequest(9, $"https://github.com/{c.Repo.Repo}/issues/9", false, 1, "Demo: would file research task #9");
+        return await ClientFor(c).FileResearchLaterAsync(target, session.Device.Name, reason, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether an issue of the config repo is still open; null when it can't be read.</summary>
+    public async Task<bool?> IsIssueOpenAsync(Connection c, int issue, CancellationToken ct = default) =>
+        IsDemo ? issue != 99 : await ClientFor(c).IsIssueOpenAsync(issue, ct).ConfigureAwait(false);
+
     /// <summary>A sync-check on the first configured game that is installed here, for the wizard's test step.</summary>
     public Func<CancellationToken, Task<string>> TestRequest(Connection c, AppSession session, IReadOnlyList<DetectedGame> detected) => async ct =>
     {

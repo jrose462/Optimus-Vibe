@@ -116,6 +116,46 @@
             <TextBlock Text="{Binding HintText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
                        Visibility="{Binding HasHint, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Last launch note" />
 
+            <!-- set in-game: why Test preset is off, the research task, and how to manage the settings again -->
+            <StackPanel Visibility="{Binding IsFlagged, Converter={StaticResource VisibleWhen}}" KeyboardNavigation.DirectionalNavigation="Contained">
+                <TextBlock Text="{Binding TestDisabledText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
+                           Visibility="{Binding HasTestDisabledText, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Why Test preset is off" />
+                <TextBlock Text="{Binding ResearchFinishedText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="2,8,0,0"
+                           Visibility="{Binding ShowResearchFinished, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Research finished" />
+                <TextBlock Text="{Binding ConfigOnlyNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
+                           Visibility="{Binding ShowConfigOnlyNote, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Who can lift the flag" />
+                <Button Style="{StaticResource Button.Quiet}" Command="{Binding ManageAgainCommand}" Content="Manage settings again" HorizontalAlignment="Left" Margin="0,6,0,0"
+                        Visibility="{Binding ShowManageAgain, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Manage settings again"
+                        ToolTip="Optimus-Vibe writes this game's settings again. Test the preset afterwards to check the game keeps it." />
+            </StackPanel>
+
+            <!-- suggestion: the game keeps ignoring the settings (never flagged automatically) -->
+            <StackPanel Visibility="{Binding ShowSuggest, Converter={StaticResource VisibleWhen}}" KeyboardNavigation.DirectionalNavigation="Contained">
+                <TextBlock Text="{Binding SuggestLine}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0" AutomationProperties.Name="Why this game may be set in-game" />
+                <Button Style="{StaticResource Button.Quiet}" Command="{Binding FlagCommand}" Content="Flag as set in-game" HorizontalAlignment="Left" Margin="0,4,0,0"
+                        AutomationProperties.Name="Flag as set in-game"
+                        ToolTip="Stop writing this game's settings. Display and NVIDIA still apply." />
+            </StackPanel>
+
+            <!-- Flag as set in-game: confirm -->
+            <Border Style="{StaticResource Card.Inset}" Margin="0,12,0,0" Visibility="{Binding IsFlagConfirming, Converter={StaticResource VisibleWhen}}"
+                    KeyboardNavigation.DirectionalNavigation="Contained">
+                <StackPanel>
+                    <TextBlock Text="{Binding FlagTitle}" Style="{StaticResource Text.H3}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding FlagLead}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding FlagWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <WrapPanel Margin="0,14,0,0">
+                        <Button Style="{StaticResource Button.Primary}" Command="{Binding ConfirmFlagCommand}" Margin="0,0,8,0" MinWidth="130"
+                                input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Flag as set in-game">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding FlagConfirmText}" /></StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" AutomationProperties.Name="Cancel">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
             <!-- this device's kept copy of a cloud-synced settings file (autoSnapshot) -->
             <StackPanel Visibility="{Binding HasAutoSnapshot, Converter={StaticResource VisibleWhen}}" KeyboardNavigation.DirectionalNavigation="Contained">
                 <TextBlock Text="{Binding AutoSnapshotLine}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
@@ -211,6 +251,8 @@
                                Visibility="{Binding HasResultMore, Converter={StaticResource VisibleWhen}}" />
                     <TextBlock Text="Sent to the game lab." Style="{StaticResource Text.Caption}" Margin="0,8,0,0"
                                Visibility="{Binding ShowResultSent, Converter={StaticResource VisibleWhen}}" />
+                    <TextBlock Text="{Binding SuggestLine}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,10,0,0"
+                               Visibility="{Binding ShowResultSuggest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Why this game may be set in-game" />
                     <WrapPanel Margin="0,14,0,0">
                         <Button Style="{StaticResource Button.Primary}" Command="{Binding SendResultCommand}" Margin="0,0,8,6"
                                 Visibility="{Binding ShowSendResult, Converter={StaticResource VisibleWhen}}" input:FocusCue.FocusWhenShown="True"
@@ -222,6 +264,9 @@
                                 ToolTip="Keep the settings the game left as a manual save.">
                             <TextBlock Text="Make a manual save" />
                         </Button>
+                        <Button Command="{Binding FlagCommand}" Margin="0,0,8,6" Content="Flag as set in-game"
+                                Visibility="{Binding ShowResultSuggest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Flag as set in-game"
+                                ToolTip="Stop writing this game's settings. Display and NVIDIA still apply." />
                         <Button Style="{StaticResource Button.Quiet}" Command="{Binding DismissResultCommand}" Margin="0,0,8,6"
                                 input:FocusCue.FocusWhenShown="{Binding ShowSendResult, Converter={StaticResource Not}}"
                                 AutomationProperties.Name="Close the test result">
