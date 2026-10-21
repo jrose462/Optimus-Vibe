@@ -120,6 +120,101 @@ public sealed class PostSessionTests
         Assert.False(d.Changed);
     }
 
+    [Fact]
+    public void NotOfferedYet_OffersEachSessionOncePerAppRun()
+    {
+        var offered = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        var first = Run(1);
+        Assert.Equal([first], PostSession.NotOfferedYet([first], offered));
+        // the seen mark could not be stored, so the next look finds the same session again: it is not offered twice
+        Assert.Empty(PostSession.NotOfferedYet([Run(1)], offered));
+        Assert.Empty(PostSession.NotOfferedYet([Run(0)], offered));
+        var newer = Run(2);
+        var other = Run(1);
+        other.Game = "H";
+        Assert.Equal([newer, other], PostSession.NotOfferedYet([newer, other], offered));
+    }
+
+    // ---------------------------------------------------------------- seen marks in gamelab-state.json
+
+    private static Dictionary<string, RunResultEntry> Sessions(params (string Game, int Day)[] runs) =>
+        runs.ToDictionary(r => r.Game, r =>
+        {
+            var run = Run(r.Day);
+            run.Game = r.Game;
+            return Entry(run);
+        }, StringComparer.OrdinalIgnoreCase);
+
+    [Fact]
+    public void MarkSessionsSeen_FirstLookBaselines_ThenOffersEachNewSessionOnce()
+    {
+        using var tmp = new TempDir();
+        var store = new LabStateStore(tmp.Path);
+        var first = store.MarkSessionsSeen(Sessions(("g", 0), ("h", 0)));
+        Assert.Empty(first.Fresh);
+        Assert.True(first.Saved);
+        Assert.True(store.Load().SessionsBaselined);
+
+        var next = store.MarkSessionsSeen(Sessions(("g", 1), ("h", 0)));
+        Assert.Equal(["g"], next.Fresh.Select(r => r.Game));
+        Assert.True(next.Saved);
+        Assert.Empty(store.MarkSessionsSeen(Sessions(("g", 1), ("h", 0))).Fresh);
+    }
+
+    [Fact]
+    public void MarkSessionsSeen_AfterTheFileWasEmptied_BaselinesAgain_InsteadOfOfferingEveryGame()
+    {
+        using var tmp = new TempDir();
+        var store = new LabStateStore(tmp.Path);
+        store.MarkSessionsSeen(Sessions(("g", 0), ("h", 0), ("k", 0)));
+        File.WriteAllText(store.FilePath, "{}"); // replaced by an empty state meanwhile
+
+        var look = store.MarkSessionsSeen(Sessions(("g", 1), ("h", 0), ("k", 0)));
+        Assert.Empty(look.Fresh);
+        var s = store.Load();
+        Assert.True(s.SessionsBaselined);
+        Assert.Equal(3, s.SessionsSeen.Count); // every game marked, not only the one that changed
+    }
+
+    [Fact]
+    public void LabStateStore_ALockedFile_IsNeverOverwritten()
+    {
+        using var tmp = new TempDir();
+        var store = new LabStateStore(tmp.Path);
+        store.MarkPresets("other", T0, "steam:1");
+        store.MarkSessionsSeen(Sessions(("g", 0), ("h", 0)));
+        store.Update(s => s.Snoozed[PostSession.SnoozeKey("h", PostSessionKind.Changed)] = T0.AddDays(30));
+        var before = File.ReadAllText(store.FilePath);
+
+        using (new FileStream(store.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) // another process holds it
+        {
+            Assert.Null(store.TryLoad());
+            Assert.False(store.Update(s => s.SessionsBaselined = true));
+            var look = store.MarkSessionsSeen(Sessions(("g", 1), ("h", 0)));
+            Assert.Empty(look.Fresh); // nothing offered from a state that could not be read
+            Assert.False(look.Saved);
+        }
+
+        Assert.Equal(before, File.ReadAllText(store.FilePath));
+        var s = store.Load();
+        Assert.Equal("steam:1", s.PresetsFor("other")?.BuildId);
+        Assert.Equal(2, s.SessionsSeen.Count);
+        Assert.NotEmpty(s.Snoozed);
+        // once it can be read again, the session is offered as usual
+        Assert.Equal(["g"], store.MarkSessionsSeen(Sessions(("g", 1), ("h", 0))).Fresh.Select(r => r.Game));
+    }
+
+    [Fact]
+    public void LabStateStore_ADamagedFile_StartsAfresh()
+    {
+        using var tmp = new TempDir();
+        var store = new LabStateStore(tmp.Path);
+        File.WriteAllText(store.FilePath, "{ not json");
+        Assert.NotNull(store.TryLoad());
+        Assert.True(store.Update(s => s.SessionsBaselined = true));
+        Assert.True(store.Load().SessionsBaselined);
+    }
+
     // ---------------------------------------------------------------- held
 
     [Fact]
@@ -165,26 +260,41 @@ public sealed class PostSessionTests
     // ---------------------------------------------------------------- changed
 
     [Fact]
-    public void Changed_NotAsked_OffersKeepThese_AndSeeWhich()
+    public void Changed_NotAsked_OffersKeepThese_AndSeeWhich_WithoutTakingFocus()
     {
-        var run = Run(0, drifted: 10, capture: CaptureAnswer.Off);
+        var run = Run(0, drifted: 10, capture: CaptureAnswer.NotAsked); // the wrapper ran with --no-prompt
         var card = Card(In(run), run)!;
         Assert.Equal(PostSessionKind.Changed, card.Kind);
         Assert.StartsWith("Last session the game changed 10 of 14 settings (Quality0, Quality1 and 8 more)", card.Text);
         Assert.Equal(PostSessionAction.KeepThese, card.Primary);
         Assert.Equal(PostSessionAction.SeeWhich, card.Secondary);
-        Assert.True(card.TakesFocus);
         Assert.True(card.CanSnooze);
+        // "Keep these" writes a manual save and makes it active: it asks on the card first, and a reflex A on the way back never lands on it
+        Assert.True(PostSession.Confirms(card.Primary));
+        Assert.False(card.TakesFocus);
     }
 
-    [Fact]
-    public void Changed_AfterTheyAnsweredDontSave_OnlyShowsWhich()
+    [Theory]
+    [InlineData(CaptureAnswer.DontSave)]     // answered "don't keep them" at the prompt
+    [InlineData(CaptureAnswer.DontAskAgain)] // turned the question off for this game at the prompt
+    [InlineData(CaptureAnswer.Off)]          // the question was off for this game already
+    public void Changed_AfterTheyAnsweredOrTurnedThePromptOff_OnlyShowsWhich(CaptureAnswer capture)
     {
-        var run = Run(0, drifted: 10, capture: CaptureAnswer.DontSave); // long session, no recurrence: not overridden, but most of it drifted
+        var run = Run(0, drifted: 10, capture: capture); // long session, no recurrence: not overridden, but most of it drifted
         var card = Card(In(run), run)!;
         Assert.Equal(PostSessionKind.Changed, card.Kind);
         Assert.Equal(PostSessionAction.SeeWhich, card.Primary);
         Assert.Equal(PostSessionAction.None, card.Secondary);
+        Assert.Null(card.Why);
+        Assert.False(PostSession.Confirms(card.Primary));
+        Assert.True(card.TakesFocus); // "See which" only opens the list
+    }
+
+    [Fact]
+    public void OnlyKeepThese_AsksOnTheCard()
+    {
+        foreach (var a in Enum.GetValues<PostSessionAction>())
+            Assert.Equal(a == PostSessionAction.KeepThese, PostSession.Confirms(a));
     }
 
     [Fact]
@@ -209,6 +319,12 @@ public sealed class PostSessionTests
         Assert.Equal(PostSessionAction.FlagSetInGame, card.Primary);
         Assert.Equal(PostSessionAction.AskLab, card.Secondary);
         Assert.Equal(HealthAction.FlagSetInGame, PostSession.AsHealthAction(card.Primary));
+        // the panel's own Flag and Refresh presets buttons (suggested, or under More) step aside while the card offers them
+        Assert.True(card.Offers(HealthAction.FlagSetInGame));
+        Assert.True(card.Offers(HealthAction.RefreshPresets));
+        Assert.False(card.Offers(HealthAction.MapGame));
+        Assert.False(card.Offers(HealthAction.TestPreset));
+        Assert.False(card.Offers(HealthAction.None));
     }
 
     [Fact]
@@ -260,6 +376,16 @@ public sealed class PostSessionTests
         Assert.Equal("The lab needs to know where Hades keeps its settings.", card.Text);
         Assert.Equal(PostSessionAction.MapGame, card.Primary);
         Assert.Equal("Map it", PostSession.ActionText(card.Primary));
+        Assert.True(card.Offers(HealthAction.MapGame)); // so "Map this game" under More steps aside
+        Assert.False(card.Offers(HealthAction.RefreshPresets));
+    }
+
+    [Fact]
+    public void AChangedCard_OffersNoPanelAction()
+    {
+        var run = Run(0, drifted: 10, capture: CaptureAnswer.NotAsked);
+        var card = Card(In(run), run)!;
+        foreach (var a in Enum.GetValues<HealthAction>()) Assert.False(card.Offers(a));
     }
 
     [Fact]
@@ -326,6 +452,25 @@ public sealed class PostSessionTests
         var updated = In(Run(0, sec: 30)) with { Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2" };
         Assert.Equal(GameHealth.GameUpdatedChip, GameHealth.Evaluate(updated).TileChip);
         Assert.Null(GameHealth.Evaluate(In(Run(0), Run(1), Run(2))).TileChip); // working
+    }
+
+    [Fact]
+    public void TileChip_FollowsTheMappingRun_LikeTheGamePage()
+    {
+        var working = In(Run(0), Run(1), Run(2));
+        Assert.Null(GameHealth.Evaluate(working).TileChip);
+        var opaque = new ProbeRecord
+        {
+            Utc = T0.AddDays(3), SuggestSetInGame = true, OpaqueFiles = ["{LocalAppData}/Hades/system.save"],
+            SuggestReason = "the game keeps its settings only in a binary file",
+        };
+        var tile = working.WithInstall(null, opaque);
+        Assert.Equal(HealthState.CantBeSetFromOutside, GameHealth.Evaluate(tile).State);
+        Assert.Equal(GameHealth.ChangedByGameChip, GameHealth.Evaluate(tile).TileChip);
+
+        var built = (working with { Presets = new PresetsMark { MadeUtc = T0.AddDays(-1), BuildId = "steam:1" } }).WithInstall("steam:2", null);
+        Assert.Equal("steam:2", built.CurrentBuild);
+        Assert.Equal(GameHealth.GameUpdatedChip, GameHealth.Evaluate(built).TileChip);
     }
 
     // ---------------------------------------------------------------- stored state

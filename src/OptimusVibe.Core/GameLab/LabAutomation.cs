@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OptimusVibe.Config;
+using OptimusVibe.Launch;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
 using OptimusVibe.Sync;
@@ -179,17 +180,36 @@ public sealed class LabStateStore(string dataDir)
 
     public string FilePath => Path.Combine(dataDir, "gamelab-state.json");
 
+    /// <summary>The stored state; an empty one when there is none yet or the file could not be read.</summary>
     public LabState Load()
     {
-        lock (Gate) return LoadCore();
+        lock (Gate) return LoadCore(out _);
     }
 
-    /// <summary>Read-modify-write. Never throws.</summary>
-    public void Update(Action<LabState> change)
+    /// <summary>The stored state (empty when there is no file yet or it is damaged), or null when the file exists but could not be read right now.</summary>
+    public LabState? TryLoad()
     {
         lock (Gate)
         {
-            var s = LoadCore();
+            var s = LoadCore(out var ok);
+            return ok ? s : null;
+        }
+    }
+
+    /// <summary>
+    /// Read-modify-write. Never throws. False when nothing was written: the file could not be saved, or it exists but could not be read (another
+    /// process replacing it, a lock), in which case it is left alone rather than overwritten with an empty state plus this change.
+    /// </summary>
+    public bool Update(Action<LabState> change)
+    {
+        lock (Gate)
+        {
+            var s = LoadCore(out var ok);
+            if (!ok)
+            {
+                Log.Warn($"Not saving {FilePath}: it could not be read, so saving would lose what it holds.");
+                return false;
+            }
             change(s);
             try
             {
@@ -197,12 +217,39 @@ public sealed class LabStateStore(string dataDir)
                 var tmp = FilePath + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(s, Opts), new UTF8Encoding(false));
                 File.Move(tmp, FilePath, overwrite: true);
+                return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 Log.Warn($"Could not save {FilePath}: {ex.Message}");
+                return false;
             }
         }
+    }
+
+    /// <summary>
+    /// Looks for sessions finished since the last look (<see cref="PostSession.Detect"/>) and stores their seen marks, in one read-modify-write
+    /// so the marks and the "baselined" flag always come from the same state: when the file was replaced by an empty one meanwhile, this look
+    /// only baselines again (every game marked, nothing offered) instead of offering every game's old session. Writes only when something
+    /// changed. Nothing is offered while the file exists but cannot be read. <c>Saved</c> is false when the marks could not be stored.
+    /// Never throws.
+    /// </summary>
+    public (IReadOnlyList<RunResult> Fresh, bool Saved) MarkSessionsSeen(IReadOnlyDictionary<string, RunResultEntry> entries)
+    {
+        if (TryLoad() is not { } peek) return ([], false);
+        var look = PostSession.Detect(entries, peek.SessionsSeen, peek.SessionsBaselined);
+        if (!look.Changed && peek.SessionsBaselined) return ([], true);
+        IReadOnlyList<RunResult> fresh = [];
+        var saved = Update(s =>
+        {
+            var found = PostSession.Detect(entries, s.SessionsSeen, s.SessionsBaselined);
+            foreach (var (gameId, utc) in found.Seen)
+                if (!s.SessionsSeen.TryGetValue(gameId, out var seen) || utc > seen) s.SessionsSeen[gameId] = utc;
+            s.SessionsBaselined = true;
+            fresh = found.Fresh;
+        });
+        // unreadable at write time: the change never ran, so nothing is offered now and the next look tries again with the real marks
+        return (fresh, saved);
     }
 
     /// <summary>Records that a game's presets just arrived (made against <paramref name="build"/>, null when unknown). Never throws.</summary>
@@ -230,8 +277,10 @@ public sealed class LabStateStore(string dataDir)
         return wrote;
     }
 
-    private LabState LoadCore()
+    /// <param name="ok">False when the file exists but could not be read right now (the empty state returned is not what it holds).</param>
+    private LabState LoadCore(out bool ok)
     {
+        ok = true;
         try
         {
             if (!File.Exists(FilePath)) return new LabState();
@@ -243,9 +292,17 @@ public sealed class LabStateStore(string dataDir)
             s.Snoozed = new Dictionary<string, DateTime>(s.Snoozed ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // locked or being replaced right now: a later read gets it back, so nothing may overwrite it meanwhile
             Log.Warn($"Could not read {FilePath}: {ex.Message}");
+            ok = false;
+            return new LabState();
+        }
+        catch (JsonException ex)
+        {
+            // damaged for good (writes replace it whole, so a reader never sees half a file): start afresh rather than never saving again
+            Log.Warn($"Could not read {FilePath}, starting afresh: {ex.Message}");
             return new LabState();
         }
     }

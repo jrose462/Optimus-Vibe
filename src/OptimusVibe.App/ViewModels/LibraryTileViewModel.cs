@@ -20,6 +20,8 @@ public sealed class LibraryTileViewModel : ObservableObject
     private ImageSource? _icon;
     private bool _healthLoaded;
     private GameHealth? _health;
+    private (string? Build, ProbeRecord? Mapping) _install;
+    private int _installRead;
 
     public LibraryTileViewModel(LibraryViewModel owner, LibraryEntry entry, GameItemViewModel? gameItem)
     {
@@ -34,6 +36,7 @@ public sealed class LibraryTileViewModel : ObservableObject
         SetSteamKeepCommand = new AsyncRelayCommand(p => owner.SetSteamKeepUpToDateAsync(this, p is true), _ => Idle() && IsSteam);
         Lab = owner.Shell.Lab.ForGame(() => new LabGameContext(Name, Key, GameId, _entry.Detected is null ? null : LabTarget.From(_entry), HasConfig,
             _entry.Status == LibraryStatus.NeedsPresets, _gameItem?.BadgeText, _gameItem?.Snapshot.CloudSync, _gameItem?.Snapshot.Context));
+        _ = ReadInstallAsync();
     }
 
     public LibraryEntry Entry => _entry;
@@ -90,7 +93,8 @@ public sealed class LibraryTileViewModel : ObservableObject
 
     /// <summary>
     /// The game's health on this device for the tile (<see cref="GameHealth.Evaluate"/> over the inputs its snapshot read once per load, plus the
-    /// installed build), for managed games that are not flagged. Null otherwise. Worked out once per update.
+    /// installed build and stored mapping run, as the game page reads them), for managed games that are not flagged. Null otherwise. Worked out
+    /// once per update, without touching the disk (those two are read off the UI thread by <see cref="ReadInstallAsync"/>).
     /// </summary>
     public GameHealth? Health
     {
@@ -99,18 +103,44 @@ public sealed class LibraryTileViewModel : ObservableObject
             if (_healthLoaded) return _health;
             _healthLoaded = true;
             _health = null;
-            if (Status != TileStatus.Managed || IsSetInGame || _gameItem?.Snapshot.Health is not { } inputs) return null;
+            if (!WantsHealth || _gameItem?.Snapshot.Health is not { } inputs) return null;
             try
             {
-                // the build is only worth reading when something recorded the build the presets worked on
-                var build = inputs.BaselineBuild is not null && _entry.Detected is { } detected ? GameBuild.Of(detected) : null;
-                _health = GameHealth.Evaluate(inputs with { CurrentBuild = build, CanLaunch = CanPlay, LabReady = _owner.Shell.Lab.IsReady });
+                _health = GameHealth.Evaluate(inputs.WithInstall(_install.Build, _install.Mapping) with { CanLaunch = CanPlay, LabReady = _owner.Shell.Lab.IsReady });
             }
             catch (Exception ex)
             {
                 Log.Warn($"{Name}: could not work out its health: {ex.Message}");
             }
             return _health;
+        }
+    }
+
+    private bool WantsHealth => Status == TileStatus.Managed && !IsSetInGame;
+
+    /// <summary>
+    /// Reads the installed build (a directory scan for games without a store build id) and the stored mapping run off the UI thread, then
+    /// re-works the chip. The last values stay in use meanwhile; a newer read wins over an older one. Never throws.
+    /// </summary>
+    private async Task ReadInstallAsync()
+    {
+        if (!WantsHealth || _gameItem?.Snapshot.Health is not { } inputs || _owner.Shell.Session is not { } session) return;
+        var read = ++_installRead;
+        var detected = _entry.Detected;
+        var target = detected is null ? null : LabTarget.From(_entry);
+        try
+        {
+            var install = await Task.Run(() => (
+                // the build is only worth reading when something recorded the build the presets worked on
+                Build: inputs.BaselineBuild is not null && detected is not null ? GameBuild.Of(detected) : null,
+                Mapping: target is null ? null : GameLabService.StoredMapping(session, target)));
+            if (read != _installRead || install == _install) return;
+            _install = install;
+            RefreshBadge(readInstall: false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"{Name}: could not read its installed build: {ex.Message}");
         }
     }
 
@@ -199,11 +229,15 @@ public sealed class LibraryTileViewModel : ObservableObject
         _healthLoaded = false;
         OnPropertyChanged(string.Empty);
         Lab.Refresh();
+        _ = ReadInstallAsync();
     }
 
     /// <summary>Re-read the game list badge (after Use / Apply in the detail page, or a reload of the game after a session).</summary>
-    public void RefreshBadge()
+    public void RefreshBadge() => RefreshBadge(readInstall: true);
+
+    private void RefreshBadge(bool readInstall)
     {
+        if (readInstall) _ = ReadInstallAsync();
         _healthLoaded = false;
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusLine));

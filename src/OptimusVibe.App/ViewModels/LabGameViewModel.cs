@@ -66,6 +66,7 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _postLoaded;
     private PostSessionCard? _post;
     private DateTime? _postDetailsFor;
+    private DateTime? _keepConfirmFor;
 #if DEBUG
     private PostSessionCard? _demoPost;
     private bool _demo;
@@ -503,7 +504,7 @@ public sealed class LabGameViewModel : ObservableObject
             }
             case "post-changed":
             {
-                var run = Session(10, CaptureAnswer.Off);
+                var run = Session(10, CaptureAnswer.NotAsked); // the wrapper never asked (--no-prompt), so the card offers "Keep these"
                 Post(Inputs() with { Recent = [run] }, run);
                 break;
             }
@@ -513,6 +514,7 @@ public sealed class LabGameViewModel : ObservableObject
                 before.Utc = DateTime.UtcNow.AddDays(-1);
                 var run = Session(10, CaptureAnswer.DontSave, sec: 120);
                 Post(Inputs() with { Recent = [before, run] }, run);
+                _demoSuggest = GameFlags.PassiveSuggestionReason(2); // as Health.FlagReason gives it, so "Flag as set in-game" is enabled
                 break;
             }
             case "post-updated":
@@ -677,8 +679,7 @@ public sealed class LabGameViewModel : ObservableObject
     public bool ShowSuggested => Suggested != HealthAction.None && !(Suggested == HealthAction.FlagSetInGame && (_flagConfirming || HasResult)) &&
                                  !PostOffers(Suggested);
 
-    private bool PostOffers(HealthAction action) =>
-        PostCard is { } c && (PostSession.AsHealthAction(c.Primary) == action || PostSession.AsHealthAction(c.Secondary) == action);
+    private bool PostOffers(HealthAction action) => PostCard is { } c && c.Offers(action);
 
     // ---------------------------------------------------------------- post-session card: inline, once, B = Not now
 
@@ -712,7 +713,16 @@ public sealed class LabGameViewModel : ObservableObject
 
     public bool HasPostSession => PostCard is not null;
     public string PostSessionText => PostCard?.Text ?? "";
-    public string PostSessionWhy => PostCard?.Why ?? "";
+    public string PostSessionWhy => IsKeepConfirming ? PostSession.KeepConfirmText : PostCard?.Why ?? "";
+
+    /// <summary>"Keep these" was pressed once: the card asks before it saves (A = Save and use, B = Cancel).</summary>
+    public bool IsKeepConfirming => PostCard is { } c && _keepConfirmFor == c.Run.Utc;
+
+    /// <summary>
+    /// Keyboard or gamepad focus is inside the card (set by the panel). Only then does B close it: a card below the fold or on a page the player
+    /// only passes through never swallows B (or snoozes itself unseen).
+    /// </summary>
+    public bool PostCardHasFocus { get; set; }
     public bool HasPostSessionWhy => PostSessionWhy.Length > 0;
 
     /// <summary>"See which" was pressed: the card lists the settings the game changed.</summary>
@@ -729,12 +739,12 @@ public sealed class LabGameViewModel : ObservableObject
         action is { } a && a != PostSessionAction.None && !(a == PostSessionAction.SeeWhich && ShowPostLines);
 
     public bool ShowPostPrimary => ShowPostAction(PostCard?.Primary);
-    public string PostPrimaryText => PostSession.ActionText(PostCard?.Primary ?? PostSessionAction.None);
+    public string PostPrimaryText => IsKeepConfirming ? PostSession.KeepConfirmAction : PostSession.ActionText(PostCard?.Primary ?? PostSessionAction.None);
     public bool ShowPostSecondary => ShowPostAction(PostCard?.Secondary);
     public string PostSecondaryText => PostSession.ActionText(PostCard?.Secondary ?? PostSessionAction.None);
 
     /// <summary>B: "Not now" keeps this kind of card away for a few days; the one-off "kept all" card just closes.</summary>
-    public string PostDismissText => PostCard is { CanSnooze: false } ? "OK" : "Not now";
+    public string PostDismissText => IsKeepConfirming ? "Cancel" : PostCard is { CanSnooze: false } ? "OK" : "Not now";
 
     /// <summary>
     /// The card should take focus now: it asks for something, it arrived after a session the player just came back from, and no panel has taken
@@ -761,13 +771,23 @@ public sealed class LabGameViewModel : ObservableObject
         _ => false,
     };
 
-    /// <summary>A card button: "See which" opens the list in place; every other one closes the card and runs the existing action (its confirm card opens).</summary>
+    /// <summary>
+    /// A card button: "See which" opens the list in place; "Keep these" first asks on the card (<see cref="PostSession.Confirms"/>) and saves on
+    /// the second press; every other one closes the card and runs the existing action (its confirm card opens).
+    /// </summary>
     private async Task RunPostAsync(PostSessionAction action)
     {
         if (PostCard is not { } card) return;
         if (action == PostSessionAction.SeeWhich)
         {
             _postDetailsFor = card.Run.Utc;
+            RaisePost();
+            return;
+        }
+        if (PostSession.Confirms(action) && !IsKeepConfirming)
+        {
+            ClearTransient(); // one card asks at a time
+            _keepConfirmFor = card.Run.Utc;
             RaisePost();
             return;
         }
@@ -786,12 +806,27 @@ public sealed class LabGameViewModel : ObservableObject
         }
     }
 
-    private void DismissPost() => ClosePost(snooze: true);
+    /// <summary>B / "Not now": while "Keep these" asks, only that question closes (the card stays); otherwise the card closes and snoozes.</summary>
+    private void DismissPost()
+    {
+        if (CancelKeepConfirm()) return;
+        ClosePost(snooze: true);
+    }
+
+    private bool CancelKeepConfirm()
+    {
+        if (_keepConfirmFor is null) return false;
+        var was = IsKeepConfirming;
+        _keepConfirmFor = null;
+        RaisePost();
+        return was;
+    }
 
     private void ClosePost(bool snooze)
     {
         var card = PostCard;
         _postDetailsFor = null;
+        _keepConfirmFor = null;
 #if DEBUG
         if (_demo)
         {
@@ -810,7 +845,9 @@ public sealed class LabGameViewModel : ObservableObject
                  {
                      nameof(PostCard), nameof(HasPostSession), nameof(PostSessionText), nameof(PostSessionWhy), nameof(HasPostSessionWhy), nameof(ShowPostLines),
                      nameof(PostLines), nameof(PostLinesMore), nameof(HasPostLinesMore), nameof(ShowPostPrimary), nameof(PostPrimaryText), nameof(ShowPostSecondary),
-                     nameof(PostSecondaryText), nameof(PostDismissText), nameof(ShowSuggested),
+                     nameof(PostSecondaryText), nameof(PostDismissText), nameof(IsKeepConfirming), nameof(ShowSuggested),
+                     nameof(ShowRequestInMore), nameof(ShowRefreshInMore), nameof(ShowTestInMore), nameof(ShowMapInMore), nameof(ShowManageAgainInMore),
+                     nameof(ShowFlagInMore), nameof(HasMore),
                  })
             OnPropertyChanged(n);
         CommandManager.InvalidateRequerySuggested();
@@ -830,15 +867,18 @@ public sealed class LabGameViewModel : ObservableObject
 
     public string MoreText => _moreOpen ? "Less" : "More";
 
-    public bool ShowRequestInMore => ShowRequest && Suggested != HealthAction.RequestPresets;
-    public bool ShowRefreshInMore => ShowRefresh && Suggested != HealthAction.RefreshPresets;
+    // each action once: not under More while the suggested button or the post-session card offers it (it comes back when the card closes)
+    private bool InMore(bool shown, HealthAction action) => shown && Suggested != action && !PostOffers(action);
+
+    public bool ShowRequestInMore => InMore(ShowRequest, HealthAction.RequestPresets);
+    public bool ShowRefreshInMore => InMore(ShowRefresh, HealthAction.RefreshPresets);
     public bool ShowSyncCheckInMore => ShowSyncCheck;
-    public bool ShowTestInMore => ShowTest && Suggested != HealthAction.TestPreset;
-    public bool ShowMapInMore => ShowMap && Suggested != HealthAction.MapGame;
-    public bool ShowManageAgainInMore => ShowManageAgain && Suggested != HealthAction.ManageAgain;
+    public bool ShowTestInMore => InMore(ShowTest, HealthAction.TestPreset);
+    public bool ShowMapInMore => InMore(ShowMap, HealthAction.MapGame);
+    public bool ShowManageAgainInMore => InMore(ShowManageAgain, HealthAction.ManageAgain);
 
     /// <summary>"Flag as set in-game" while it is suggested by the evidence but not the state's own suggestion (the state shows a stronger one).</summary>
-    public bool ShowFlagInMore => ShowSuggest && Suggested != HealthAction.FlagSetInGame;
+    public bool ShowFlagInMore => InMore(ShowSuggest, HealthAction.FlagSetInGame);
 
     public bool HasMore => ShowRequestInMore || ShowRefreshInMore || ShowSyncCheckInMore || ShowTestInMore || ShowMapInMore || ShowManageAgainInMore || ShowFlagInMore;
 
@@ -1236,7 +1276,8 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>
     /// B / Esc: closes the top card only. A confirmation (request, test or "send the test result") goes first; the test result
-    /// underneath closes on the next press, then the post-session card ("Not now"), then an open "More" collapses. True when something was closed.
+    /// underneath closes on the next press, then the post-session card ("Not now", only while focus is in it), then an open "More" collapses.
+    /// True when something was closed.
     /// </summary>
     public bool CancelTransient()
     {
@@ -1247,7 +1288,8 @@ public sealed class LabGameViewModel : ObservableObject
             OnPropertyChanged(string.Empty);
             return true;
         }
-        if (HasPostSession)
+        // only while focus is in the card: one the player has not reached (below the fold, an old session) never takes B or snoozes unseen
+        if (HasPostSession && PostCardHasFocus)
         {
             DismissPost();
             return true;
@@ -1272,6 +1314,7 @@ public sealed class LabGameViewModel : ObservableObject
     private bool ClearTransient()
     {
         var any = IsConfirming || _testConfirming || _forgetConfirming || _flagConfirming;
+        any |= CancelKeepConfirm(); // "Keep these" asking on the post-session card is a confirmation too
         _generation++;
         _confirming = null;
         _verifyText = null;

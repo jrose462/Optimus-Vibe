@@ -132,7 +132,7 @@ public sealed record HealthInputs
     /// <summary>
     /// The inputs a resolved game context gives without the app's lab state (no lab request, mapping run or installed build): its run history,
     /// presets, effective flag, current preset, configured files and the presets mark, plus the given cloud-sync report. The library tile's
-    /// chip is judged from these; the app adds what it knows on top.
+    /// chip is judged from these plus <see cref="WithInstall"/> (the lab request never changes the chip); the app adds what it knows on top.
     /// </summary>
     public static HealthInputs FromContext(Engine.GameContext ctx, CloudSyncReport? cloudSync = null)
     {
@@ -150,6 +150,13 @@ public sealed record HealthInputs
             Presets = new LabStateStore(dataDir).Load().PresetsFor(gameId),
         };
     }
+
+    /// <summary>
+    /// These inputs plus what only the installed game and this PC's lab files tell: the installed build (<see cref="GameBuild"/>) and the stored
+    /// mapping run. The library tile adds them to <see cref="FromContext"/>'s, so its chip follows the same evidence as the game page (a mapping
+    /// run that found the settings only in a binary file suggests "set in-game" on both).
+    /// </summary>
+    public HealthInputs WithInstall(string? currentBuild, ProbeRecord? mapping) => this with { CurrentBuild = currentBuild, Mapping = mapping };
 
     /// <summary>Inputs for a game with its run history (last run, last verify run, the ring and both streaks) read from <c>run-results.json</c>.</summary>
     public static HealthInputs FromRuns(string dataDir, string gameId, string device)

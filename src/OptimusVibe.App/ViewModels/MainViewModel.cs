@@ -855,6 +855,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private RunResultWatcher? _sessionWatch;
     private bool _checkingSessions;
     private bool _checkSessionsAgain;
+    private readonly Dictionary<string, DateTime> _sessionsOffered = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A game's session finished (the wrapper stored its run): the game was reloaded and its card offered.</summary>
     public event Action<string>? SessionFinished;
@@ -890,22 +891,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 _checkSessionsAgain = false;
                 var dataDir = session.Paths.DataDir;
                 var device = session.Device.Name;
-                var fresh = await Task.Run(() =>
-                {
-                    var store = new LabStateStore(dataDir);
-                    var state = store.Load();
-                    var found = PostSession.Detect(RunResults.Entries(dataDir, device), state.SessionsSeen, state.SessionsBaselined);
-                    if (found.Changed || !state.SessionsBaselined)
-                        store.Update(s =>
-                        {
-                            foreach (var (gameId, utc) in found.Seen)
-                                if (!s.SessionsSeen.TryGetValue(gameId, out var seen) || utc > seen) s.SessionsSeen[gameId] = utc;
-                            s.SessionsBaselined = true;
-                        });
-                    return found.Fresh;
-                });
+                var check = await Task.Run(() => new LabStateStore(dataDir).MarkSessionsSeen(RunResults.Entries(dataDir, device)));
                 if (Session != session) return;
-                foreach (var run in fresh)
+                if (!check.Saved && check.Fresh.Count > 0) Log.Warn("Could not store which sessions were seen; their cards show once in this run.");
+                // a session whose seen mark could not be stored would come back on every look: offer each one once per app run
+                foreach (var run in PostSession.NotOfferedYet(check.Fresh, _sessionsOffered))
                 {
                     Log.Info($"{run.Game}: session finished ({run.Drift.Count} of {run.Applied} changed, {run.DurationSec?.ToString(CultureInfo.InvariantCulture) ?? "?"} s)");
                     if (Games.Any(g => string.Equals(g.Id, run.Game, StringComparison.OrdinalIgnoreCase))) await ReloadGameAsync(run.Game);

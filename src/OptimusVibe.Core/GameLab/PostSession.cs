@@ -27,7 +27,10 @@ public enum PostSessionAction
 {
     None,
 
-    /// <summary>Keep what the game left as a manual save (the test result's "Make a manual save").</summary>
+    /// <summary>
+    /// Keep what the game left as a manual save (the test result's "Make a manual save"). It writes, so it asks on the card first
+    /// (<see cref="PostSession.Confirms"/>), and a card that offers it never takes focus by itself.
+    /// </summary>
     KeepThese,
 
     /// <summary>List the settings the game changed, in the card.</summary>
@@ -54,8 +57,19 @@ public sealed record PostSessionCard
     /// <summary>"Not now" snoozes this kind of card for the game (<see cref="PostSession.SnoozeDays"/>); the one-off "kept all" card just closes.</summary>
     public bool CanSnooze => Kind != PostSessionKind.Held;
 
-    /// <summary>The card asks for something, so it takes focus when the player comes back to the game's page (the "kept all" card never does).</summary>
-    public bool TakesFocus => Kind != PostSessionKind.Held && Primary != PostSessionAction.None;
+    /// <summary>
+    /// The card asks for something, so it takes focus when the player comes back to the game's page. The "kept all" card never does, and neither
+    /// does one whose first button would write the player's settings ("Keep these"): a reflex A press on the way back from the game must not
+    /// land on it.
+    /// </summary>
+    public bool TakesFocus => Kind != PostSessionKind.Held && Primary is not (PostSessionAction.None or PostSessionAction.KeepThese);
+
+    /// <summary>
+    /// The card has a button for this health action (<see cref="PostSession.AsHealthAction"/>), so the panel's own button for it (the suggested
+    /// one, or its row under "More") steps aside while the card is open: each action is on screen once.
+    /// </summary>
+    public bool Offers(HealthAction action) =>
+        action != HealthAction.None && (PostSession.AsHealthAction(Primary) == action || PostSession.AsHealthAction(Secondary) == action);
 }
 
 /// <summary>
@@ -71,6 +85,34 @@ public static class PostSession
     public const string RunResultsFileName = "run-results.json";
 
     public static string SnoozeKey(string gameId, PostSessionKind kind) => $"{gameId}|{kind}";
+
+    /// <summary>
+    /// The card actions that ask on the card itself before they run (the others open their own command's confirm card): "Keep these" writes a
+    /// manual save of what the game's files hold now and makes it active.
+    /// </summary>
+    public static bool Confirms(PostSessionAction action) => action == PostSessionAction.KeepThese;
+
+    /// <summary>The dim line while "Keep these" asks (the files may have changed since the session the card is about).</summary>
+    public const string KeepConfirmText = "This saves the game's settings as they are now as a manual save and makes it the active setting.";
+
+    /// <summary>The button that confirms "Keep these".</summary>
+    public const string KeepConfirmAction = "Save and use";
+
+    /// <summary>
+    /// The sessions of <paramref name="fresh"/> not offered yet in this app run, recording them in <paramref name="offered"/> (game id, run time).
+    /// The seen marks in gamelab-state.json normally keep a session from coming back; this keeps it away too while that file cannot be written.
+    /// </summary>
+    public static IReadOnlyList<RunResult> NotOfferedYet(IEnumerable<RunResult> fresh, IDictionary<string, DateTime> offered)
+    {
+        var result = new List<RunResult>();
+        foreach (var run in fresh)
+        {
+            if (offered.TryGetValue(run.Game, out var last) && run.Utc <= last) continue;
+            offered[run.Game] = run.Utc;
+            result.Add(run);
+        }
+        return result;
+    }
 
     /// <summary>A file-system event on <paramref name="path"/> may mean a session finished: only <c>run-results.json</c> itself counts.</summary>
     public static bool IsSessionSignal(string? path) =>
@@ -119,7 +161,8 @@ public static class PostSession
     /// <item><see cref="PostSessionKind.Changed"/>: the game changed some of the preset's settings this session (as the health counts it);</item>
     /// <item><see cref="PostSessionKind.Held"/>: the game kept everything, the first time since the presets arrived or the build changed.</item>
     /// </list>
-    /// Nothing here files, flags or launches: every action is the player's press, with its usual confirm card.
+    /// Nothing here files, flags, saves or launches: every action is the player's press, with its usual confirm card ("Keep these" asks on the
+    /// card itself, <see cref="Confirms"/>).
     /// </summary>
     public static PostSessionCard? For(HealthInputs i, GameHealth health, RunResult run, string name, IReadOnlySet<PostSessionKind>? snoozed = null)
     {
@@ -163,8 +206,9 @@ public static class PostSession
             health.State is HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside or HealthState.GameUpdated &&
             !Off(PostSessionKind.Changed))
         {
-            // the player already said "don't keep them" at the capture prompt: don't ask again, just show which
-            var keep = run.Capture != CaptureAnswer.DontSave && i.HasConfig;
+            // offer to keep them only when the wrapper never asked (--no-prompt). The player already answered at the capture prompt (don't save)
+            // or turned that question off for this game (don't ask again / off): don't ask again here, just show which
+            var keep = run.Capture == CaptureAnswer.NotAsked && i.HasConfig;
             return new PostSessionCard
             {
                 Kind = PostSessionKind.Changed, Run = run,

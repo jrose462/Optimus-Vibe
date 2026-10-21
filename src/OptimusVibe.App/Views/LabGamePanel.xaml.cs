@@ -15,18 +15,22 @@ public partial class LabGamePanel : UserControl
     public LabGamePanel()
     {
         InitializeComponent();
+        // B closes the post-session card only while focus is in it (LabGameViewModel.CancelTransient)
+        PostCard.IsKeyboardFocusWithinChanged += (_, e) => { if (_vm is not null) _vm.PostCardHasFocus = e.NewValue is true; };
         DataContextChanged += (_, _) =>
         {
             if (_vm is not null)
             {
                 _vm.PropertyChanged -= OnVmChanged;
                 _vm.PostSessionFocusRequested -= FocusPostCardSoon;
+                _vm.PostCardHasFocus = false;
             }
             _vm = DataContext as LabGameViewModel;
             if (_vm is not null)
             {
                 _vm.PropertyChanged += OnVmChanged;
                 _vm.PostSessionFocusRequested += FocusPostCardSoon;
+                _vm.PostCardHasFocus = PostCard.IsKeyboardFocusWithin;
             }
         };
     }
