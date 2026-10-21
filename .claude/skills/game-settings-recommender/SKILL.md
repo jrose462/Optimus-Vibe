@@ -41,7 +41,7 @@ Read before writing presets: `references/hardware.md` (what the two devices can 
 `references/preset-guidelines.md` (rules per preset, cost of settings, research sources),
 `references/engine-notes.md` (where UE/Unity/Frostbite/etc. keep settings and the real key names),
 `references/awkward-stores.md` (binary/opaque files, composite values, research fallbacks, store ids, cloud sync),
-`references/settings-store-archetypes.md` (the ten archetypes A-J, launch args by engine).
+`references/settings-store-archetypes.md` (the nine archetypes by name, the not-installed case, launch args by engine and how they reach Steam games).
 `scripts/strings.js` (strings view of binary files and exes). `<skill>` below = this skill's folder.
 Docs: the app repo's `CLAUDE.md` and `README.md`; in the config repo `config/games/_template.yaml` (every field and
 handler syntax) and any existing `config/games/<id>.yaml` as a worked example.
@@ -49,11 +49,13 @@ handler syntax) and any existing `config/games/<id>.yaml` as a worked example.
 ## Hard rules
 
 1. **Never invent keys.** Every key in a preset must come from a cited source or from `inspect` output on the
-   user's machine. A key you could not confirm on the machine gets `# TODO verify (<what is unsure>)` on its line;
-   if a wrong value could break the game (resolution, window mode, a binary/enum value you are guessing the
-   spelling of), leave it out of the presets entirely and mention it in `notes:`. `# TODO verify` also covers
-   **behaviour**: a confirmed key the game may ignore or override (a duplicate in a second store, a key with no
-   menu option such as UE `FrameRateLimit`, a quick-preset key that re-applies its own values on boot).
+   user's machine. A key or value you have not probed (confirmed on the machine) is not written to a preset: leave it
+   out and describe it in `notes:` or in prose. `# TODO` comments are fine for plans (what to probe next, what a
+   refresh should check), but a preset never ships an unprobed value behind a TODO. A game that is not installed gets
+   the comment `not installed: keys unverified` and no keys in its presets. A confirmed key the game may ignore or
+   override (a duplicate in a second store, a key with no menu option such as UE `FrameRateLimit`, a quick-preset key
+   that re-applies its own values on boot) is a **behaviour** doubt: say so in a comment and settle it with
+   `run --verify`.
 2. **Never touch `config/saves/`** (user-owned manual saves, git-synced by the app) — not even to "fix" them. If
    a save would conflict with your change (e.g. you renamed a file id), tell the user. Likewise never edit
    `config/library.yaml` unless the user asks; in `config/requests.yaml` only remove entries you have handled.
@@ -100,15 +102,21 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
 1. **PCGamingWiki via the MediaWiki API** (normal pages 403; never write "wiki 403/unreachable" in sources):
    `Invoke-RestMethod -UserAgent 'Mozilla/5.0' 'https://www.pcgamingwiki.com/w/api.php?action=parse&prop=wikitext&page=<Title>&formatversion=2&format=json'`
    (wikitext is `.parse.wikitext`). Resolve the title first with `...api.php?action=query&list=search&srsearch=<name>&format=json`
-   (e.g. `Doom (2016)`). Extract: Game data/config and saves paths, the cloud table, Fixbox blocks, Command line
+   (e.g. `Doom (2016)`). Page titles must be resolved via `list=search`; guessing the title from the game name often
+   misses (disambiguation suffixes, subtitles, remasters). Extract: Game data/config and saves paths, the cloud table, Fixbox blocks, Command line
    arguments, the Video table (fps caps, upscalers). Record the wiki title and fetch date under `recommendation.sources`.
    Real launches (Map this game, `probe`) and Test preset results outrank wiki claims.
 2. **Classify** with `references/settings-store-archetypes.md`: is the readable file rewritten on exit? is it inside the
    saves path or `remotecache.vdf`? is there a port-specific second file? are there composite values? does the launcher
-   gate the start? Write `archetype:` and `mappable:` in the header comment before `presets:`.
+   gate the start? Set `archetype:` (exactly one of `plain-honoured`, `binary-truth`, `text-mirror`, `composite`,
+   `local-cloud-split`, `first-run`, `registry`, `launcher-gated`, `server-held`; never a letter) and `mappable:`
+   (true/false). They are real top-level game-file fields when the config repo's `_template.yaml` /
+   `game.schema.json` list them, otherwise a header comment before `presets:`. A game that is not installed gets no
+   archetype: the comment `not installed: keys unverified` and no keys in presets.
 3. **Mapping pass is mandatory**: run `optimus-vibe map <id>` then `probe`, changing each option once (quality tiers,
    upscaler type and mode, AA, fps cap, vsync, window mode, refresh). Paste keys and spellings exactly. No
-   `# TODO verify` keys ship. Prose `In-game:` sentences are allowed only for HDR, TDP or options absent from every store.
+   unprobed key or value ships in a preset (leave it out and describe it in `notes:`; a `# TODO` comment is fine for a
+   plan). Prose `In-game:` sentences are allowed only for HDR, TDP or options absent from every store.
 4. **Prefer machine-local files over cloud-synced ones**: check each candidate with `remotecache.vdf` / `cloud-check`.
    If only a synced file exists (or wiki/cloud says settings sync), generate both device presets with distinct
    `snapshotsFrom` names (`<game>-<device>-<preset>`) and say in the `description` that the other device will receive
@@ -117,8 +125,11 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
    the source device, note order sensitivity.
 6. **Verify**: after the first managed launch run `run --verify` on desktop and Ally and store the results; a game is
    "trusted" only after `held`. After every map/verify, rewrite stale header comments from the evidence.
-7. Launch args by engine (table in the archetypes reference) are preferred over touching synced files once the args
-   feature lands.
+7. Launch args by engine (table in the archetypes reference) go in `launch.args` (one token per entry; a preset can add
+   `launch: { args }`) and are preferred over touching synced files. Optimus-Vibe starts Steam games with
+   `steam.exe -applaunch <id> <args>` (the `steam://rungameid/<id>//args` URI drops the args: tested) and appends
+   `launch.args` after `%command%` for wrapped launches. Launcher slowness: `launch.waitSeconds`,
+   `launch.launcherProcesses`; launcher sync overwriting the preset: `applyTiming` / `settleSeconds`.
 
 ### (a) Identify the game
 
@@ -173,7 +184,7 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
 3. Use **exactly** the section names, key names, value types and spellings the file shows (e.g. `sg.ShadowQuality=3`
    is an int, `bUseVSync=False` a capitalized bool, UE floats like `FrameRateLimit=60.000000`). Keys the game
    writes only after an option is changed in-game may be absent: confirm them by toggling the option in-game and
-   re-inspecting, or mark them `# TODO verify`.
+   re-inspecting. Until probed, leave them out of the presets (describe in `notes:`).
 4. If you are on the desktop, the Ally X file is not visible; same game version = same keys, but values like
    resolution may differ — note that in comments.
 5. Binary/opaque stores (e.g. a UE `GameUserSettings.sav`): `inspect` dumps them as garbled text — expected.
@@ -204,7 +215,7 @@ Read `references/hardware.md` and `references/preset-guidelines.md` first, then:
 - Desktop: `display: inherit`; `nvidia: { FrameRateLimiter: 162 }`. With frame generation on, rely on the driver
   cap/Reflex and leave the in-game limiter off (it can cap the *base* framerate).
   Ally X: `display: { width: 1920, height: 1080, refresh: 120 }`; leave `amd:` commented out.
-- Put a short comment next to any non-obvious value, and `# TODO verify` where (c) could not confirm.
+- Put a short comment next to any non-obvious value, and, where (c) could not confirm a value, leave it out of the presets and say so in `notes:`.
 - Keep the `# yaml-language-server: $schema=../schema/game.schema.json` header and a header comment naming the
   file location, format, and what was verified vs not.
 
@@ -234,8 +245,7 @@ gp presets <id>; gp presets <id> --profile ally-x               # labels, fps ta
   `up to date`. Success = no `(missing)` as a current value (and, for json, no error). `(missing)` means the key
   or path is not in the file: re-check spelling. Consequences differ by handler — ini/keyvalue **append** the
   key (a typo silently adds a dead key), json fails `apply` for that file when an array filter matches nothing,
-  xml never creates nodes. If a key is genuinely absent until changed in-game, keep it only with
-  `# TODO verify` and say so.
+  xml never creates nodes. If a key is genuinely absent until changed in-game, leave it out of the presets and say so in `notes:` (a `# TODO` plan comment is fine).
 - `user: skipped — not found` means the settings file does not exist on this machine (game never launched here,
   or you are previewing a file that only exists on the other device); the key diff cannot be checked then.
 - Optionally schema-check with node + ajv against `config/schema/game.schema.json` (python may not be installed).
@@ -255,7 +265,7 @@ trailers the session requires (e.g. `Co-Authored-By:` / `Claude-Session:` lines 
 `git pull --rebase` and `git push`. If the push fails, report it; never force-push. If you were told someone
 else commits (e.g. you are a subagent), skip this step and say so.
 
-Finish with a short report: presets and their targets, keys still `# TODO verify`, what the user should test
+Finish with a short report: presets and their targets, keys left out as unprobed, what the user should test
 in-game, and the sources.
 
 ## Workflow: refresh (after a patch, or "refresh recommendations")
@@ -263,7 +273,7 @@ in-game, and the sources.
 1. Read the existing `config/games/<id>.yaml`, its `recommendation:` block and `notes:`.
 2. Re-run (b) for patch notes that add/rename/remove graphics options (new upscaler versions, new presets,
    moved files) and (c) `gp inspect <id>` to diff the live file against the mapped keys.
-3. Update keys and values; resolve `# TODO verify` items that inspect now confirms; keep preset names stable
+3. Update keys and values; probe what was left out (and any `# TODO` plans) and add what inspect now confirms; keep preset names stable
    (the app remembers selections by name — renaming one silently falls back to the device default).
 4. Do not delete a file id or key that manual saves use without telling the user: list
    `config/saves/<id>/*/*/save.yaml` (read-only) to see which keys saves rely on.
@@ -286,7 +296,7 @@ If the user asks to refresh all games, do one game per commit. Existing configs 
    - `installDir`: where to find the engine (`Engine\`, `*_Data\`) and the exe string table; `exes` seeds
      `processes:` (still check launcher stub vs real game exe).
    - `device` other than the one you run on: `gp inspect` cannot see its file, so confirm keys from sources and
-     the exe, mark the rest `# TODO verify`, and tell the user to run `gp inspect <id>` on that device.
+     the exe, leave unconfirmed ones out of the presets (say so in `notes:`), and tell the user to run `gp inspect <id>` on that device.
    - A config for the game already exists but lacks this id: add the `steamAppId`/`storeIds` to it instead of
      creating a duplicate.
 3. In the **same commit** as the game file, delete exactly that entry from `config/requests.yaml` (keep the
@@ -298,5 +308,5 @@ If the user asks to refresh all games, do one game per commit. Existing configs 
    `gp opt-out <store>:<id>`, which you run only if they say so). Also stop on an unfixable validation error or a
    failed push.
 
-Final report: games added (id, presets/targets, `cloudSyncsSettings` + evidence, TODO-verify items, which device
+Final report: games added (id, presets/targets, `cloudSyncsSettings` + evidence, keys left out as unprobed, which device
 must run `inspect`), entries still queued with the reason, and suggested opt-outs.

@@ -146,8 +146,8 @@ assumption on ally-x), `targetFps`.
   an in-game 162 with FG would double past the refresh rate or fight the driver cap.
 - **Desktop with frame generation off**: driver cap 162, plus the in-game limiter at 162 if the game has one
   (lower latency than the driver cap alone).
-- UE `FrameRateLimit` in GameUserSettings.ini is often honoured even when no menu option exists. Mark it
-  `# TODO verify (no menu option; may be ignored)` unless confirmed.
+- UE `FrameRateLimit` in GameUserSettings.ini is often honoured even when no menu option exists. Leave it out of the presets unless confirmed (note it in `notes:`);
+  `run --verify` settles whether it is honoured.
 
 ## What costs the most (UE4/UE5 and most modern engines)
 
