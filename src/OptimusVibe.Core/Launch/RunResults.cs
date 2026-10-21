@@ -318,6 +318,20 @@ public static class RunResults
         return e;
     }
 
+    /// <summary>Game id → everything stored for it on a device, in one read of the file (fresh copies; empty when none).</summary>
+    public static Dictionary<string, RunResultEntry> Entries(string dataDir, string device)
+    {
+        var m = Read(dataDir);
+        var all = new Dictionary<string, RunResultEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (gameId, devices) in m.Games)
+        {
+            if (devices is null || !devices.TryGetValue(device, out var e) || e is null) continue;
+            e.Recent ??= [];
+            all[gameId] = e;
+        }
+        return all;
+    }
+
     /// <summary>The last normal runs of a game on a device, oldest first (empty when none).</summary>
     public static IReadOnlyList<RunResult> Recent(string dataDir, string gameId, string device) =>
         Entry(dataDir, gameId, device)?.Recent ?? [];

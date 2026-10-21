@@ -136,6 +136,22 @@ public sealed class LabState
 
     /// <summary>The mark for a game, or null when no lab result was pulled for it on this device.</summary>
     public PresetsMark? PresetsFor(string gameId) => PresetsMade.TryGetValue(gameId, out var m) ? m : null;
+
+    /// <summary>
+    /// Game id → the newest normal run the post-session card has looked at (<see cref="PostSession.Detect"/>), so each session is offered once,
+    /// also across restarts of the app.
+    /// </summary>
+    public Dictionary<string, DateTime> SessionsSeen { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The first look at run-results.json counts every session already there as seen, so old sessions never show a card.</summary>
+    public bool SessionsBaselined { get; set; }
+
+    /// <summary>"game id|card kind" → until when that post-session card stays away ("Not now", <see cref="PostSession.SnoozeDays"/>).</summary>
+    public Dictionary<string, DateTime> Snoozed { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The post-session card kinds snoozed for a game at <paramref name="nowUtc"/>.</summary>
+    public IReadOnlySet<PostSessionKind> SnoozedFor(string gameId, DateTime nowUtc) =>
+        Enum.GetValues<PostSessionKind>().Where(k => Snoozed.TryGetValue(PostSession.SnoozeKey(gameId, k), out var until) && until > nowUtc).ToHashSet();
 }
 
 /// <summary>
@@ -223,6 +239,8 @@ public sealed class LabStateStore(string dataDir)
             s.Requested = new Dictionary<string, DateTime>(s.Requested ?? [], StringComparer.OrdinalIgnoreCase);
             s.Applied ??= [];
             s.PresetsMade = new Dictionary<string, PresetsMark>(s.PresetsMade ?? [], StringComparer.OrdinalIgnoreCase);
+            s.SessionsSeen = new Dictionary<string, DateTime>(s.SessionsSeen ?? [], StringComparer.OrdinalIgnoreCase);
+            s.Snoozed = new Dictionary<string, DateTime>(s.Snoozed ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)

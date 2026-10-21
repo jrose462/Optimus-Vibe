@@ -73,6 +73,20 @@ public sealed record GameHealth
     /// <summary>States worth a chip on the library tile.</summary>
     public bool NeedsAttention => State is HealthState.GameUpdated or HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside;
 
+    /// <summary>
+    /// The library tile's attention chip: "Game updated" or "Changed by game" (a game the evidence says may need to be set in-game is one the
+    /// game keeps changing); null for every other state. A flagged game needs none: its tile already says "Set in-game".
+    /// </summary>
+    public string? TileChip => State switch
+    {
+        HealthState.GameUpdated => GameUpdatedChip,
+        HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside => ChangedByGameChip,
+        _ => null,
+    };
+
+    public const string GameUpdatedChip = "Game updated";
+    public const string ChangedByGameChip = "Changed by game";
+
     public const string ResearchFinishedLine = "Research finished - try managing settings again?";
     public const string ConfigFlagLine = "The game lab set this flag, so only it can lift it. It does that when its research finds a way to set this game's settings.";
 
@@ -261,6 +275,15 @@ public sealed record GameHealth
         return n;
     }
 
+    /// <summary>
+    /// A normal run the health counts as "the game changed settings" (<see cref="HealthState.GameChangedSettings"/>): its passive verdict says
+    /// so, or most of the preset drifted and the player did not keep it as a save, unless it points at cloud sync.
+    /// </summary>
+    public static bool ChangedByGame(RunResult run, PassiveVerdict verdict) => Runs.NormalChanged(run, verdict);
+
+    /// <summary>A run (or test) of the preset that applies now (<see cref="HealthInputs.CurrentPreset"/>); every run counts when that isn't known.</summary>
+    public static bool CountsForCurrentPreset(HealthInputs i, RunResult run) => Runs.CountsFor(i, run);
+
     /// <summary>Every opaque file of a mapping run is (by file name) one of the game's configured files.</summary>
     public static bool AllConfigured(IReadOnlyList<string> opaqueFiles, IReadOnlyList<string> configuredFiles)
     {
@@ -343,7 +366,7 @@ public sealed record GameHealth
         /// A normal run counts as "the game changed settings" when its passive verdict says so, or (the old "Test preset?" hint) when most
         /// of the preset drifted and the player did not keep it as a save, unless it points at cloud sync.
         /// </summary>
-        private static bool NormalChanged(RunResult r, PassiveVerdict verdict) =>
+        public static bool NormalChanged(RunResult r, PassiveVerdict verdict) =>
             verdict == PassiveVerdict.Overridden ||
             (RunResults.NeedsHint(r) && r.Capture != CaptureAnswer.Saved && verdict is not (PassiveVerdict.SyncSuspect or PassiveVerdict.UserSaved or PassiveVerdict.Held));
     }

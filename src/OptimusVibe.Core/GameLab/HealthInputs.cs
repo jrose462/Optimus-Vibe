@@ -129,6 +129,28 @@ public sealed record HealthInputs
     /// <summary>Either streak is long enough to suggest flagging the game "set in-game".</summary>
     public bool SuggestsFlagFromRuns => GameFlags.SuggestsFromVerify(OverriddenStreak) || GameFlags.SuggestsFromPassive(PassiveOverriddenStreak);
 
+    /// <summary>
+    /// The inputs a resolved game context gives without the app's lab state (no lab request, mapping run or installed build): its run history,
+    /// presets, effective flag, current preset, configured files and the presets mark, plus the given cloud-sync report. The library tile's
+    /// chip is judged from these; the app adds what it knows on top.
+    /// </summary>
+    public static HealthInputs FromContext(Engine.GameContext ctx, CloudSyncReport? cloudSync = null)
+    {
+        var dataDir = ctx.Paths.DataDir;
+        var gameId = ctx.Game.Id;
+        return FromRuns(dataDir, gameId, ctx.Device.Name) with
+        {
+            HasConfig = true,
+            HasPresets = !ctx.Profile.IsEmpty,
+            Flag = ctx.InGame,
+            FlagFromConfig = ctx.InGame is not null && GameFlags.FromConfig(ctx.Game) is not null,
+            CurrentPreset = ctx.Profile.IsEmpty ? null : ctx.Preset?.ToString(),
+            ConfiguredFiles = ctx.Game.Files.Select(f => f.Path).Where(p => p.Length > 0).ToList(),
+            CloudSync = cloudSync,
+            Presets = new LabStateStore(dataDir).Load().PresetsFor(gameId),
+        };
+    }
+
     /// <summary>Inputs for a game with its run history (last run, last verify run, the ring and both streaks) read from <c>run-results.json</c>.</summary>
     public static HealthInputs FromRuns(string dataDir, string gameId, string device)
     {
