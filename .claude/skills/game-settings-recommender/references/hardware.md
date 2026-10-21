@@ -90,7 +90,9 @@ and (Profile Inspector ids, verify with `inspect` first) `DlssPreset` (K/L/M tra
 `BoostEnabled` / `BoostMinResolution`. Ally recommendations:
 - Battery presets: `FrtcFps: 40` (or 30) is the single best driver lever; pair with `AfmfEnabled: false`. Chill
   (`ChillMinFps`/`ChillMaxFps`) saves more on slow scenes but makes pacing variable; prefer a flat FRTC cap for 40 fps.
-- Performance presets: `AfmfEnabled: false` unless the base fps is above ~55 (then true is an option); `AntiLag: on`.
+- Performance presets: `AfmfEnabled: true` in single-player games whose capped base holds ~50-60 fps (60 rendered -> ~120 on
+  the 120 Hz panel; say so in `description`); `false` in competitive games, below a ~50 base, and when the game's own frame
+  generation is on. `AntiLag: on`. AFMF is a global switch: always set it explicitly in every Ally preset, big-picture included.
 - `RsrEnabled: true` only for games with no in-game FSR/XeSS (RSR works on the whole frame, including the HUD, and conflicts
   with in-game upscalers); `RsrSharpness` 50-70.
 - Use `WaitForVSync: app-off` (the Adrenalin default) unless a game tears on the 120 Hz VRR panel.
