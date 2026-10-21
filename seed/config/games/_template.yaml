@@ -43,11 +43,25 @@ launch:
   # exe: "{ProgramFilesX86}/Battle.net/Battle.net.exe"
   # args: ["--exec=launch Pro"]          # Battle.net product code: Pro = Overwatch, Fen = Diablo IV
   # uri: "origin2://game/launch?offerIds=XXXX"   # EA app (find the offer id via `inspect`/community lists)
+  # args: ["-skipStartScreen"]          # extra arguments, ONE TOKEN PER ENTRY (["+cvar", "120"], not ["+cvar 120"]). Work on every route:
+  #                                      # after an exe, via `steam.exe -applaunch <id> <args>` (a steam://rungameid URI drops them), or after Steam's %command%. Battle.net takes none.
+  #                                      # A preset can add launch: { args: [...] }; the same flag appears once and the preset wins.
+  # waitSeconds: 600                    # how long to wait for the game exe after starting the launcher (default 180; 600 for ea/battlenet/epic)
+  # launcherProcesses: [EADesktop.exe]  # while one of these runs and the game does not: "waiting on the launcher - answer its prompt", not a failure
 
 # Processes `run` waits on before restoring the display and checking for drift. Launcher stubs often exit early,
 # so list the real game exe(s).
 processes:
   - MyGame-Win64-Shipping.exe
+
+# When the preset is written (default: before launch; both when cloudSyncsSettings is true):
+#   applyTiming: both            # before | afterProcessStart | both. After the game exe appears and settleSeconds pass, drifted keys
+#                                # (or a snapshot file that changed) are written once more, so a launcher's cloud sync cannot undo the preset.
+#                                # Files that do not exist before the first run are applied as soon as they appear (up to 120 s).
+#   settleSeconds: 5
+# How the preset reaches the game (informational; the app shows an honest one-line status from it):
+#   archetype: plain-honoured    # plain-honoured | binary-truth | text-mirror | composite | local-cloud-split | first-run | registry | launcher-gated | server-held
+#   mappable: true               # false = settings cannot be set from outside the game; presets are advice only
 
 # --- settings stores ----------------------------------------------------------------------------------------------
 # Path tokens: {Documents} {LocalAppData} {AppData} {LocalLow} {SavedGames} {UserProfile} {ProgramData}
@@ -140,8 +154,11 @@ profiles:
 #   extends      a `profiles:` entry to inherit from (presets cannot extend other presets)
 #   snapshotsFrom  slug of the user's manual save (same game and device) whose whole-file snapshots (`handler: file` entries)
 #                are restored with the preset; for opaque stores. Presets only; a missing save only logs a warning
-#   display      inherit | none | { width, height, refresh }   (omitted = leave the display alone; `inherit` uses the
+#   display      inherit | none | keep | { width, height, refresh }   (omitted = leave the display alone; `inherit` uses the
 #                device's mode from devices.yaml; a map overrides parts of it). The original mode is restored on exit.
+#                `keep` never changes the display, not even to the Big Picture TV mode (games that read the desktop mode or keep
+#                their own resolution); `none`/omitted still lets a TV get its own mode.
+#   launch       { args: [...] } extra launch arguments for this preset, merged over launch.args (one token per entry; preset wins per flag)
 #   nvidia       NVIDIA driver profile settings for the game's exe (applied only when the device driver is nvidia;
 #                persistent DRS profile, not undone on exit)
 #   amd          AMD ADLX global settings (only when the driver is amd; applied on launch, restored on exit).

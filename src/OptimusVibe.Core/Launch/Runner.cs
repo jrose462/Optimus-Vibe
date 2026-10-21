@@ -37,6 +37,12 @@ public sealed class RunOptions
     /// waited for while the caller fingerprints files and registry keys around it. Leaves a probe-active.json marker for the duration.
     /// </summary>
     public bool Probe { get; init; }
+
+    /// <summary>Called as the launch moves between phases (starting, waiting on the launcher, game running, gave up). May be called from the wait loop's thread.</summary>
+    public Action<LaunchPhase, string>? OnStatus { get; init; }
+
+    /// <summary>Stops waiting for the game (and stops managing the run) when cancelled.</summary>
+    public CancellationToken Cancel { get; init; }
 }
 
 /// <summary>
@@ -48,7 +54,6 @@ public sealed class RunOptions
 public static class Runner
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan StartupTimeout = TimeSpan.FromMinutes(3);
 
     /// <summary>Named mutex held while a run of this game manages the launch.</summary>
     public static string MutexName(string gameId)
@@ -90,14 +95,21 @@ public static class Runner
         SyncObserver.BeforeRun(ctx);
 
         AppliedState? applied = null;
+        var timing = LaunchPolicy.EffectiveTiming(ctx.Game);
         try
         {
-            applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
+            if (LaunchPolicy.AppliesBefore(ctx.Game)) applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
+            else
+            {
+                applied = new AppliedState();
+                Log.Info($"applyTiming {timing}: settings are written once the game process is seen");
+            }
         }
         catch (Exception ex)
         {
             Log.Error("Applying game settings failed — launching anyway", ex);
         }
+        var details = new RunDetails();
 
         SyncObserver.AfterRun(ctx); // interim baseline in case this wrapper is killed before the game exits
 
@@ -115,7 +127,11 @@ public static class Runner
         var processSeen = true;
         try
         {
-            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen);
+            var extraArgs = LaunchPolicy.MergeArgs(ctx.Game.Launch?.Args, ctx.Profile.LaunchArgs);
+            Action<Func<bool>>? onDetected = applied is not null && LaunchPolicy.AppliesAfterStart(ctx.Game)
+                ? stillRunning => ReapplyAfterStart(ctx, applied, stillRunning, LaunchPolicy.Settle(ctx.Game), details, cancel: options?.Cancel ?? default)
+                : null;
+            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen, extraArgs, onDetected, details);
         }
         finally
         {
@@ -126,7 +142,7 @@ public static class Runner
         if (applied is not null)
         {
             var verify = options?.Verify == true;
-            var drift = RecordResult(ctx, applied, verify, processSeen);
+            var drift = RecordResult(ctx, applied, verify, processSeen, details);
             if (prompt && !verify) OfferCapture(ctx, applied, drift: drift);
         }
         SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
@@ -170,7 +186,7 @@ public static class Runner
     /// After the game exits: finds what no longer matches the preset (once), stores it in run-results.json for every run, and returns
     /// it so the capture prompt reuses it. Never throws.
     /// </summary>
-    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen)
+    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen, RunDetails? details = null)
     {
         List<Drift> drift;
         try
@@ -185,6 +201,13 @@ public static class Runner
         try
         {
             var result = RunResults.Create(ctx, applied, drift, verify, processSeen);
+            if (details is not null)
+            {
+                result.LaunchCommand = details.Command;
+                result.LaunchNote = details.Note;
+                result.Reapplied = details.Reapplied.ToList();
+                result.LateFiles = details.Late.ToList();
+            }
             RunResults.Record(ctx.Paths.DataDir, result);
             Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed");
         }
@@ -226,6 +249,11 @@ public static class Runner
 
     private static void ApplyDisplay(GameContext ctx, RunState state)
     {
+        if (ctx.Profile.DisplayKeep)
+        {
+            Log.Info("display: keep - the display is left as it is for this preset");
+            return;
+        }
         var wanted = ctx.Profile.Display ?? (ctx.BigPictureUsed ? ctx.BigPicture?.Mode : null);
         if (wanted is null) return;
         try
@@ -263,10 +291,74 @@ public static class Runner
         }
     }
 
-    private static int LaunchAndWait(GameDef game, string[] command, RunOptions? options, out bool processSeen)
+    /// <summary>What a run learned beyond the drift: the command it started, how the launch went, what was written after the game started.</summary>
+    internal sealed class RunDetails
+    {
+        public string? Command { get; set; }
+        public string? Note { get; set; }
+        public List<string> Reapplied { get; } = [];
+        public List<string> Late { get; } = [];
+    }
+
+    /// <summary>
+    /// Once the game process is seen: wait for the launcher's cloud sync to settle, then write what drifted (plain files: the keys that
+    /// changed; snapshots: only a file that no longer matches), and apply files that did not exist before launch as soon as they appear
+    /// (up to <see cref="LateFileWait"/>). Files created after the game booted are marked as taking effect next launch. Never throws.
+    /// </summary>
+    internal static void ReapplyAfterStart(GameContext ctx, AppliedState applied, Func<bool> stillRunning, TimeSpan settle, RunDetails details,
+        Action<TimeSpan>? sleep = null, TimeSpan? lateWait = null, CancellationToken cancel = default)
+    {
+        // The default sleep is sliced so a cancel or the game exiting ends the wait within a second.
+        sleep ??= total =>
+        {
+            for (var left = total; left > TimeSpan.Zero && !cancel.IsCancellationRequested && stillRunning(); left -= TimeSpan.FromSeconds(1))
+                cancel.WaitHandle.WaitOne(left < TimeSpan.FromSeconds(1) ? left : TimeSpan.FromSeconds(1));
+        };
+        var maxWait = lateWait ?? LateFileWait;
+        try
+        {
+            if (settle > TimeSpan.Zero) sleep(settle);
+            var waited = TimeSpan.Zero;
+            while (!cancel.IsCancellationRequested && stillRunning())
+            {
+                var plans = GameEngine.PlanReapply(ctx, applied);
+                var work = plans.Where(p => p.HasWork).ToList();
+                if (work.Count > 0)
+                {
+                    var state = GameEngine.Apply(ctx, plans);
+                    foreach (var (id, targets) in state.Targets) applied.Targets[id] = targets;
+                    foreach (var (id, hash) in state.SnapshotHashes) applied.SnapshotHashes[id] = hash;
+                    foreach (var p in work)
+                    {
+                        var late = waited > TimeSpan.Zero;
+                        var label = late ? $"{p.File.Id} (created late: takes effect next launch)" : p.File.Id;
+                        if (!details.Reapplied.Contains(p.File.Id)) details.Reapplied.Add(p.File.Id);
+                        if (late && !details.Late.Contains(p.File.Id)) details.Late.Add(p.File.Id);
+                        Log.Info($"  re-applied after launch: {label}");
+                    }
+                }
+                if (!plans.Any(p => p.Missing) || waited >= maxWait) break;
+                sleep(PollInterval);
+                waited += PollInterval;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Re-applying settings after the game started failed", ex);
+        }
+    }
+
+    private static readonly TimeSpan LateFileWait = TimeSpan.FromSeconds(120);
+
+    private static int LaunchAndWait(GameDef game, string[] command, RunOptions? options, out bool processSeen,
+        IReadOnlyList<string>? extraArgs = null, Action<Func<bool>>? onGameDetected = null, RunDetails? details = null)
     {
         processSeen = true; // false only when we waited for a game process that never appeared, or could not tell
         var watched = game.Processes.Select(p => Path.GetFileNameWithoutExtension(p)).ToArray();
+        var launcherNames = (game.Launch?.LauncherProcesses ?? []).Select(p => Path.GetFileNameWithoutExtension(p)).Where(p => p.Length > 0).ToArray();
+        var battleNet = game.Store.Equals("battlenet", StringComparison.OrdinalIgnoreCase);
+        var logDir = LauncherLogs.BattleNetLogDir();
+        var marks = battleNet ? LauncherLogs.Mark(logDir) : new Dictionary<string, long>();
 
         // No `processes:` → after a URI launch, watch for new processes running from the install folder.
         string? installDir = null;
@@ -277,7 +369,11 @@ public static class Runner
             if (installDir is not null) baseline = ProcessWatch.PidsUnder(installDir);
         }
 
-        using var started = Start(game, command, options);
+        var line = ResolveLaunch(game, command, options, extraArgs);
+        var viaBattleNet = battleNet && command.Length == 0 && LauncherLogs.GoesThroughBattleNet(line);
+        using var started = Start(line, details);
+        // Steam's own exe, started with -applaunch, is only a hand-off (it may even become the Steam client): treat it like a URI launch.
+        var handoff = started is null || IsSteamApplaunch(line);
 
         Func<bool> isRunning;
         string what;
@@ -286,7 +382,7 @@ public static class Runner
             isRunning = () => watched.Any(IsRunning);
             what = string.Join(", ", game.Processes);
         }
-        else if (started is null && installDir is not null)
+        else if (handoff && installDir is not null)
         {
             var dir = installDir;
             var before = baseline!;
@@ -294,7 +390,7 @@ public static class Runner
             what = $"a process from {dir}";
             Log.Info($"No `processes:` configured — waiting for {what}");
         }
-        else if (started is null)
+        else if (handoff)
         {
             Log.Warn("Launched via URI with no `processes:` or install folder — cannot tell when the game exits; display/driver changes are undone now");
             processSeen = false;
@@ -307,46 +403,30 @@ public static class Runner
         }
 
         // Launchers and Steam stubs often exit before (or while) the real game runs: wait on the game's processes.
-        var deadline = DateTime.UtcNow + StartupTimeout;
-        bool seen = false;
-        int quietPolls = 0;
-        while (true)
+        var outcome = LaunchWatchdog.Watch(new WatchdogInputs
         {
-            bool running = SafeProbe(isRunning);
-            if (running)
-            {
-                if (!seen) Log.Info($"Game process detected ({what})");
-                seen = true;
-                quietPolls = 0;
-            }
-            else if (seen)
-            {
-                // two quiet polls in a row, so a game that restarts itself (e.g. after an anti-cheat bootstrap) is not missed
-                if (++quietPolls >= 2) break;
-            }
-            else if ((started is null || started.HasExited) && DateTime.UtcNow > deadline)
-            {
-                Log.Warn($"Game process never appeared within {StartupTimeout.TotalMinutes:0} minutes");
-                break;
-            }
-            Thread.Sleep(PollInterval);
-        }
+            GameRunning = isRunning,
+            LauncherRunning = () => launcherNames.Any(IsRunning),
+            StarterGone = () => started is null || started.HasExited,
+            // Only when Battle.net itself was asked to start the game, and never while a game process exists.
+            EarlyFailure = viaBattleNet ? elapsed => isRunning() ? null : LauncherLogs.BattleNetProbe(logDir, marks, elapsed) : null,
+            OnGameDetected = onGameDetected,
+            OnStatus = options?.OnStatus,
+            StartupTimeout = LaunchPolicy.StartupTimeout(game),
+            PollInterval = PollInterval,
+        }, options?.Cancel ?? default);
 
-        processSeen = seen;
-        if (started is null) return 0;
+        if (outcome.GameSeen) Log.Info($"Game process detected ({what})");
+        else if (outcome.Reason is { } why) Log.Warn($"{game.Id}: {why}");
+        if (details is not null) details.Note = outcome.Reason;
+
+        processSeen = outcome.GameSeen;
+        if (started is null || handoff) return 0;
+        if (outcome.Phase is LaunchPhase.Failed or LaunchPhase.GaveUp or LaunchPhase.Cancelled && !started.HasExited) return 0; // not our game: do not block on a stub
         if (!started.HasExited) started.WaitForExit();
         return started.ExitCode;
     }
 
-    private static bool SafeProbe(Func<bool> probe)
-    {
-        try { return probe(); }
-        catch (Exception ex)
-        {
-            Log.Warn($"Process check failed: {ex.Message}");
-            return false;
-        }
-    }
 
     private static string? InstallDir(GameDef game, RunOptions? options)
     {
@@ -371,40 +451,83 @@ public static class Runner
         foreach (var p in procs) p.Dispose();
         return procs.Length > 0;
     }
-
     /// <summary>
     /// Precedence: `-- command` (Steam's %command%) → <see cref="RunOptions.Launch"/> → the game's launch.exe / launch.uri
     /// → steam://rungameid/&lt;steamAppId&gt;. Returns null for URI / shell targets.
     /// </summary>
-    private static Process? Start(GameDef game, string[] command, RunOptions? options)
+    private static Process? Start(string[] line, RunDetails? details)
     {
-        if (command.Length > 0)
-        {
-            Log.Info($"Launching: {string.Join(' ', command)}");
-            return StartCommand(command);
-        }
+        Log.Info($"Launching: {string.Join(' ', line)}");
+        if (details is not null) details.Command = string.Join(' ', line);
+        return StartCommand(line);
+    }
+
+    /// <summary>
+    /// The command line a launch starts, in the same precedence as <see cref="Start"/>. <paramref name="extraArgs"/> (the game's launch.args merged with
+    /// the preset's) go after the exe, after Steam's %command%, or (Steam game, started by us) after `steam.exe -applaunch &lt;id&gt;`, because Steam drops
+    /// the arguments of a steam://rungameid/&lt;id&gt;//&lt;args&gt; URI; null = a mapping run, where
+    /// only an exe launch keeps its configured launch.args (the launcher needs them) and nothing is added to a Steam launch.
+    /// <paramref name="steamExe"/> finds steam.exe (default: the Steam root); null from it = the plain URI, arguments dropped, with a warning.
+    /// </summary>
+    internal static string[] ResolveLaunch(GameDef game, string[] command, RunOptions? options, IReadOnlyList<string>? extraArgs, Func<string?>? steamExe = null)
+    {
+        var extra = extraArgs ?? [];
+        if (command.Length > 0) return [.. LaunchPolicy.AppendArgs(command, extra)];
 
         var fromOptions = LaunchCommand(options);
         if (fromOptions.Length > 0)
         {
-            Log.Info($"Launching: {string.Join(' ', fromOptions)}");
-            return StartCommand(fromOptions);
+            if (IsShellTarget(fromOptions[0])) return SteamRoute(fromOptions[0], [.. fromOptions.Skip(1), .. extra], steamExe);
+            return [.. LaunchPolicy.AppendArgs(fromOptions, extra)];
         }
 
         var launch = game.Launch;
         if (!string.IsNullOrEmpty(launch?.Exe))
         {
             var exe = IsShellTarget(launch.Exe) ? launch.Exe : new PathResolver().Expand(launch.Exe);
-            Log.Info($"Launching: {exe} {string.Join(' ', launch.Args)}");
-            return StartCommand([exe, .. launch.Args]);
+            return [exe, .. extraArgs ?? launch.Args];
         }
 
         var uri = launch?.Uri ?? (game.SteamAppId is { } id ? $"steam://rungameid/{id}" : null)
                   ?? throw new ConfigException($"{game.Id}: nothing to launch — pass `-- %command%` or set launch.exe/launch.uri");
-        Log.Info($"Launching: {uri}");
-        ShellOpen(uri);
-        return null;
+        return SteamRoute(uri, extra, steamExe);
     }
+
+    /// <summary>
+    /// A plain steam://rungameid/&lt;id&gt; URI with arguments becomes `steam.exe -applaunch &lt;id&gt; &lt;args&gt;`; without arguments, or for any other
+    /// target, the target itself. No steam.exe: the plain URI and a warning that the arguments are dropped.
+    /// </summary>
+    internal static string[] SteamRoute(string target, IReadOnlyList<string> args, Func<string?>? steamExe = null)
+    {
+        if (args.Count == 0 || LaunchPolicy.PlainSteamAppId(target) is not { } id) return [target];
+        var exe = (steamExe ?? FindSteamExe)();
+        if (exe is null)
+        {
+            Log.Warn($"steam.exe not found: starting {target} without its arguments ({string.Join(' ', args)}) - Steam drops arguments given in a URI");
+            return [target];
+        }
+        return LaunchPolicy.SteamApplaunch(exe, id, args);
+    }
+
+    private static string? FindSteamExe()
+    {
+        try
+        {
+            var root = new SteamLocator().SteamRoot;
+            var exe = root is null ? null : Path.Combine(root, "steam.exe");
+            return exe is not null && File.Exists(exe) ? exe : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not find steam.exe: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>True for the `steam.exe -applaunch` form: a hand-off to the Steam client, whose own process says nothing about the game.</summary>
+    internal static bool IsSteamApplaunch(IReadOnlyList<string> line) =>
+        line.Count > 1 && line[1].Equals("-applaunch", StringComparison.OrdinalIgnoreCase)
+        && Path.GetFileNameWithoutExtension(line[0]).Equals("steam", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A single URI / shell target is shell-opened (null process); otherwise exe + args.</summary>
     internal static Process? StartCommand(IReadOnlyList<string> command)
