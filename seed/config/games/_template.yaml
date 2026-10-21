@@ -116,6 +116,15 @@ files:
     format: quoted
     # template: 'seta {key} "{value}"'
 
+  # Unreal GVAS SaveGame (a binary .sav, e.g. Jedi Survivor GameUserSettings.sav). Keys are property paths: Name, Struct.Member,
+  # Array[i]. Unreal omits properties that equal their default; to add one, give its type after a colon (ShadowQuality:int; int uint
+  # int64 float double bool byte str name enum). Only scalars are written; the rest of the file is kept byte for byte. Combine with
+  # autoSnapshot: the device copy is restored first, then the preset keys are written on top (keybinds etc. come from the copy).
+  # - id: usersav
+  #   handler: gvas
+  #   path: "{SavedGames}/Studio/Game/GameUserSettings.sav"
+  #   autoSnapshot: perPreset
+
   # Opaque file: no keys. Manual saves store it whole (<fileId>.snap); presets cannot set anything in it.
   - id: blob
     handler: file

@@ -188,7 +188,7 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
 4. If you are on the desktop, the Ally X file is not visible; same game version = same keys, but values like
    resolution may differ — note that in comments.
 5. Binary/opaque stores (e.g. a UE `GameUserSettings.sav`): `inspect` dumps them as garbled text — expected.
-   Map them as `handler: file` with `autoSnapshot: perPreset` (Optimus-Vibe keeps a per-device copy per preset and restores it before launch; no manual saves needed) and handle their options with in-game steps (first launch per preset on each device: set it up in-game once).
+   Map them as `handler: file` with `autoSnapshot: perPreset` (an Unreal GVAS `.sav`: `handler: gvas` + `autoSnapshot`, see settings-store-archetypes.md) (Optimus-Vibe keeps a per-device copy per preset and restores it before launch; no manual saves needed) and handle their options with in-game steps (first launch per preset on each device: set it up in-game once).
    To restore a specific named manual save instead, a preset can use its whole-file snapshots with
    `snapshotsFrom: <save slug>` (wins over autoSnapshot; folder under `config/saves/<game>/<device>/`); keyed values still apply. Only ask for it
    when the game really ignores the keyed file; never invent a slug.

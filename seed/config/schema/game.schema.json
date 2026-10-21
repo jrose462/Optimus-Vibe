@@ -261,7 +261,7 @@
             "keyvalue",
             "file"
           ],
-          "description": "ini: nested by [section]. json: dotted paths with [n] and [field=value] filters. xml: XPath. registry: value names under a key. keyvalue: one setting per line (format/template). file: whole-file snapshot only, no keys."
+          "description": "ini: nested by [section]. json: dotted paths with [n] and [field=value] filters. xml: XPath. registry: value names under a key. keyvalue: one setting per line (format/template). gvas: Unreal GVAS SaveGame (.sav), keys are property paths (Name, Struct.Member, Array[i]) with an optional ":type" hint to add a property the save omits. file: whole-file snapshot only, no keys."
         },
         "path": {
           "type": "string",
@@ -296,7 +296,7 @@
         "autoSnapshot": {
           "type": "string",
           "enum": ["perPreset", "perDevice"],
-          "description": "Keep this device's own copy of the whole file between sessions (for files a launcher cloud-syncs that presets cannot edit; normally with handler: file). perPreset: one copy per active preset (recommended name or manual save). perDevice: one copy for the device. Restored before launch when no manual save is active and the preset has no snapshotsFrom (precedence: manual save > snapshotsFrom > autoSnapshot), then re-restored if a cloud sync replaces it. Updated after each session in which the game ran. Stored locally in the data folder, never synced. Omit for off."
+          "description": "Keep this device's own copy of the whole file between sessions (for files a launcher cloud-syncs that presets cannot edit; with handler: file, or handler: gvas to also write preset keys on top of the restored copy). perPreset: one copy per active preset (recommended name or manual save). perDevice: one copy for the device. Restored before launch when no manual save is active and the preset has no snapshotsFrom (precedence: manual save > snapshotsFrom > autoSnapshot), then re-restored if a cloud sync replaces it. Updated after each session in which the game ran. Stored locally in the data folder, never synced. Omit for off."
         }
       },
       "allOf": [
@@ -341,7 +341,7 @@
     },
     "settingsBlock": {
       "type": "object",
-      "description": "Settings for one file id. ini: { \"Section\": { Key: value } } (top-level scalars are keys before the first section). json: nested maps are joined with '.', or use full paths as keys. xml: XPath keys. registry: value names. keyvalue: keys.",
+      "description": "Settings for one file id. ini: { \"Section\": { Key: value } } (top-level scalars are keys before the first section). json: nested maps are joined with '.', or use full paths as keys. xml: XPath keys. registry: value names. keyvalue: keys. gvas: property paths such as ResolutionSizeX, ShadowQuality:int (add if absent), ResolutionSize.X.",
       "additionalProperties": {
         "anyOf": [
           {
