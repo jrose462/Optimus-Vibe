@@ -22,6 +22,12 @@ public sealed class ResolvedFile
     /// <summary>Whole-file snapshot from the active manual save, applied before key targets.</summary>
     public string? SnapshotFile { get; init; }
 
+    /// <summary>The store key this file keeps its per-device copy under (autoSnapshot), null when the file does not use one.</summary>
+    public string? AutoKey { get; init; }
+
+    /// <summary>Set when <see cref="SnapshotFile"/> is this device's own auto copy (lowest precedence: manual save > snapshotsFrom > auto).</summary>
+    public AutoSnapshotMeta? AutoCopy { get; init; }
+
     public string Id => Def.Id;
 }
 
@@ -181,6 +187,18 @@ public sealed class GameContext
             }
 
             var snapshot = snapshotSave is null ? null : System.IO.Path.Combine(snapshotSave.Dir, def.Id + ".snap");
+            // autoSnapshot is the fallback: only when no manual save is active and the preset has no snapshotsFrom
+            var autoKey = AutoSnapshots.KeyFor(def, profile.Source);
+            AutoSnapshotMeta? autoCopy = null;
+            if (autoKey is not null && snapshotSave is null && profile.SnapshotsFrom is null)
+            {
+                try
+                {
+                    autoCopy = AutoSnapshots.StoreFor(store.Paths).Get(game.Id, device.Name, autoKey, def.Id);
+                    if (autoCopy is not null) snapshot = AutoSnapshots.StoreFor(store.Paths).SnapPath(game.Id, device.Name, autoKey, def.Id);
+                }
+                catch (Exception ex) { Log.Warn($"{def.Id}: could not look up this device's copy: {ex.Message}"); }
+            }
             files.Add(new ResolvedFile
             {
                 Def = def,
@@ -189,6 +207,8 @@ public sealed class GameContext
                 Error = error,
                 Targets = profile.FileBlocks.TryGetValue(def.Id, out var block) ? handler.Flatten(block) : new(),
                 SnapshotFile = snapshot is not null && File.Exists(snapshot) ? snapshot : null,
+                AutoKey = autoKey,
+                AutoCopy = snapshot is not null && File.Exists(snapshot) ? autoCopy : null,
             });
         }
 

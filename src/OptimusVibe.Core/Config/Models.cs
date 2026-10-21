@@ -191,6 +191,12 @@ public sealed class FileDef
 
     /// <summary>Create the file if it does not exist yet (otherwise the file is skipped with a warning).</summary>
     public bool CreateIfMissing { get; set; }
+
+    /// <summary>
+    /// Keep this device's own copy of the file between sessions (for files a launcher cloud-syncs that presets can't edit):
+    /// perPreset | perDevice; null = off. See <c>Engine.AutoSnapshots</c>.
+    /// </summary>
+    public string? AutoSnapshot { get; set; }
 }
 
 /// <summary>%LOCALAPPDATA%\OptimusVibe\settings.json — per machine, not in git.</summary>
