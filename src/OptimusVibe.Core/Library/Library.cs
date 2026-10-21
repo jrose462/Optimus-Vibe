@@ -28,6 +28,12 @@ public sealed record DetectedGame
     /// <summary>Likely game exe file names (for `processes:` and for the request queue).</summary>
     public IReadOnlyList<string> Exes { get; init; } = [];
 
+    /// <summary>The store's own build id when it records one (Steam: the app manifest's <c>buildid</c>); null otherwise. See <see cref="GameBuild.Of"/>.</summary>
+    public string? BuildId { get; init; }
+
+    /// <summary>When the store last updated the install (Steam: the manifest's <c>LastUpdated</c>), UTC; null when not recorded.</summary>
+    public DateTime? BuildUpdatedUtc { get; init; }
+
     public string Key => $"{Store}:{StoreId}";
 }
 

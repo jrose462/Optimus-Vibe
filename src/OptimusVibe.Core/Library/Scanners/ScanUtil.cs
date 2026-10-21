@@ -40,7 +40,21 @@ internal static class ScanUtil
         var result = new List<string>();
         foreach (var p in preferred ?? [])
             if (!string.IsNullOrWhiteSpace(p) && !result.Contains(p, StringComparer.OrdinalIgnoreCase)) result.Add(p);
-        if (string.IsNullOrEmpty(installDir) || !Directory.Exists(installDir)) return result;
+        foreach (var f in ExeFiles(installDir))
+        {
+            if (result.Count >= MaxExes) break;
+            if (!result.Contains(f.Name, StringComparer.OrdinalIgnoreCase)) result.Add(f.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The exe files <see cref="FindExes"/> picks its names from, in the same order (launcher-ish last, otherwise bigger first). Empty when the
+    /// folder is missing. Never throws.
+    /// </summary>
+    public static IReadOnlyList<FileInfo> ExeFiles(string? installDir)
+    {
+        if (string.IsNullOrEmpty(installDir) || !Directory.Exists(installDir)) return [];
 
         var found = new List<FileInfo>();
         try
@@ -67,14 +81,10 @@ internal static class ScanUtil
             Logging.Log.Warn($"Could not list exes in {installDir}: {ex.Message}");
         }
 
-        foreach (var f in found
-                     .OrderBy(f => f.Name.Contains("launcher", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-                     .ThenByDescending(f => SafeLength(f)))
-        {
-            if (result.Count >= MaxExes) break;
-            if (!result.Contains(f.Name, StringComparer.OrdinalIgnoreCase)) result.Add(f.Name);
-        }
-        return result;
+        return found
+            .OrderBy(f => f.Name.Contains("launcher", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .ThenByDescending(f => SafeLength(f))
+            .ToList();
     }
 
     private static bool IsSkipDir(string dir)

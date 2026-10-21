@@ -142,13 +142,18 @@ public static class Runner
         try
         {
             var extraArgs = LaunchPolicy.MergeArgs(ctx.Game.Launch?.Args, ctx.Profile.LaunchArgs);
-            Action<Func<bool>>? onDetected = applied is not null && LaunchPolicy.AppliesAfterStart(ctx.Game)
-                ? stillRunning => ReapplyAfterStart(ctx, applied, stillRunning, LaunchPolicy.Settle(ctx.Game), details, cancel: options?.Cancel ?? default)
-                : null;
-            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen, extraArgs, onDetected, details);
+            var reapply = applied is not null && LaunchPolicy.AppliesAfterStart(ctx.Game);
+            void OnDetected(Func<bool> stillRunning)
+            {
+                details.GameSeenUtc ??= DateTime.UtcNow; // the session starts when the game is seen, not when the launcher was asked
+                if (reapply) ReapplyAfterStart(ctx, applied!, stillRunning, LaunchPolicy.Settle(ctx.Game), details, cancel: options?.Cancel ?? default);
+            }
+            details.StartedUtc = DateTime.UtcNow;
+            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen, extraArgs, OnDetected, details);
         }
         finally
         {
+            details.EndedUtc = DateTime.UtcNow;
             var stateFile = ctx.Paths.RunStateFile(ctx.Game.Id);
             if (state.Undo()) { if (File.Exists(stateFile)) File.Delete(stateFile); }
             else state.Save(stateFile); // a driver restore that failed keeps its token for the next start
@@ -159,9 +164,12 @@ public static class Runner
 
         if (applied is not null)
         {
+            // Measured first (the prompt shows that drift), stored after the prompt so the result carries the player's answer.
             var verify = options?.Verify == true;
-            var drift = RecordResult(ctx, applied, verify, processSeen, details);
-            if (prompt && !verify) OfferCapture(ctx, applied, drift: drift);
+            details.Build = GameBuild.ForGame(ctx.Game, InstallDir(ctx.Game, options));
+            var (drift, result) = MeasureResult(ctx, applied, verify, processSeen, details);
+            var answer = prompt && !verify ? AskCapture(ctx, applied, drift: drift).Answer : CaptureAnswer.NotAsked;
+            StoreResult(ctx, result, answer);
         }
         if (inGame is null) SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
@@ -204,9 +212,22 @@ public static class Runner
     /// After the game exits: finds what no longer matches the preset (once), stores it in run-results.json for every run, and returns
     /// it so the capture prompt reuses it. Never throws.
     /// </summary>
-    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen, RunDetails? details = null)
+    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen, RunDetails? details = null,
+        CaptureAnswer capture = CaptureAnswer.NotAsked)
     {
-        if (ctx.InGame is not null) return []; // set in-game: no result, no streak, no prompt
+        var (drift, result) = MeasureResult(ctx, applied, verify, processSeen, details);
+        StoreResult(ctx, result, capture);
+        return drift;
+    }
+
+    /// <summary>
+    /// The first half of <see cref="RecordResult"/>: what no longer matches the preset, and the result built from it (not stored yet; null when
+    /// there is nothing to store, e.g. a set in-game game or a failed check). Never throws.
+    /// </summary>
+    internal static (List<Drift> Drift, RunResult? Result) MeasureResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen,
+        RunDetails? details = null)
+    {
+        if (ctx.InGame is not null) return ([], null); // set in-game: no result, no streak, no prompt
         List<Drift> drift;
         try
         {
@@ -217,7 +238,7 @@ public static class Runner
         catch (Exception ex)
         {
             Log.Error("Checking for changed settings failed", ex);
-            return [];
+            return ([], null);
         }
         try
         {
@@ -228,15 +249,33 @@ public static class Runner
                 result.LaunchNote = details.Note;
                 result.Reapplied = details.Reapplied.ToList();
                 result.LateFiles = details.Late.ToList();
+                result.DurationSec = processSeen ? details.DurationSec : null;
+                result.Build = details.Build;
             }
+            return (drift, result);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not build the run result: {ex.Message}");
+            return (drift, null);
+        }
+    }
+
+    /// <summary>The second half of <see cref="RecordResult"/>: stores the result with the player's answer at the capture prompt. Never throws.</summary>
+    internal static void StoreResult(GameContext ctx, RunResult? result, CaptureAnswer capture)
+    {
+        if (result is null || ctx.InGame is not null) return;
+        try
+        {
+            result.Capture = capture;
             RunResults.Record(ctx.Paths.DataDir, result);
-            Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed");
+            Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed" +
+                     $"{(result.DurationSec is { } sec ? $", {sec} s played" : "")}; capture {capture.ToString().ToLowerInvariant()}");
         }
         catch (Exception ex)
         {
             Log.Warn($"Could not record the run result: {ex.Message}");
         }
-        return drift;
     }
 
     /// <summary>
@@ -342,6 +381,17 @@ public static class Runner
         public string? Note { get; set; }
         public List<string> Reapplied { get; } = [];
         public List<string> Late { get; } = [];
+
+        /// <summary>When the launch was started, when the game process was first seen (null: never, or not watched), and when the wait ended.</summary>
+        public DateTime? StartedUtc { get; set; }
+        public DateTime? GameSeenUtc { get; set; }
+        public DateTime? EndedUtc { get; set; }
+
+        /// <summary>The game build after the session (<see cref="GameBuild"/>); null when unknown.</summary>
+        public string? Build { get; set; }
+
+        /// <summary>Seconds from the game being seen (else from the launch) to the end of the wait; null when either end is missing.</summary>
+        public int? DurationSec => (GameSeenUtc ?? StartedUtc) is { } from && EndedUtc is { } to && to >= from ? (int)(to - from).TotalSeconds : null;
     }
 
     /// <summary>
@@ -601,20 +651,32 @@ public static class Runner
     /// After the game exits: when its settings drifted (the list <see cref="RecordResult"/> found, or found here), ask (through <see cref="ICapturePrompt"/>) whether to keep them. Skipped when
     /// the player chose "don't ask again" for this game. Returns the save that was written, or null. Never throws.
     /// </summary>
-    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null)
+    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null) =>
+        AskCapture(ctx, applied, prompt, drift).Save;
+
+    /// <summary>What the capture prompt led to: the player's answer, and the save written for it (null unless saved).</summary>
+    internal sealed record CaptureOutcome(CaptureAnswer Answer, SaveResult? Save);
+
+    /// <summary>
+    /// <see cref="OfferCapture"/> that also says what the player answered (<see cref="CaptureAnswer.NotAsked"/> when nothing was asked,
+    /// <see cref="CaptureAnswer.Off"/> when the question is turned off for the game). A save that fails keeps the answer Saved: it was the
+    /// player's intent. Never throws.
+    /// </summary>
+    internal static CaptureOutcome AskCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null)
     {
+        var answer = CaptureAnswer.NotAsked;
         try
         {
-            if (ctx.InGame is not null) return null; // set in-game: the game's settings are not ours to keep
+            if (ctx.InGame is not null) return new(answer, null); // set in-game: the game's settings are not ours to keep
             if (CapturePromptStore.IsSkipped(ctx.Paths.DataDir, ctx.Game.Id))
             {
                 Log.Info($"{ctx.Game.Id}: capture prompt turned off for this game");
-                return null;
+                return new(CaptureAnswer.Off, null);
             }
             drift ??= GameEngine.FindDrift(ctx, applied);
             // whole-file drift on an autoSnapshot file is kept automatically, so it never asks; keyed drift still does
             drift = drift.Where(d => !AutoSnapshots.IsExpectedDrift(ctx, d)).ToList();
-            if (drift.Count == 0) return null;
+            if (drift.Count == 0) return new(answer, null);
 
             foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");
             var lines = drift.Take(CapturePrompts.MaxLines)
@@ -626,25 +688,27 @@ public static class Runner
             switch (decision.Choice)
             {
                 case CaptureChoice.DontSave:
-                    return null;
+                    return new(CaptureAnswer.DontSave, null);
                 case CaptureChoice.DontAskAgain:
+                    answer = CaptureAnswer.DontAskAgain;
                     CapturePromptStore.SetSkipped(ctx.Paths.DataDir, ctx.Game.Id, true);
                     Log.Info($"{ctx.Game.Id}: won't ask to save after playing again");
-                    return null;
+                    return new(answer, null);
             }
 
+            answer = CaptureAnswer.Saved;
             var result = decision.Choice == CaptureChoice.SaveAs
                 ? ManualSaves.SaveCurrent(ctx, string.IsNullOrWhiteSpace(decision.Name) ? request.SuggestedName : decision.Name.Trim())
                 : ctx.Save is { } s
                     ? ManualSaves.SaveCurrent(ctx, s.Name, updateSlug: s.Slug)
                     : ManualSaves.SaveCurrent(ctx, request.SuggestedName);
             Log.Info($"Saved '{result.Save.Name}' ({result.KeysSaved} setting(s)){(result.Sync is { } g ? $"; sync: {g.Message}" : "")}");
-            return result;
+            return new(answer, result);
         }
         catch (Exception ex)
         {
             Log.Error("Capture prompt failed", ex);
-            return null;
+            return new(answer, null);
         }
     }
 

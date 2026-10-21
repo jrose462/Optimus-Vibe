@@ -19,6 +19,47 @@ public enum RunVerdict
     Unknown,
 }
 
+/// <summary>What the player answered when the wrapper asked to keep settings changed in-game (stored on the run as <see cref="RunResult.Capture"/>).</summary>
+public enum CaptureAnswer
+{
+    /// <summary>No question: nothing drifted, a verify run, or the prompt was turned off for the run (<c>--no-prompt</c>).</summary>
+    NotAsked,
+
+    /// <summary>Kept as a manual save (Save or Save as): the drift is the player's own tuning.</summary>
+    Saved,
+
+    /// <summary>Asked, and the player chose not to keep them.</summary>
+    DontSave,
+
+    /// <summary>Asked, and the player turned the question off for this game.</summary>
+    DontAskAgain,
+
+    /// <summary>Not asked because the player turned the question off for this game earlier.</summary>
+    Off,
+}
+
+/// <summary>
+/// What one normal run (no test, the player may have changed things) suggests about the preset, judged with the normal run before it. See
+/// <see cref="RunResults.Passive"/>. Never as strong as a verify run: it only says what stays true whatever the player did.
+/// </summary>
+public enum PassiveVerdict
+{
+    /// <summary>Can't tell: the game was not seen, nothing was applied, the session was short or its length unknown, or the drift has no pattern.</summary>
+    Unknown,
+
+    /// <summary>The game ran for a while and kept every value the preset wrote.</summary>
+    Held,
+
+    /// <summary>The drift looks like the game's own doing: the same values twice in a row, or most of the preset in a short session not kept as a save.</summary>
+    Overridden,
+
+    /// <summary>Only files a launcher's cloud sync had rewritten drifted: it points at sync, not at the game.</summary>
+    SyncSuspect,
+
+    /// <summary>The player kept the changes as a manual save: their own work, never counted against the preset.</summary>
+    UserSaved,
+}
+
 /// <summary>One setting that was not as the preset left it after the game exited.</summary>
 public sealed class RunDrift
 {
@@ -82,6 +123,15 @@ public sealed class RunResult
     /// <summary>File ids that only existed after the game booted: applied, but they take effect next launch.</summary>
     public List<string> LateFiles { get; set; } = [];
 
+    /// <summary>What the player answered at the "keep these changes?" prompt. Null on results from older versions.</summary>
+    public CaptureAnswer? Capture { get; set; }
+
+    /// <summary>How long the game ran, in seconds (from the game process being seen, else from the launch, to its exit). Null when unknown.</summary>
+    public int? DurationSec { get; set; }
+
+    /// <summary>The game build this run played (<see cref="Library.GameBuild"/>: "steam:&lt;buildid&gt;" or an exe fingerprint). Null when unknown.</summary>
+    public string? Build { get; set; }
+
     [JsonIgnore]
     public bool IsVerify => Mode == VerifyMode;
 
@@ -90,11 +140,20 @@ public sealed class RunResult
     public int Applied => AppliedKeys + SnapshotFiles;
 }
 
-/// <summary>What <see cref="RunResults.Record"/> keeps per game and device: the last run, and the last verify run.</summary>
+/// <summary>What <see cref="RunResults.Record"/> keeps per game and device: the last run, the last verify run and the last few normal runs.</summary>
 public sealed class RunResultEntry
 {
     public RunResult? Last { get; set; }
     public RunResult? LastVerify { get; set; }
+
+    /// <summary>The last normal runs, oldest first, at most <see cref="RunResults.RecentCap"/>. Verify runs are not in it (they have <see cref="LastVerify"/>).</summary>
+    public List<RunResult> Recent { get; set; } = [];
+
+    /// <summary>
+    /// Consecutive normal runs whose <see cref="PassiveVerdict"/> was <see cref="PassiveVerdict.Overridden"/>: a passively held run resets it, a run kept
+    /// as a save or an unclear one leaves it alone. Separate from <see cref="OverriddenStreak"/>, which stays verify-only.
+    /// </summary>
+    public int PassiveOverriddenStreak { get; set; }
 
     /// <summary>
     /// Consecutive verify runs whose verdict was <see cref="RunVerdict.Overridden"/>: a held verify resets it, an unclear one (game never seen,
@@ -112,8 +171,21 @@ public static class RunResults
     /// <summary>A normal run that changed more than this fraction of the preset's settings gets a hint on the game page.</summary>
     public const double HintRatio = 0.5;
 
+    /// <summary>How many normal runs <see cref="RunResultEntry.Recent"/> keeps.</summary>
+    public const int RecentCap = 8;
+
+    /// <summary>A normal run counts as <see cref="PassiveVerdict.Held"/> only when the game ran at least this long (seconds).</summary>
+    public const int PassiveHeldMinSec = 60;
+
+    /// <summary>A session shorter than this (seconds) that changed most of the preset and was not saved looks like the game's own doing.</summary>
+    public const int ShortSessionSec = 300;
+
     private static readonly object Gate = new();
-    private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private static readonly JsonSerializerOptions Opts = new()
+    {
+        WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
 
     private sealed class Model
     {
@@ -124,7 +196,10 @@ public static class RunResults
 
     // ---------------------------------------------------------------- store
 
-    /// <summary>Remember a result as the game's last run on that device (and as its last verify run when it is one).</summary>
+    /// <summary>
+    /// Remember a result as the game's last run on that device: as its last verify run when it is one, otherwise in the
+    /// <see cref="RunResultEntry.Recent"/> ring (and the passive streak).
+    /// </summary>
     public static void Record(string dataDir, RunResult result)
     {
         lock (Gate)
@@ -139,6 +214,13 @@ public static class RunResults
                 {
                     entry.LastVerify = result;
                     entry.OverriddenStreak = NextStreak(entry.OverriddenStreak, Verdict(result));
+                }
+                else
+                {
+                    entry.Recent ??= [];
+                    entry.PassiveOverriddenStreak = NextPassiveStreak(entry.PassiveOverriddenStreak, Passive(result, entry.Recent.LastOrDefault()));
+                    entry.Recent.Add(result);
+                    if (entry.Recent.Count > RecentCap) entry.Recent.RemoveRange(0, entry.Recent.Count - RecentCap);
                 }
                 Directory.CreateDirectory(dataDir);
                 var tmp = FileFor(dataDir) + ".tmp";
@@ -160,6 +242,14 @@ public static class RunResults
         _ => streak,
     };
 
+    /// <summary>The passive streak after one more normal run: overridden adds one, held starts over, anything else (saved, unclear, sync) changes nothing.</summary>
+    public static int NextPassiveStreak(int streak, PassiveVerdict verdict) => verdict switch
+    {
+        PassiveVerdict.Overridden => streak + 1,
+        PassiveVerdict.Held => 0,
+        _ => streak,
+    };
+
     /// <summary>Consecutive overridden verify runs of a game on a device (0 when none recorded).</summary>
     public static int OverriddenStreak(string dataDir, string gameId, string device)
     {
@@ -170,7 +260,10 @@ public static class RunResults
         }
     }
 
-    /// <summary>Starts the streak over (the user chose to manage the game's settings again: it must be tested again before the flag is suggested).</summary>
+    /// <summary>
+    /// Starts both streaks over, verify and passive (the user chose to manage the game's settings again: it must be tested again before the flag
+    /// is suggested).
+    /// </summary>
     public static void ResetStreak(string dataDir, string gameId, string device)
     {
         lock (Gate)
@@ -178,8 +271,10 @@ public static class RunResults
             try
             {
                 var m = Load(dataDir);
-                if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e) || e.OverriddenStreak == 0) return;
+                if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return;
+                if (e.OverriddenStreak == 0 && e.PassiveOverriddenStreak == 0) return;
                 e.OverriddenStreak = 0;
+                e.PassiveOverriddenStreak = 0;
                 var tmp = FileFor(dataDir) + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(m, Opts), new UTF8Encoding(false));
                 File.Move(tmp, FileFor(dataDir), overwrite: true);
@@ -201,6 +296,26 @@ public static class RunResults
             return verifyOnly ? e.LastVerify : e.Last;
         }
     }
+
+    /// <summary>Everything stored for a game on a device (a fresh copy: changing it changes nothing on disk); null when none.</summary>
+    public static RunResultEntry? Entry(string dataDir, string gameId, string device)
+    {
+        lock (Gate)
+        {
+            var m = Load(dataDir);
+            if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return null;
+            e.Recent ??= [];
+            return e;
+        }
+    }
+
+    /// <summary>The last normal runs of a game on a device, oldest first (empty when none).</summary>
+    public static IReadOnlyList<RunResult> Recent(string dataDir, string gameId, string device) =>
+        Entry(dataDir, gameId, device)?.Recent ?? [];
+
+    /// <summary>Consecutive passively overridden normal runs of a game on a device (0 when none recorded).</summary>
+    public static int PassiveOverriddenStreak(string dataDir, string gameId, string device) =>
+        Entry(dataDir, gameId, device)?.PassiveOverriddenStreak ?? 0;
 
     private static Model Load(string dataDir)
     {
@@ -233,6 +348,52 @@ public static class RunResults
         if (r.Drift.Count == 0) return RunVerdict.Held;
         return r.IsVerify ? RunVerdict.Overridden : RunVerdict.Unknown;
     }
+
+    /// <summary>
+    /// What a normal run says without a test, judged with the normal run before it (<paramref name="previous"/>, may be null). The rules stay
+    /// true whatever the player did in-game:
+    /// <list type="bullet">
+    /// <item>kept as a save: <see cref="PassiveVerdict.UserSaved"/>, never against the preset;</item>
+    /// <item>no drift in a session of at least <see cref="PassiveHeldMinSec"/>: <see cref="PassiveVerdict.Held"/>;</item>
+    /// <item>only files re-applied after a launcher's cloud sync drifted: <see cref="PassiveVerdict.SyncSuspect"/>;</item>
+    /// <item>a setting drifted to the same value as in the previous normal run (not kept as a save there either), or at least
+    /// <see cref="HintRatio"/> of the preset drifted in a session shorter than <see cref="ShortSessionSec"/>: <see cref="PassiveVerdict.Overridden"/>;</item>
+    /// <item>anything else, a verify run, an unseen game or nothing applied: <see cref="PassiveVerdict.Unknown"/>.</item>
+    /// </list>
+    /// </summary>
+    public static PassiveVerdict Passive(RunResult r, RunResult? previous)
+    {
+        if (r.IsVerify || !r.ProcessSeen || r.Applied == 0) return PassiveVerdict.Unknown;
+        if (r.Capture == CaptureAnswer.Saved) return PassiveVerdict.UserSaved;
+        if (r.Drift.Count == 0) return r.DurationSec >= PassiveHeldMinSec ? PassiveVerdict.Held : PassiveVerdict.Unknown;
+        if (r.Reapplied.Count > 0 && r.Drift.All(d => r.Reapplied.Contains(d.FileId, StringComparer.OrdinalIgnoreCase))) return PassiveVerdict.SyncSuspect;
+        if (Recurs(r, previous)) return PassiveVerdict.Overridden;
+        if (DriftRatio(r) >= HintRatio && r.DurationSec is { } sec && sec < ShortSessionSec) return PassiveVerdict.Overridden;
+        return PassiveVerdict.Unknown;
+    }
+
+    /// <summary>The passive verdict of every run in <paramref name="recent"/> (oldest first), each judged with the one before it.</summary>
+    public static IReadOnlyList<PassiveVerdict> PassiveVerdicts(IReadOnlyList<RunResult> recent) =>
+        recent.Select((r, i) => Passive(r, i > 0 ? recent[i - 1] : null)).ToList();
+
+    /// <summary>How many of the newest runs in <paramref name="recent"/> were <see cref="PassiveVerdict.Held"/> in a row (0 when the newest was not).</summary>
+    public static int PassiveHeldStreak(IReadOnlyList<RunResult> recent)
+    {
+        var verdicts = PassiveVerdicts(recent);
+        var n = 0;
+        for (var i = verdicts.Count - 1; i >= 0 && verdicts[i] == PassiveVerdict.Held; i--) n++;
+        return n;
+    }
+
+    /// <summary>A setting drifted to the same value in the previous normal run too, and that drift was not kept as a save.</summary>
+    private static bool Recurs(RunResult r, RunResult? previous)
+    {
+        if (previous is null || previous.IsVerify || !previous.ProcessSeen || previous.Capture == CaptureAnswer.Saved || previous.Drift.Count == 0) return false;
+        var before = previous.Drift.Select(DriftSignature).ToHashSet(StringComparer.Ordinal);
+        return r.Drift.Any(d => before.Contains(DriftSignature(d)));
+    }
+
+    private static string DriftSignature(RunDrift d) => $"{d.FileId.ToLowerInvariant()}\n{d.Key}\n{d.Now}";
 
     /// <summary>Fraction of the preset's settings (keys plus whole files) that were not as written afterwards; 0 when nothing was applied.</summary>
     public static double DriftRatio(RunResult r) => r.Applied == 0 ? 0 : Math.Min(1.0, (double)r.Drift.Count / r.Applied);

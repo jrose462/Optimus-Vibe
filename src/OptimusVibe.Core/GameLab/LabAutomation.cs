@@ -130,6 +130,30 @@ public sealed class LabState
 
     /// <summary>The first background pass counts everything already done as announced, so old requests don't toast on first start.</summary>
     public bool Baselined { get; set; }
+
+    /// <summary>Game id → when the lab's presets for it last arrived on this device, and the game build they were made against.</summary>
+    public Dictionary<string, PresetsMark> PresetsMade { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The mark for a game, or null when no lab result was pulled for it on this device.</summary>
+    public PresetsMark? PresetsFor(string gameId) => PresetsMade.TryGetValue(gameId, out var m) ? m : null;
+}
+
+/// <summary>
+/// When a game's presets were made and the build they were made against (<see cref="GameBuild"/>), so "the game updated since" can be told.
+/// Written when a merged lab result is pulled (<see cref="LabCycle"/>). Per device: each device sees its own installed build.
+/// </summary>
+public sealed class PresetsMark
+{
+    public DateTime MadeUtc { get; set; }
+
+    /// <summary>The installed build when the presets arrived; null when it was not known then (filled in by <see cref="LabStateStore.ObservePresetsBuild"/>).</summary>
+    public string? BuildId { get; set; }
+
+    /// <summary>The lab request whose result brought them.</summary>
+    public int? Issue { get; set; }
+
+    /// <summary>new | refresh (the request kind, lower case).</summary>
+    public string? Kind { get; set; }
 }
 
 public sealed class LabStateStore(string dataDir)
@@ -165,6 +189,31 @@ public sealed class LabStateStore(string dataDir)
         }
     }
 
+    /// <summary>Records that a game's presets just arrived (made against <paramref name="build"/>, null when unknown). Never throws.</summary>
+    public void MarkPresets(string gameId, DateTime utc, string? build, int? issue = null, LabKind? kind = null)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return;
+        Update(s => s.PresetsMade[gameId] = new PresetsMark
+        {
+            MadeUtc = utc, BuildId = string.IsNullOrEmpty(build) ? null : build, Issue = issue, Kind = kind?.ToString().ToLowerInvariant(),
+        });
+    }
+
+    /// <summary>
+    /// Fills in the build of a mark made while the build was unknown (the first build seen after the presets arrived counts as theirs).
+    /// Leaves a known build alone. Returns true when it wrote. Never throws.
+    /// </summary>
+    public bool ObservePresetsBuild(string gameId, string? build)
+    {
+        if (string.IsNullOrEmpty(build) || Load().PresetsFor(gameId) is not { BuildId: null }) return false;
+        var wrote = false;
+        Update(s =>
+        {
+            if (s.PresetsFor(gameId) is { BuildId: null } m) { m.BuildId = build; wrote = true; }
+        });
+        return wrote;
+    }
+
     private LabState LoadCore()
     {
         try
@@ -173,6 +222,7 @@ public sealed class LabStateStore(string dataDir)
             var s = JsonSerializer.Deserialize<LabState>(File.ReadAllText(FilePath), Opts) ?? new LabState();
             s.Requested = new Dictionary<string, DateTime>(s.Requested ?? [], StringComparer.OrdinalIgnoreCase);
             s.Applied ??= [];
+            s.PresetsMade = new Dictionary<string, PresetsMark>(s.PresetsMade ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -374,6 +424,23 @@ public static class LabCycle
             var gameId = string.IsNullOrWhiteSpace(result.GameId) ? issue.Request?.GameId ?? "" : result.GameId;
             if (kind == LabKind.SyncCheck && !File.Exists(d.Paths.GameFile(gameId))) continue;
             newPresets.Add(new LabNewPresets(gameId, issue.Request?.Name is { Length: > 0 } n ? n : issue.Name, kind));
+            if (kind != LabKind.SyncCheck && gameId.Length > 0) d.State.MarkPresets(gameId, now, BuildFor(d, issue), issue.Number, kind);
+        }
+    }
+
+    /// <summary>The installed build of the request's game on this device (null when not installed or unknown). Never throws.</summary>
+    private static string? BuildFor(LabCycleDeps d, LabIssue issue)
+    {
+        try
+        {
+            var target = d.TargetFor(issue);
+            if (target?.Detected is { } detected) return GameBuild.Of(detected);
+            return target?.Game is { } game ? GameBuild.ForGame(game, target.InstallDir) : GameBuild.ExeFingerprint(target?.InstallDir);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"game lab: could not read the build of #{issue.Number}: {ex.Message}");
+            return null;
         }
     }
 }
