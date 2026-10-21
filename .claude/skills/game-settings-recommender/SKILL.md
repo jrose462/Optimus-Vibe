@@ -84,7 +84,7 @@ recommendation: { generated: "YYYY-MM-DD", gameVersion: "...", sources: [ "...",
 ```
 
 Reserved preset keys: `extends` (must name a `profiles:` entry), `display`, `nvidia`, `amd` (not implemented —
-leave commented), `label`, `description`, `targetFps`. Every other key is a file id from `files:`.
+leave commented), `label`, `description`, `targetFps`, `snapshotsFrom` (a manual save slug, see below). Every other key is a file id from `files:`.
 Device defaults (`devices.yaml` `defaultPreset`): desktop → `quality`, ally-x → `performance`.
 
 ## Workflow: add a game
@@ -152,6 +152,9 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
    resolution may differ — note that in comments.
 5. Binary/opaque stores (e.g. a UE `GameUserSettings.sav`): `inspect` dumps them as garbled text — expected.
    Map them as `handler: file` (manual saves snapshot them whole) and handle their options with in-game steps.
+   If the user has a manual save for that device, a preset can restore its whole-file snapshots with
+   `snapshotsFrom: <save slug>` (folder under `config/saves/<game>/<device>/`); keyed values still apply. Only ask for it
+   when the game really ignores the keyed file; never invent a slug.
    Composite values (one key holding a struct/list, e.g. `GraphicsSettings=(("Name", "Value"),...)`): write the
    whole value exactly as on disk. Both are detailed in `references/awkward-stores.md`.
 

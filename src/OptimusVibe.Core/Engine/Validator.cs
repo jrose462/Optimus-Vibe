@@ -146,6 +146,10 @@ public static class Validator
             .ToHashSet(StringComparer.Ordinal);
         foreach (var name in game.Profiles.Keys.Where(n => !extended.Contains(n)))
             report.Warnings.Add($"{where}: profiles.{name} is not extended by any preset (profiles are never applied directly)");
+        foreach (var (name, body) in game.Profiles)
+            if (body.ContainsKey(ProfileResolver.SnapshotsFrom))
+                report.Errors.Add($"{where}: profiles.{name} sets snapshotsFrom, which is only allowed in presets");
+        bool hasRawFile = game.Files.Any(f => f.Handler.Equals("file", StringComparison.OrdinalIgnoreCase));
 
         foreach (var (device, presets) in game.Presets)
         {
@@ -160,6 +164,7 @@ public static class Validator
                 {
                     var resolved = ProfileResolver.ResolvePreset(game, device, deviceDef, preset);
                     CheckBlocks(game, resolved, $"{where}: presets.{device}.{preset}", report);
+                    CheckSnapshotsFrom(store, game, device, preset, presets[preset], hasRawFile, where, report);
                     if (resolved.FileBlocks.Count == 0 && resolved.Display is null && resolved.Nvidia.Count == 0 && resolved.Amd.Count == 0)
                         report.Warnings.Add($"{where}: presets.{device}.{preset} sets nothing");
                 }
@@ -185,6 +190,27 @@ public static class Validator
                 catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}/{save.Slug}: {ex.Message}"); }
             }
         }
+    }
+
+    private static void CheckSnapshotsFrom(ConfigStore store, GameDef game, string device, string preset, Dictionary<string, object?> body,
+        bool hasRawFile, string where, ValidationReport report)
+    {
+        if (!body.TryGetValue(ProfileResolver.SnapshotsFrom, out var raw)) return;
+        var at = $"{where}: presets.{device}.{preset}";
+        var slug = raw is null ? "" : Values.ToScalar(raw).Trim();
+        if (raw is Dictionary<string, object?> || !ProfileResolver.IsSlug(slug))
+        {
+            report.Errors.Add($"{at}: snapshotsFrom must be a manual save folder name (letters, digits, - _ .)");
+            return;
+        }
+        if (!hasRawFile)
+            report.Warnings.Add($"{at}: snapshotsFrom has no effect because the game has no 'handler: file' entry");
+        try
+        {
+            if (!File.Exists(Path.Combine(store.Paths.SaveDir(game.Id, device, slug), "save.yaml")))
+                report.Warnings.Add($"{at}: snapshotsFrom '{slug}' is not a manual save on this machine (saves are per device; create it in the app)");
+        }
+        catch (Exception) { /* unusable path: the slug check above already covers bad names */ }
     }
 
     private static void CheckBlocks(GameDef game, ResolvedProfile profile, string where, ValidationReport report)

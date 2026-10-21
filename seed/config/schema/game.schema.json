@@ -359,6 +359,12 @@
           "type": "string",
           "description": "Name of another entry under `profiles:` to inherit from (deep merge; this one wins)."
         },
+        "snapshotsFrom": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Slug of one of the user's manual saves (folder under config/saves/<game>/<device>/) whose whole-file snapshots (files mapped with `handler: file`) are restored along with this preset. Presets only; for opaque stores such as a UE GameUserSettings.sav. Missing save = warning, keyed values still apply."
+        },
         "display": {
           "$ref": "#/$defs/display"
         },
@@ -392,7 +398,7 @@
     },
     "preset": {
       "type": "object",
-      "description": "A recommended preset. Reserved keys: label, description, targetFps, extends, display, nvidia, amd. Every other key must be a file id from `files`.",
+      "description": "A recommended preset. Reserved keys: label, description, targetFps, extends, snapshotsFrom, display, nvidia, amd. Every other key must be a file id from `files`.",
       "properties": {
         "label": {
           "type": "string",
