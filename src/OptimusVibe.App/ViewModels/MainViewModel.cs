@@ -531,12 +531,12 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 if (!Settings.CancelTransient()) CloseSettings();
                 return true;
             case AppPage.Detail:
-                if (!((SelectedDetail?.CancelTransient() ?? false) | (DetailTile?.Lab.CancelTransient() ?? false))) CloseDetail();
+                if (!((SelectedDetail?.CancelTransient(back: true) ?? false) | (DetailTile?.Lab.CancelTransient() ?? false))) CloseDetail();
                 return true;
             case AppPage.Library:
                 return false;
             default:
-                return SelectedDetail?.CancelTransient() ?? false;
+                return SelectedDetail?.CancelTransient(back: true) ?? false;
         }
     }
 

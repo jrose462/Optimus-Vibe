@@ -335,10 +335,14 @@ public sealed class LabGameViewModel : ObservableObject
 
     public string PrivacyNote => $"Evidence goes only to your private config repo{(_lab.RepoName is { } r ? $" ({r})" : "")}.";
 
-    /// <summary>B / Esc: closes the open card (confirmation, test confirmation or a test result). True when one was open.</summary>
+    /// <summary>
+    /// B / Esc: closes the top card only. A confirmation (request, test or "send the test result") goes first; the test result
+    /// underneath closes on the next press. True when something was closed.
+    /// </summary>
     public bool CancelTransient()
     {
-        var any = ClearTransient();
+        if (ClearTransient()) return true;
+        var any = false;
         if (_result is not null && !_testing)
         {
             _result = null;
@@ -347,6 +351,9 @@ public sealed class LabGameViewModel : ObservableObject
         }
         return any;
     }
+
+    /// <summary>Closes confirmation cards but keeps a test result on screen (another panel on the game page is opening).</summary>
+    public bool CloseCards() => ClearTransient();
 
     private bool ClearTransient()
     {

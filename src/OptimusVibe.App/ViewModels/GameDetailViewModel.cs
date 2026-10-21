@@ -359,10 +359,13 @@ public sealed class GameDetailViewModel : ObservableObject
         }
     }
 
-    /// <summary>Close the diff panel, save form, rename or delete confirmation. True if anything was open.</summary>
-    public bool CancelTransient()
+    /// <summary>
+    /// Close the diff panel, save form, rename or delete confirmation. True if anything was open. <paramref name="back"/> = B / Esc:
+    /// the lab panel then also closes a test result (one layer per press); opening another panel keeps the result on screen.
+    /// </summary>
+    public bool CancelTransient(bool back = false)
     {
-        bool any = (Preview is not null || IsSaveFormOpen || IsEditingIntent) | Lab.CancelTransient();
+        bool any = (Preview is not null || IsSaveFormOpen || IsEditingIntent) | (back ? Lab.CancelTransient() : Lab.CloseCards());
         Preview = null;
         IsSaveFormOpen = false;
         IsEditingIntent = false;

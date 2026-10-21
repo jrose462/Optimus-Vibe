@@ -187,7 +187,8 @@
                                 ToolTip="Keep the settings the game left as a manual save.">
                             <TextBlock Text="Make a manual save" />
                         </Button>
-                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding DismissResultCommand}" Margin="0,0,8,6" input:FocusCue.FocusWhenShown="True"
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding DismissResultCommand}" Margin="0,0,8,6"
+                                input:FocusCue.FocusWhenShown="{Binding ShowSendResult, Converter={StaticResource Not}}"
                                 AutomationProperties.Name="Close the test result">
                             <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding ResultCloseText}" /></StackPanel>
                         </Button>
