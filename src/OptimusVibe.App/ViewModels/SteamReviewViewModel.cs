@@ -70,7 +70,7 @@ public sealed class SteamReviewItem : ObservableObject
 /// <summary>
 /// "Review Steam launch options" panel: every planned change with a checkbox and whether the game's settings sync
 /// between devices (ticked by default unless they confidently stay on this device). Applying writes only the ticked ones
-/// (closing Steam, checking the result and reopening Steam, same as the banner's apply-all); unticked games go to steamLaunchOptionsSkip in library.yaml so
+/// (closing Steam, checking the result and putting Steam back the way it was, same as the banner's apply-all); unticked games go to steamLaunchOptionsSkip in library.yaml so
 /// they are not proposed again.
 /// </summary>
 public sealed class SteamReviewViewModel : ObservableObject
