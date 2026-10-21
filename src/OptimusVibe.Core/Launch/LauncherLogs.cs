@@ -11,6 +11,19 @@ public static class LauncherLogs
     public static string BattleNetLogDir() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Battle.net", "Logs");
 
+    /// <summary>
+    /// True when the launch command goes through Battle.net: a battlenet:// URI or the Battle.net launcher exe. A game exe started
+    /// directly (or via a `-- command`) never asks Battle.net to launch anything, so its log says nothing about that launch.
+    /// </summary>
+    public static bool GoesThroughBattleNet(IReadOnlyList<string> line)
+    {
+        if (line.Count == 0) return false;
+        var target = line[0];
+        if (target.StartsWith("battlenet:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (target.Contains("://", StringComparison.Ordinal) || target.StartsWith("shell:", StringComparison.OrdinalIgnoreCase)) return false;
+        return Path.GetFileNameWithoutExtension(target).StartsWith("Battle.net", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Length of every battle.net-*.log now, so only lines written after the launch request are looked at.</summary>
     public static Dictionary<string, long> Mark(string dir)
     {

@@ -167,5 +167,5 @@ listed in `THIRD_PARTY_NOTICES.md` when `PackageReference`s change.
 - `applyTiming` (before | afterProcessStart | both; `both` is the default when `cloudSyncsSettings: true`): once the game exe is seen and `settleSeconds` pass,
   `Runner.ReapplyAfterStart` writes what a launcher's cloud sync reverted (`GameEngine.PlanReapply`) and applies files that did not exist before launch.
 - `launch.args` (game) plus a preset's `launch: { args }` are merged per flag (`LaunchPolicy.MergeArgs`) and reach every route: after the exe, in the
-  `steam://rungameid/<id>//<args>` URI, or after Steam's `%command%`. The final command line, late/re-applied files and a launch note go in the run result.
+  `steam.exe -applaunch <id> <args>` (Steam drops arguments given in a `steam://rungameid/<id>//<args>` URI; with no steam.exe the plain URI is used and a warning logged), or after Steam's `%command%`. The final command line, late/re-applied files and a launch note go in the run result.
 - `display: keep` in a preset skips the display change entirely (also for a Big Picture TV). `archetype` / `mappable` feed the one-line apply status on the game page.

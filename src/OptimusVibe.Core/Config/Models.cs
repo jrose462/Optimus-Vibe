@@ -153,7 +153,7 @@ public sealed class LaunchDef
 
     /// <summary>
     /// Extra command-line arguments, one token per entry. For an exe launch they follow the exe; for a Steam launch they go into
-    /// the steam://rungameid/&lt;id&gt;//&lt;args&gt; URI (or after Steam's %command% when wrapped). A preset's <c>launch.args</c> is merged over these.
+    /// `steam.exe -applaunch &lt;id&gt; &lt;args&gt;` (Steam drops arguments in a steam://rungameid URI; or after Steam's %command% when wrapped). A preset's <c>launch.args</c> is merged over these.
     /// </summary>
     public List<string> Args { get; set; } = new();
 

@@ -135,7 +135,7 @@ public static class GameEngine
                 if (f.Def.ReadOnlyAfterApply) f.Handler.SetReadOnly(f.Path!, true);
 
                 state.Targets[f.Id] = new Dictionary<string, string>(f.Targets);
-                if (f.Targets.Count == 0)
+                if (f.Targets.Count == 0 || plan.RestoreSnapshot) // a restored snapshot is remembered even when keys follow it, so re-apply re-restores only a changed one
                     state.SnapshotHashes[f.Id] = BackupStore.Hash([f.Handler.Snapshot(f.Path!)]);
             }
             catch (Exception ex)

@@ -212,7 +212,7 @@ public static class Validator
             if (launch.Args.Any(a => a.Contains(' ') && (a.StartsWith('-') || a.StartsWith('+')) && !a.Contains('=')))
                 report.Warnings.Add($"{where}: launch.args entries are single tokens: write [\"+cvar\", \"value\"], not [\"+cvar value\"]");
             if (launch.Args.Count > 0 && launch.Exe is null && launch.Uri is not null && !launch.Uri.StartsWith("steam://", StringComparison.OrdinalIgnoreCase))
-                report.Warnings.Add($"{where}: launch.args are ignored for this launch.uri (only steam://rungameid URIs and exe launches take arguments)");
+                report.Warnings.Add($"{where}: launch.args are ignored for this launch.uri (only Steam games and exe launches take arguments)");
         }
     }
 

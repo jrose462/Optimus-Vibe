@@ -208,7 +208,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Extra command-line arguments, one token per entry ([\"+com_adaptiveTickMaxHz\",\"120\"], not one string). Exe launches: after the exe. Steam launches: in the steam://rungameid/<id>//<args> URI, or after %command% when Steam runs the wrapper. Battle.net takes no arguments (set them in Battle.net). A preset's launch.args is merged on top: the same flag appears once, the preset winning."
+          "description": "Extra command-line arguments, one token per entry ([\"+com_adaptiveTickMaxHz\",\"120\"], not one string). Exe launches: after the exe. Steam launches: started by Optimus-Vibe as steam.exe -applaunch <id> <args> (a steam://rungameid URI drops arguments), or after %command% when Steam runs the wrapper. Battle.net takes no arguments (set them in Battle.net). A preset's launch.args is merged on top: the same flag appears once, the preset winning."
         },
         "waitSeconds": {
           "type": "integer",

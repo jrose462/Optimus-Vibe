@@ -129,7 +129,7 @@ public static class Runner
         {
             var extraArgs = LaunchPolicy.MergeArgs(ctx.Game.Launch?.Args, ctx.Profile.LaunchArgs);
             Action<Func<bool>>? onDetected = applied is not null && LaunchPolicy.AppliesAfterStart(ctx.Game)
-                ? stillRunning => ReapplyAfterStart(ctx, applied, stillRunning, LaunchPolicy.Settle(ctx.Game), details)
+                ? stillRunning => ReapplyAfterStart(ctx, applied, stillRunning, LaunchPolicy.Settle(ctx.Game), details, cancel: options?.Cancel ?? default)
                 : null;
             exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen, extraArgs, onDetected, details);
         }
@@ -306,15 +306,20 @@ public static class Runner
     /// (up to <see cref="LateFileWait"/>). Files created after the game booted are marked as taking effect next launch. Never throws.
     /// </summary>
     internal static void ReapplyAfterStart(GameContext ctx, AppliedState applied, Func<bool> stillRunning, TimeSpan settle, RunDetails details,
-        Action<TimeSpan>? sleep = null, TimeSpan? lateWait = null)
+        Action<TimeSpan>? sleep = null, TimeSpan? lateWait = null, CancellationToken cancel = default)
     {
-        sleep ??= Thread.Sleep;
+        // The default sleep is sliced so a cancel or the game exiting ends the wait within a second.
+        sleep ??= total =>
+        {
+            for (var left = total; left > TimeSpan.Zero && !cancel.IsCancellationRequested && stillRunning(); left -= TimeSpan.FromSeconds(1))
+                cancel.WaitHandle.WaitOne(left < TimeSpan.FromSeconds(1) ? left : TimeSpan.FromSeconds(1));
+        };
         var maxWait = lateWait ?? LateFileWait;
         try
         {
             if (settle > TimeSpan.Zero) sleep(settle);
             var waited = TimeSpan.Zero;
-            while (stillRunning())
+            while (!cancel.IsCancellationRequested && stillRunning())
             {
                 var plans = GameEngine.PlanReapply(ctx, applied);
                 var work = plans.Where(p => p.HasWork).ToList();
@@ -364,7 +369,11 @@ public static class Runner
             if (installDir is not null) baseline = ProcessWatch.PidsUnder(installDir);
         }
 
-        using var started = Start(game, command, options, extraArgs, details);
+        var line = ResolveLaunch(game, command, options, extraArgs);
+        var viaBattleNet = battleNet && command.Length == 0 && LauncherLogs.GoesThroughBattleNet(line);
+        using var started = Start(line, details);
+        // Steam's own exe, started with -applaunch, is only a hand-off (it may even become the Steam client): treat it like a URI launch.
+        var handoff = started is null || IsSteamApplaunch(line);
 
         Func<bool> isRunning;
         string what;
@@ -373,7 +382,7 @@ public static class Runner
             isRunning = () => watched.Any(IsRunning);
             what = string.Join(", ", game.Processes);
         }
-        else if (started is null && installDir is not null)
+        else if (handoff && installDir is not null)
         {
             var dir = installDir;
             var before = baseline!;
@@ -381,7 +390,7 @@ public static class Runner
             what = $"a process from {dir}";
             Log.Info($"No `processes:` configured — waiting for {what}");
         }
-        else if (started is null)
+        else if (handoff)
         {
             Log.Warn("Launched via URI with no `processes:` or install folder — cannot tell when the game exits; display/driver changes are undone now");
             processSeen = false;
@@ -399,7 +408,8 @@ public static class Runner
             GameRunning = isRunning,
             LauncherRunning = () => launcherNames.Any(IsRunning),
             StarterGone = () => started is null || started.HasExited,
-            EarlyFailure = battleNet ? elapsed => LauncherLogs.BattleNetProbe(logDir, marks, elapsed) : null,
+            // Only when Battle.net itself was asked to start the game, and never while a game process exists.
+            EarlyFailure = viaBattleNet ? elapsed => isRunning() ? null : LauncherLogs.BattleNetProbe(logDir, marks, elapsed) : null,
             OnGameDetected = onGameDetected,
             OnStatus = options?.OnStatus,
             StartupTimeout = LaunchPolicy.StartupTimeout(game),
@@ -411,7 +421,7 @@ public static class Runner
         if (details is not null) details.Note = outcome.Reason;
 
         processSeen = outcome.GameSeen;
-        if (started is null) return 0;
+        if (started is null || handoff) return 0;
         if (outcome.Phase is LaunchPhase.Failed or LaunchPhase.GaveUp or LaunchPhase.Cancelled && !started.HasExited) return 0; // not our game: do not block on a stub
         if (!started.HasExited) started.WaitForExit();
         return started.ExitCode;
@@ -445,9 +455,8 @@ public static class Runner
     /// Precedence: `-- command` (Steam's %command%) → <see cref="RunOptions.Launch"/> → the game's launch.exe / launch.uri
     /// → steam://rungameid/&lt;steamAppId&gt;. Returns null for URI / shell targets.
     /// </summary>
-    private static Process? Start(GameDef game, string[] command, RunOptions? options, IReadOnlyList<string>? extraArgs, RunDetails? details)
+    private static Process? Start(string[] line, RunDetails? details)
     {
-        var line = ResolveLaunch(game, command, options, extraArgs);
         Log.Info($"Launching: {string.Join(' ', line)}");
         if (details is not null) details.Command = string.Join(' ', line);
         return StartCommand(line);
@@ -455,10 +464,12 @@ public static class Runner
 
     /// <summary>
     /// The command line a launch starts, in the same precedence as <see cref="Start"/>. <paramref name="extraArgs"/> (the game's launch.args merged with
-    /// the preset's) go after the exe, after Steam's %command%, or into the steam://rungameid/&lt;id&gt;//&lt;args&gt; form; null = a mapping run, where
+    /// the preset's) go after the exe, after Steam's %command%, or (Steam game, started by us) after `steam.exe -applaunch &lt;id&gt;`, because Steam drops
+    /// the arguments of a steam://rungameid/&lt;id&gt;//&lt;args&gt; URI; null = a mapping run, where
     /// only an exe launch keeps its configured launch.args (the launcher needs them) and nothing is added to a Steam launch.
+    /// <paramref name="steamExe"/> finds steam.exe (default: the Steam root); null from it = the plain URI, arguments dropped, with a warning.
     /// </summary>
-    internal static string[] ResolveLaunch(GameDef game, string[] command, RunOptions? options, IReadOnlyList<string>? extraArgs)
+    internal static string[] ResolveLaunch(GameDef game, string[] command, RunOptions? options, IReadOnlyList<string>? extraArgs, Func<string?>? steamExe = null)
     {
         var extra = extraArgs ?? [];
         if (command.Length > 0) return [.. LaunchPolicy.AppendArgs(command, extra)];
@@ -466,7 +477,7 @@ public static class Runner
         var fromOptions = LaunchCommand(options);
         if (fromOptions.Length > 0)
         {
-            if (IsShellTarget(fromOptions[0])) return [LaunchPolicy.WithArgs(fromOptions[0], [.. fromOptions.Skip(1), .. extra])];
+            if (IsShellTarget(fromOptions[0])) return SteamRoute(fromOptions[0], [.. fromOptions.Skip(1), .. extra], steamExe);
             return [.. LaunchPolicy.AppendArgs(fromOptions, extra)];
         }
 
@@ -479,8 +490,44 @@ public static class Runner
 
         var uri = launch?.Uri ?? (game.SteamAppId is { } id ? $"steam://rungameid/{id}" : null)
                   ?? throw new ConfigException($"{game.Id}: nothing to launch — pass `-- %command%` or set launch.exe/launch.uri");
-        return [LaunchPolicy.WithArgs(uri, extra)];
+        return SteamRoute(uri, extra, steamExe);
     }
+
+    /// <summary>
+    /// A plain steam://rungameid/&lt;id&gt; URI with arguments becomes `steam.exe -applaunch &lt;id&gt; &lt;args&gt;`; without arguments, or for any other
+    /// target, the target itself. No steam.exe: the plain URI and a warning that the arguments are dropped.
+    /// </summary>
+    internal static string[] SteamRoute(string target, IReadOnlyList<string> args, Func<string?>? steamExe = null)
+    {
+        if (args.Count == 0 || LaunchPolicy.PlainSteamAppId(target) is not { } id) return [target];
+        var exe = (steamExe ?? FindSteamExe)();
+        if (exe is null)
+        {
+            Log.Warn($"steam.exe not found: starting {target} without its arguments ({string.Join(' ', args)}) - Steam drops arguments given in a URI");
+            return [target];
+        }
+        return LaunchPolicy.SteamApplaunch(exe, id, args);
+    }
+
+    private static string? FindSteamExe()
+    {
+        try
+        {
+            var root = new SteamLocator().SteamRoot;
+            var exe = root is null ? null : Path.Combine(root, "steam.exe");
+            return exe is not null && File.Exists(exe) ? exe : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not find steam.exe: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>True for the `steam.exe -applaunch` form: a hand-off to the Steam client, whose own process says nothing about the game.</summary>
+    internal static bool IsSteamApplaunch(IReadOnlyList<string> line) =>
+        line.Count > 1 && line[1].Equals("-applaunch", StringComparison.OrdinalIgnoreCase)
+        && Path.GetFileNameWithoutExtension(line[0]).Equals("steam", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A single URI / shell target is shell-opened (null process); otherwise exe + args.</summary>
     internal static Process? StartCommand(IReadOnlyList<string> command)

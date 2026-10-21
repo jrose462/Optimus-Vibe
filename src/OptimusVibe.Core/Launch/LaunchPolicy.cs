@@ -93,22 +93,21 @@ public static class LaunchPolicy
         return result;
     }
 
-    /// <summary>steam://rungameid/&lt;id&gt; with the arguments in Steam's `//&lt;url-encoded args&gt;` form.</summary>
-    public static string SteamUri(int appId, IReadOnlyList<string> args)
+    private const string SteamRunPrefix = "steam://rungameid/";
+
+    /// <summary>The app id of a plain steam://rungameid/&lt;id&gt; URI (no `//args` part), else null.</summary>
+    public static int? PlainSteamAppId(string uri)
     {
-        var uri = $"steam://rungameid/{appId}";
-        return args.Count == 0 ? uri : $"{uri}//{Uri.EscapeDataString(string.Join(' ', args.Select(Quote)))}";
+        if (!uri.StartsWith(SteamRunPrefix, StringComparison.OrdinalIgnoreCase) || uri.IndexOf("//", SteamRunPrefix.Length, StringComparison.Ordinal) >= 0) return null;
+        return int.TryParse(uri[SteamRunPrefix.Length..].TrimEnd('/'), out var id) ? id : null;
     }
 
-    /// <summary>Adds args to a steam://rungameid/&lt;id&gt; URI that has none; any other URI is returned unchanged.</summary>
-    public static string WithArgs(string uri, IReadOnlyList<string> args)
-    {
-        const string prefix = "steam://rungameid/";
-        if (args.Count == 0 || !uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || uri.IndexOf("//", prefix.Length, StringComparison.Ordinal) >= 0) return uri;
-        return int.TryParse(uri[prefix.Length..].TrimEnd('/'), out var id) ? SteamUri(id, args) : uri;
-    }
-
-    private static string Quote(string token) => token.Any(char.IsWhiteSpace) ? $"\"{token}\"" : token;
+    /// <summary>
+    /// The command that starts a Steam game with arguments. Steam drops the arguments of steam://rungameid/&lt;id&gt;//&lt;args&gt;, but
+    /// `steam.exe -applaunch &lt;id&gt; &lt;args&gt;` passes them (and appends them after %command% in a wrapped launch option).
+    /// </summary>
+    public static string[] SteamApplaunch(string steamExe, int appId, IReadOnlyList<string> args) =>
+        [steamExe, "-applaunch", appId.ToString(System.Globalization.CultureInfo.InvariantCulture), .. args];
 
     // ---------------------------------------------------------------- status words
 

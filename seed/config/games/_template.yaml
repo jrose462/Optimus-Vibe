@@ -44,7 +44,7 @@ launch:
   # args: ["--exec=launch Pro"]          # Battle.net product code: Pro = Overwatch, Fen = Diablo IV
   # uri: "origin2://game/launch?offerIds=XXXX"   # EA app (find the offer id via `inspect`/community lists)
   # args: ["-skipStartScreen"]          # extra arguments, ONE TOKEN PER ENTRY (["+cvar", "120"], not ["+cvar 120"]). Work on every route:
-  #                                      # after an exe, inside steam://rungameid/<id>//<args>, or after Steam's %command%. Battle.net takes none.
+  #                                      # after an exe, via `steam.exe -applaunch <id> <args>` (a steam://rungameid URI drops them), or after Steam's %command%. Battle.net takes none.
   #                                      # A preset can add launch: { args: [...] }; the same flag appears once and the preset wins.
   # waitSeconds: 600                    # how long to wait for the game exe after starting the launcher (default 180; 600 for ea/battlenet/epic)
   # launcherProcesses: [EADesktop.exe]  # while one of these runs and the game does not: "waiting on the launcher - answer its prompt", not a failure

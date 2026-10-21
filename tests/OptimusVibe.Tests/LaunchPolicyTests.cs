@@ -62,28 +62,69 @@ public sealed class LaunchPolicyTests
     }
 
     [Fact]
-    public void SteamUri_EncodesArguments()
+    public void PlainSteamAppId_OnlyForPlainRungameidUris()
     {
-        Assert.Equal("steam://rungameid/42", LaunchPolicy.SteamUri(42, []));
-        Assert.Equal("steam://rungameid/42//-skipStartScreen%20%2BcomMax%20120", LaunchPolicy.SteamUri(42, ["-skipStartScreen", "+comMax", "120"]));
-        Assert.Equal("steam://rungameid/42//%22a%20b%22", LaunchPolicy.SteamUri(42, ["a b"]));
+        Assert.Equal(7, LaunchPolicy.PlainSteamAppId("steam://rungameid/7"));
+        Assert.Equal(7, LaunchPolicy.PlainSteamAppId("STEAM://rungameid/7/"));
+        Assert.Null(LaunchPolicy.PlainSteamAppId("steam://rungameid/7//-y"));
+        Assert.Null(LaunchPolicy.PlainSteamAppId("origin2://game/launch?offerIds=1"));
     }
 
     [Fact]
-    public void WithArgs_OnlyTouchesPlainSteamUris()
-    {
-        Assert.Equal("steam://rungameid/7//-x", LaunchPolicy.WithArgs("steam://rungameid/7", ["-x"]));
-        Assert.Equal("steam://rungameid/7//-y", LaunchPolicy.WithArgs("steam://rungameid/7//-y", ["-x"]));
-        Assert.Equal("origin2://game/launch?offerIds=1", LaunchPolicy.WithArgs("origin2://game/launch?offerIds=1", ["-x"]));
-        Assert.Equal("steam://rungameid/7", LaunchPolicy.WithArgs("steam://rungameid/7", []));
-    }
+    public void SteamApplaunch_PutsTheArgsAfterTheId() =>
+        Assert.Equal([@"C:\Steam\steam.exe", "-applaunch", "42", "-skipStartScreen", "+comMax", "120", "a b"],
+            LaunchPolicy.SteamApplaunch(@"C:\Steam\steam.exe", 42, ["-skipStartScreen", "+comMax", "120", "a b"]));
 
     [Fact]
-    public void ResolveLaunch_SteamUriRoute_CarriesTheArgs()
+    public void ResolveLaunch_SteamGameWithArgs_UsesApplaunch()
     {
         var game = new GameDef { Id = "g", SteamAppId = 99 };
-        Assert.Equal(["steam://rungameid/99//-x"], Runner.ResolveLaunch(game, [], null, ["-x"]));
+        Assert.Equal([@"C:\Steam\steam.exe", "-applaunch", "99", "-x"], Runner.ResolveLaunch(game, [], null, ["-x"], () => @"C:\Steam\steam.exe"));
+        Assert.True(Runner.IsSteamApplaunch(Runner.ResolveLaunch(game, [], null, ["-x"], () => @"C:\Steam\steam.exe")));
+    }
+
+    [Fact]
+    public void ResolveLaunch_SteamGameWithoutArgs_KeepsThePlainUri()
+    {
+        var game = new GameDef { Id = "g", SteamAppId = 99 };
+        Assert.Equal(["steam://rungameid/99"], Runner.ResolveLaunch(game, [], null, [], () => throw new InvalidOperationException("not needed")));
         Assert.Equal(["steam://rungameid/99"], Runner.ResolveLaunch(game, [], null, null)); // mapping run: nothing added
+    }
+
+    [Fact]
+    public void ResolveLaunch_NoSteamExe_FallsBackToThePlainUri()
+    {
+        var game = new GameDef { Id = "g", SteamAppId = 99 };
+        Assert.Equal(["steam://rungameid/99"], Runner.ResolveLaunch(game, [], null, ["-x"], () => null));
+    }
+
+    [Fact]
+    public void ResolveLaunch_OptionsUri_AppliesTheSameRoute()
+    {
+        var game = new GameDef { Id = "g" };
+        var options = new RunOptions { Launch = "steam://rungameid/5", LaunchArgs = ["-a"] };
+        Assert.Equal([@"C:\S\steam.exe", "-applaunch", "5", "-a", "-b"], Runner.ResolveLaunch(game, [], options, ["-b"], () => @"C:\S\steam.exe"));
+        var other = new RunOptions { Launch = "origin2://game/launch?offerIds=1" };
+        Assert.Equal(["origin2://game/launch?offerIds=1"], Runner.ResolveLaunch(game, [], other, ["-b"], () => @"C:\S\steam.exe"));
+    }
+
+    [Fact]
+    public void IsSteamApplaunch_OnlyForSteamExeWithTheFlag()
+    {
+        Assert.True(Runner.IsSteamApplaunch([@"C:\Steam\steam.exe", "-applaunch", "1"]));
+        Assert.False(Runner.IsSteamApplaunch([@"C:\g\game.exe", "-applaunch", "1"]));
+        Assert.False(Runner.IsSteamApplaunch(["steam://rungameid/1"]));
+    }
+
+    [Fact]
+    public void GoesThroughBattleNet_OnlyForTheLauncherNotTheGameExe()
+    {
+        Assert.True(LauncherLogs.GoesThroughBattleNet(["battlenet://Pro"]));
+        Assert.True(LauncherLogs.GoesThroughBattleNet([@"C:\Program Files (x86)\Battle.net\Battle.net.exe", "--exec=launch Pro"]));
+        Assert.True(LauncherLogs.GoesThroughBattleNet([@"C:\Battle.net\Battle.net Launcher.exe"]));
+        Assert.False(LauncherLogs.GoesThroughBattleNet([@"D:\Games\Overwatch\Overwatch.exe"]));
+        Assert.False(LauncherLogs.GoesThroughBattleNet(["steam://rungameid/1"]));
+        Assert.False(LauncherLogs.GoesThroughBattleNet([]));
     }
 
     [Fact]

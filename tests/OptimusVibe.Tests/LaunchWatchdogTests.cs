@@ -251,4 +251,27 @@ public sealed class LaunchWatchdogTests
         Runner.ReapplyAfterStart(ctx, applied, () => false, TimeSpan.Zero, new Runner.RunDetails(), _ => { });
         Assert.Contains("Shadows=3", fx.ReadGameFile("user.ini"));
     }
+
+    [Fact]
+    public void Reapply_CancelledOrExitedDuringTheSettleWindow_StopsWithoutWriting()
+    {
+        Log.Quiet = true;
+        using var fx = new EngineFixture(Yaml);
+        fx.WriteGameFile("user.ini", "[S]\nShadows=3\n");
+        fx.WriteGameFile("late.ini", "[L]\nQuality=2\n");
+        var ctx = fx.Load();
+        var applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
+        fx.WriteGameFile("user.ini", "[S]\nShadows=3\n");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var details = new Runner.RunDetails();
+        Runner.ReapplyAfterStart(ctx, applied, () => true, TimeSpan.FromMinutes(5), details, null, null, cts.Token); // default sleep returns at once
+        Assert.Contains("Shadows=3", fx.ReadGameFile("user.ini"));
+        Assert.Empty(details.Reapplied);
+
+        var started = DateTime.UtcNow;
+        Runner.ReapplyAfterStart(ctx, applied, () => false, TimeSpan.FromMinutes(5), details); // the game is gone: no 5 minute sleep
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
+    }
 }

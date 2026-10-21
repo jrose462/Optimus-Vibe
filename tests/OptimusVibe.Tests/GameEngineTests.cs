@@ -110,7 +110,24 @@ public sealed class GameEngineTests : IDisposable
         Assert.Equal([4, 2], File.ReadAllBytes(_f.GameFile("blob.bin")));
         Assert.Equal("[E]\r\nLod=1\r\n", _f.ReadGameFile("engine.ini"));
         Assert.True(state.SnapshotHashes.ContainsKey("blob"));
-        Assert.False(state.SnapshotHashes.ContainsKey("user")); // tracked by keys instead
+        Assert.True(state.SnapshotHashes.ContainsKey("user")); // snapshot + keys: the restored file is remembered too
+    }
+
+    [Fact]
+    public void PlanReapply_SnapshotWithKeys_RestoresOnlyAChangedSnapshot()
+    {
+        var snap = "[S]\r\nShadows=5\r\nTextures=1\r\n"u8.ToArray();
+        var save = _f.WriteSave("desktop", "Snappy2", new() { ["user"] = S("S", ("Shadows", "0")) }, new() { ["user"] = snap });
+        var ctx = _f.Load("desktop", PresetRef.Manual(save.Slug));
+        var applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
+
+        var untouched = GameEngine.PlanReapply(ctx, applied).Single(p => p.File.Id == "user");
+        Assert.False(untouched.RestoreSnapshot);
+        Assert.False(untouched.HasWork);
+
+        _f.WriteGameFile("user.ini", "[S]\r\nShadows=9\r\nTextures=1\r\n"); // the launcher put another file back
+        var changed = GameEngine.PlanReapply(ctx, applied).Single(p => p.File.Id == "user");
+        Assert.True(changed.RestoreSnapshot);
     }
 
     [Fact]
