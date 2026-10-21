@@ -791,6 +791,8 @@ public static class Program
             if (p.Changes.Count == 0 && !p.RestoreSnapshot) Console.WriteLine("    up to date");
             foreach (var c in p.Changes)
                 Console.WriteLine($"    {c.Key}: {c.Current ?? "(missing)"} -> {c.Target}");
+            foreach (var (key, reason) in p.Rejected)
+                Console.WriteLine($"    {key}: NOT applied - {reason}");
         }
     }
 }

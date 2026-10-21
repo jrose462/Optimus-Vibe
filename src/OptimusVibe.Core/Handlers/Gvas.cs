@@ -23,11 +23,18 @@ public sealed class GvasProperty
     public object? Value;
     /// <summary>Verbatim payload when this property is not decoded.</summary>
     public byte[]? Raw;
+    /// <summary>Array index of the property tag (a fixed-size C array member has several tags with the same name); 0 for everything else.</summary>
+    public int Index;
+    /// <summary>Original encoding of a string value that is not the canonical form (empty as "\0", ASCII as UTF-16...); reused while the text is unchanged.</summary>
+    internal StrOrig? StrOrig;
     /// <summary>True for synthetic members of a fixed struct (IntPoint.X): no header is written for them.</summary>
     internal bool Synthetic;
 
     public bool IsScalar => Raw is null && Value is not (GvasStruct or GvasArray);
 }
+
+/// <summary>The exact bytes (length prefix included) an FString was stored with, when they differ from what Unreal itself would write for that text.</summary>
+internal sealed record StrOrig(string Text, byte[] Bytes);
 
 public sealed class GvasStruct
 {
@@ -41,6 +48,8 @@ public sealed class GvasArray
 {
     public string InnerType = "";
     public List<object?> Elements = new();
+    /// <summary>Non-canonical original encodings of string elements, parallel to <see cref="Elements"/> (null for non-string arrays).</summary>
+    internal List<StrOrig?>? Origs;
     // StructProperty element header (name, type, struct type name, guid) of an array of structs.
     public string StructName = "";
     public string StructTypeName = "";
@@ -61,6 +70,17 @@ public sealed class GvasFile
 
     public byte[] HeaderBytes { get; private set; } = [];
     public int SaveGameVersion { get; private set; }
+    public int PackageVersionUE4 { get; private set; }
+    /// <summary>EUnrealEngineObjectUE5Version from the header (0 for save version 2, i.e. UE4).</summary>
+    public int PackageVersionUE5 { get; private set; }
+
+    /// <summary>
+    /// First EUnrealEngineObjectUE5Version whose property tags are not the classic layout: PROPERTY_TAG_EXTENSION_AND_OVERRIDABLE_SERIALIZATION
+    /// (= 1011, UE 5.4; PROPERTY_TAG_COMPLETE_TYPE_NAME = 1012 follows it). Source: Engine/Source/Runtime/Core/Public/UObject/ObjectVersion.h
+    /// (enum EUnrealEngineObjectUE5Version). From 1011 the tag's guid flag byte becomes EPropertyTagFlags and from 1012 the type is a
+    /// nested FPropertyTypeName, neither of which this reader implements.
+    /// </summary>
+    public const int FirstUnsupportedUE5Version = 1011;
     public string SaveClass { get; private set; } = "";
     public string EngineVersion { get; private set; } = "";
     public List<GvasProperty> Properties { get; } = new();
@@ -77,13 +97,16 @@ public sealed class GvasFile
         {
             f.SaveGameVersion = r.Int32();
             if (f.SaveGameVersion is < 2 or > 3) throw new GvasException($"Unsupported GVAS save version {f.SaveGameVersion} (2 and 3 are supported).");
-            r.Int32(); // package file version (UE4)
-            if (f.SaveGameVersion >= 3) r.Int32(); // package file version (UE5)
+            f.PackageVersionUE4 = r.Int32();
+            if (f.SaveGameVersion >= 3) f.PackageVersionUE5 = r.Int32();
+            if (f.PackageVersionUE5 >= FirstUnsupportedUE5Version)
+                throw new GvasException($"Unsupported GVAS layout (UE 5.4+ property tags): the save was written with UE5 object version {f.PackageVersionUE5}; this reader handles versions below {FirstUnsupportedUE5Version}.");
             ushort major = r.UInt16(), minor = r.UInt16(), patch = r.UInt16();
             r.UInt32(); // changelist
             var branch = r.String();
             f.EngineVersion = $"{major}.{minor}.{patch} {branch}".Trim();
-            r.Int32(); // custom version format
+            int cvFormat = r.Int32();
+            if (cvFormat != 3) throw new GvasException($"Unsupported GVAS layout: custom version format {cvFormat} (only 3, the optimized format of UE 4.22+, is supported).");
             int cv = r.Int32();
             if (cv < 0 || cv > 10000) throw new GvasException("Corrupt custom version table.");
             r.Skip(cv * 20);
@@ -124,7 +147,7 @@ public sealed class GvasFile
     public IEnumerable<GvasEntry> Enumerate()
     {
         var all = new List<GvasEntry>();
-        foreach (var p in Properties) Walk(p, p.Name, all);
+        foreach (var p in Properties) Walk(p, Display(p), all);
         return all;
     }
 
@@ -133,22 +156,33 @@ public sealed class GvasFile
         switch (p.Value)
         {
             case GvasStruct s when p.Raw is null:
-                foreach (var m in s.Fields) Walk(m, path + "." + m.Name, into);
+                foreach (var m in s.Fields) Walk(m, path + "." + Display(m), into);
                 return;
             case GvasArray a when p.Raw is null:
                 into.Add(new GvasEntry(path, $"{p.Type}<{a.InnerType}>", $"[{a.Elements.Count}]", false));
                 if (a.InnerType == "StructProperty")
                     for (int i = 0; i < a.Elements.Count; i++)
                         if (a.Elements[i] is GvasStruct es)
-                            foreach (var m in es.Fields) Walk(m, $"{path}[{i}].{m.Name}", into);
-                if (a.InnerType != "ByteProperty" && a.InnerType != "StructProperty")
+                            foreach (var m in es.Fields) Walk(m, $"{path}[{i}].{Display(m)}", into);
+                if (a.InnerType != "ByteProperty" && a.InnerType != "StructProperty" && CanWrite(a.InnerType))
                     for (int i = 0; i < a.Elements.Count; i++)
                         into.Add(new GvasEntry($"{path}[{i}]", a.InnerType, Format(a.Elements[i]), true));
                 return;
         }
         if (p.Raw is not null) into.Add(new GvasEntry(path, p.Type, $"<{p.Raw.Length} bytes>", false));
-        else into.Add(new GvasEntry(path, p.Type, Format(p.Value), true));
+        else into.Add(new GvasEntry(path, p.Type, Format(p.Value), CanWrite(p.Type)));
     }
+
+    /// <summary>Property name as addressed in a key: "Name", or "Name#1" for the tag with array index 1.</summary>
+    private static string Display(GvasProperty p) => p.Index == 0 ? p.Name : $"{p.Name}#{p.Index}";
+
+    private static readonly HashSet<string> WritableTypes =
+    [
+        "IntProperty", "UInt32Property", "Int64Property", "UInt64Property", "Int16Property", "UInt16Property", "Int8Property",
+        "FloatProperty", "DoubleProperty", "BoolProperty", "ByteProperty", "EnumProperty", "StrProperty", "NameProperty",
+    ];
+
+    private static bool CanWrite(string type) => WritableTypes.Contains(type);
 
     public string? Get(string path)
     {
@@ -167,16 +201,36 @@ public sealed class GvasFile
     };
 
     /// <summary>Splits "Path:type" into the path and the property type the hint names (null when there is no hint).</summary>
-    public static string SplitHint(string key, out string? type)
+    public static string SplitHint(string key, out string? type) => SplitHint(key, out type, out _);
+
+    /// <summary>
+    /// Splits "Path:type" or "Path:type(EnumType)" into the path, the property type and the explicit enum type (only for ":enum(...)" and
+    /// ":byte(...)"; the enum type may itself contain "::", e.g. "Mode:enum(EWindowMode::Type)").
+    /// </summary>
+    public static string SplitHint(string key, out string? type, out string? enumType)
     {
-        type = null;
-        int colon = key.LastIndexOf(':');
-        if (colon <= 0 || colon == key.Length - 1) return key;
-        var hint = key[(colon + 1)..];
+        type = null; enumType = null;
+        var core = key;
+        string? arg = null;
+        if (key.EndsWith(')') && key.LastIndexOf('(') is var open and > 0)
+        {
+            arg = key[(open + 1)..^1].Trim();
+            core = key[..open];
+        }
+        int colon = core.LastIndexOf(':');
+        if (colon <= 0 || colon == core.Length - 1) return key;
+        var hint = core[(colon + 1)..];
         if (!TypeHints.TryGetValue(hint, out var t))
             throw new GvasException($"Unknown type hint ':{hint}' in key '{key}' (use one of: {string.Join(", ", TypeHints.Keys)}).");
+        if (arg is not null)
+        {
+            if (t is not ("EnumProperty" or "ByteProperty"))
+                throw new GvasException($"The type hint ':{hint}' in key '{key}' takes no enum type; only ':enum(EnumType)' and ':byte(EnumType)' do.");
+            if (arg.Length == 0) throw new GvasException($"Empty enum type in key '{key}'.");
+            enumType = arg;
+        }
         type = t;
-        return key[..colon];
+        return core[..colon];
     }
 
     /// <summary>
@@ -187,17 +241,19 @@ public sealed class GvasFile
     /// </summary>
     public void Set(string key, string value)
     {
-        var path = SplitHint(key, out var hint);
+        var path = SplitHint(key, out var hint, out var hintEnum);
         var t = Resolve(path, out var arrayIndex);
         if (t is null)
         {
             if (hint is null) throw new GvasException(
-                $"No property '{path}' in the save. Unreal omits properties that equal their defaults; to add it, give its type: '{path}:int' (int, uint, float, bool, byte, str, name, enum).");
-            Insert(path, hint, value);
+                $"No property '{path}' in the save. Unreal omits properties that equal their defaults; to add it, give its type: '{path}:int' (int, uint, float, bool, byte, str, name, enum(EnumType)).");
+            Insert(path, hint, hintEnum, value);
             return;
         }
         if (hint is not null && arrayIndex is null && hint != t.Type)
             throw new GvasException($"'{path}' is a {t.Type} in the save, not {hint}; drop or fix the ':type' hint.");
+        if (hintEnum is not null && arrayIndex is null && t.Info.Count > 0 && t.Info[0] != hintEnum)
+            throw new GvasException($"'{path}' is of enum type '{t.Info[0]}' in the save, not '{hintEnum}'; drop or fix the type hint.");
         if (arrayIndex is int i)
         {
             var a = (GvasArray)t.Value!;
@@ -207,10 +263,21 @@ public sealed class GvasFile
         if (!t.IsScalar) throw new GvasException(t.Raw is not null
             ? $"'{path}' ({t.Type}) is not decoded by the gvas handler, so it cannot be written."
             : $"'{path}' is a {t.Type} container; address one scalar member or element ('{path}.Member' or '{path}[0]').");
-        t.Value = Parse(t.Type, "", value, path, t.Value);
+        t.Value = Parse(t.Type, t.Type == "ByteProperty" && t.Info.Count > 0 ? t.Info[0] : "", value, path, t.Value);
     }
 
-    private void Insert(string path, string type, string value)
+    /// <summary>An enum value name must carry its enum's prefix: "Prefix::Value" where Prefix is the enum name, or for a namespaced enum ("EWindowMode::Type") the namespace.</summary>
+    private static string CheckEnumValue(string enumType, string value, string path)
+    {
+        var v = value.Trim();
+        var colons = enumType.IndexOf("::", StringComparison.Ordinal);
+        var prefix = (colons > 0 ? enumType[..colons] : enumType) + "::";
+        if (!v.StartsWith(prefix, StringComparison.Ordinal) || v.Length == prefix.Length)
+            throw new GvasException($"'{value}' is not a value of enum '{enumType}' for '{path}': give the full value name such as {prefix}Value.");
+        return v;
+    }
+
+    private void Insert(string path, string type, string? enumType, string value)
     {
         var list = Properties;
         string leaf = path;
@@ -222,17 +289,23 @@ public sealed class GvasFile
                 throw new GvasException($"Cannot add '{path}': '{path[..dot]}' is not a struct in the save.");
             list = ps.Fields; leaf = path[(dot + 1)..];
         }
-        if (leaf.Length == 0 || leaf.Contains('[')) throw new GvasException($"Cannot add '{path}': bad property name.");
+        if (leaf.Length == 0 || leaf.Contains('[') || leaf.Contains('#')) throw new GvasException($"Cannot add '{path}': bad property name.");
         var p = new GvasProperty { Name = leaf, Type = type };
-        if (type == "ByteProperty") p.Info.Add("None");
-        if (type == "EnumProperty") p.Info.Add("");
-        p.Value = Parse(type, "", value, path, type == "ByteProperty" ? (byte)0 : null);
         if (type == "EnumProperty")
         {
-            var sep = value.IndexOf("::", StringComparison.Ordinal);
-            if (sep <= 0) throw new GvasException($"'{path}' is an enum; give the full value such as EnumName::Value.");
-            p.Info[0] = value[..sep];
+            // A namespaced enum (enum EWindowMode { Type { Fullscreen } }) is typed "EWindowMode::Type" but its values read "EWindowMode::Fullscreen",
+            // while an enum class "EFoo" has values "EFoo::Bar": the value alone cannot tell which, so the type must be given.
+            if (enumType is null) throw new GvasException(
+                $"Cannot add enum '{path}': its enum type cannot be told from the value '{value}' (a namespaced enum is typed 'EWindowMode::Type', an enum class 'EFoo'). Give it: '{path}:enum(EnumType)'.");
+            p.Info.Add(enumType);
+            p.Value = CheckEnumValue(enumType, value, path);
         }
+        else if (type == "ByteProperty")
+        {
+            if (enumType is null) { p.Info.Add("None"); p.Value = Parse(type, "", value, path, (byte)0); }
+            else { p.Info.Add(enumType); p.Value = CheckEnumValue(enumType, value, path); }
+        }
+        else p.Value = Parse(type, "", value, path, null);
         list.Add(p);
     }
 
@@ -247,9 +320,10 @@ public sealed class GvasFile
             string remainder = "";
             foreach (var p in list)
             {
-                if (rest == p.Name) { hit = p; remainder = ""; break; }
-                if (rest.StartsWith(p.Name, StringComparison.Ordinal) && rest.Length > p.Name.Length && rest[p.Name.Length] is '.' or '[')
-                { hit = p; remainder = rest[p.Name.Length..]; break; }
+                var name = Display(p);
+                if (rest == name) { hit = p; remainder = ""; break; }
+                if (rest.StartsWith(name, StringComparison.Ordinal) && rest.Length > name.Length && rest[name.Length] is '.' or '[')
+                { hit = p; remainder = rest[name.Length..]; break; }
             }
             if (hit is null) return null;
             if (remainder.Length == 0) return hit;
@@ -301,7 +375,15 @@ public sealed class GvasFile
                     if (t.Equals("false", StringComparison.OrdinalIgnoreCase) || t == "0") return false;
                     throw new FormatException("expected true or false");
                 case "ByteProperty":
-                    if (current is string) return text;                       // enum stored as a name
+                    if (current is string cur)                                // enum stored as a value name
+                    {
+                        if (t.Length == 0 || t.All(c => char.IsDigit(c) || c is '-' or '+'))
+                            throw new GvasException($"'{path}' is an enum byte ({(enumName.Length > 0 ? enumName : "enum")}, currently '{cur}'): give an enum value name such as {EnumPrefix(cur)}Value, not a number.");
+                        var colons = cur.IndexOf("::", StringComparison.Ordinal);
+                        if (colons > 0 && !t.StartsWith(cur[..(colons + 2)], StringComparison.Ordinal))
+                            throw new GvasException($"'{text}' is not a value of the enum '{path}' uses (values look like '{cur}'): give the full value name such as {cur[..(colons + 2)]}Value.");
+                        return t;
+                    }
                     return byte.Parse(t, NumberStyles.None, CultureInfo.InvariantCulture);
                 case "EnumProperty":
                 case "StrProperty":
@@ -317,6 +399,8 @@ public sealed class GvasFile
         }
     }
 
+    private static string EnumPrefix(string value) => value.IndexOf("::", StringComparison.Ordinal) is var i and > 0 ? value[..(i + 2)] : "EnumName::";
+
     private static double ParseFloat(string t, double max)
     {
         var d = double.Parse(t, NumberStyles.Float, CultureInfo.InvariantCulture);
@@ -331,8 +415,11 @@ public sealed class GvasFile
         var name = r.String();
         if (name == "None") return null;
         var p = new GvasProperty { Name = name, Type = r.String() };
-        long size = r.Int64();
+        // classic tag (UE < 5.4): int32 size, int32 array index
+        int size = r.Int32();
+        p.Index = r.Int32();
         if (size < 0 || size > r.End - r.Pos) throw new GvasException($"Property '{name}' declares an impossible size {size}.");
+        if (p.Index < 0) throw new GvasException($"Property '{name}' has a negative array index {p.Index}.");
         bool boolValue = false;
         switch (p.Type)
         {
@@ -350,18 +437,20 @@ public sealed class GvasFile
         if (p.Type == "BoolProperty") { p.Value = boolValue; return p; }
 
         int start = r.Pos;
-        var sub = new Reader(r.Data, start, start + (int)size);
+        var sub = new Reader(r.Data, start, start + size);
         try
         {
-            p.Value = ReadValue(sub, p, (int)size);
+            p.Value = ReadValue(sub, p, size);
+            if (p.Value is string) p.StrOrig = sub.LastStr;
             if (sub.Pos != sub.End) throw new FormatException("payload not fully consumed");
         }
         catch (Exception e) when (e is FormatException or GvasException or IndexOutOfRangeException or ArgumentException or InvalidOperationException)
         {
             p.Value = null;
-            p.Raw = r.Data[start..(start + (int)size)];
+            p.StrOrig = null;
+            p.Raw = r.Data[start..(start + size)];
         }
-        r.Pos = start + (int)size;
+        r.Pos = start + size;
         return p;
     }
 
@@ -458,7 +547,15 @@ public sealed class GvasFile
         else if (inner == "ByteProperty")
             for (int i = 0; i < count; i++) a.Elements.Add(r.Byte());
         else
-            for (int i = 0; i < count; i++) a.Elements.Add(ReadScalar(r, inner, 0));
+        {
+            bool strings = inner is "StrProperty" or "NameProperty" or "ObjectProperty" or "EnumProperty";
+            if (strings) a.Origs = new();
+            for (int i = 0; i < count; i++)
+            {
+                a.Elements.Add(ReadScalar(r, inner, 0));
+                a.Origs?.Add(r.LastStr);
+            }
+        }
         return a;
     }
 
@@ -470,12 +567,12 @@ public sealed class GvasFile
         w.String(p.Type);
         if (p.Type == "BoolProperty")
         {
-            w.Int64(0); w.Byte((bool)p.Value! ? (byte)1 : (byte)0); WriteGuidFlag(w, p); return;
+            w.Int32(0); w.Int32(p.Index); w.Byte((bool)p.Value! ? (byte)1 : (byte)0); WriteGuidFlag(w, p); return;
         }
         var body = new Writer();
         if (p.Raw is not null) body.Bytes(p.Raw);
         else WriteValue(body, p);
-        w.Int64(body.Length);
+        w.Int32((int)body.Length); w.Int32(p.Index);
         switch (p.Type)
         {
             case "StructProperty": w.String(p.Info[0]); w.Bytes(p.StructGuid ?? new byte[16]); break;
@@ -497,11 +594,11 @@ public sealed class GvasFile
         {
             case GvasStruct s: WriteStruct(w, s); break;
             case GvasArray a: WriteArray(w, a); break;
-            default: WriteScalar(w, p.Value); break;
+            default: WriteScalar(w, p.Value, p.StrOrig); break;
         }
     }
 
-    private static void WriteScalar(Writer w, object? v)
+    private static void WriteScalar(Writer w, object? v, StrOrig? orig = null)
     {
         switch (v)
         {
@@ -516,7 +613,7 @@ public sealed class GvasFile
             case ulong ul: w.Bytes(BitConverter.GetBytes(ul)); break;
             case float f: w.Bytes(BitConverter.GetBytes(f)); break;
             case double d: w.Bytes(BitConverter.GetBytes(d)); break;
-            case string s: w.String(s); break;
+            case string s: w.String(s, orig); break;
             default: throw new GvasException($"Cannot serialize {v?.GetType().Name ?? "null"}.");
         }
     }
@@ -539,7 +636,9 @@ public sealed class GvasFile
             w.String(a.StructTypeName); w.Bytes(a.StructGuid); w.Byte(0);
             w.Bytes(body.ToArray());
         }
-        else foreach (var e in a.Elements) WriteScalar(w, e);
+        else
+            for (int i = 0; i < a.Elements.Count; i++)
+                WriteScalar(w, a.Elements[i], a.Origs is not null && i < a.Origs.Count ? a.Origs[i] : null);
     }
 
     // ---------- binary helpers ----------
@@ -565,7 +664,18 @@ public sealed class GvasFile
         public float Single() => BitConverter.ToSingle(Data, Need(4));
         public double Double() => BitConverter.ToDouble(Data, Need(8));
 
+        /// <summary>Set by <see cref="String"/>: the stored bytes when they are not the canonical encoding of the text, else null.</summary>
+        public StrOrig? LastStr { get; private set; }
+
         public string String()
+        {
+            int start = Pos;
+            var s = StringCore();
+            LastStr = Writer.Canonical(s).AsSpan().SequenceEqual(Data.AsSpan(start, Pos - start)) ? null : new StrOrig(s, Data[start..Pos]);
+            return s;
+        }
+
+        private string StringCore()
         {
             int len = Int32();
             if (len == 0) return "";
@@ -593,17 +703,27 @@ public sealed class GvasFile
         public void Int64(long v) => Bytes(BitConverter.GetBytes(v));
         public byte[] ToArray() => _ms.ToArray();
 
-        public void String(string s)
+        /// <summary>Writes an FString: the original bytes when <paramref name="orig"/> is for this very text, else Unreal's own form.</summary>
+        public void String(string s, StrOrig? orig = null)
         {
-            if (s.Length == 0) { Int32(0); return; }
-            if (s.All(c => c < 0x100))
+            if (orig is not null && orig.Text == s) Bytes(orig.Bytes);
+            else Bytes(Canonical(s));
+        }
+
+        /// <summary>What Unreal writes for a string: empty = length 0; pure ASCII (IsPureAnsi: every char below 0x80) as 8-bit; anything else UTF-16.</summary>
+        public static byte[] Canonical(string s)
+        {
+            if (s.Length == 0) return [0, 0, 0, 0];
+            var ms = new MemoryStream();
+            if (s.All(c => c < 0x80))
             {
-                Int32(s.Length + 1); Bytes(Encoding.Latin1.GetBytes(s)); Byte(0);
+                ms.Write(BitConverter.GetBytes(s.Length + 1)); ms.Write(Encoding.ASCII.GetBytes(s)); ms.WriteByte(0);
             }
             else
             {
-                Int32(-(s.Length + 1)); Bytes(Encoding.Unicode.GetBytes(s)); Byte(0); Byte(0);
+                ms.Write(BitConverter.GetBytes(-(s.Length + 1))); ms.Write(Encoding.Unicode.GetBytes(s)); ms.WriteByte(0); ms.WriteByte(0);
             }
+            return ms.ToArray();
         }
     }
 }

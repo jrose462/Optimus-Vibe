@@ -10,13 +10,13 @@ internal sealed class GvasBuilder
 {
     private readonly MemoryStream _ms = new();
 
-    public static GvasBuilder Start(string saveClass = "/Script/Test.SaveObject")
+    public static GvasBuilder Start(string saveClass = "/Script/Test.SaveObject", int ue5 = 0, int customVersionFormat = 3)
     {
         var b = new GvasBuilder();
         b.Raw("GVAS"u8.ToArray());
-        b.I32(2); b.I32(522);
+        if (ue5 == 0) { b.I32(2); b.I32(522); } else { b.I32(3); b.I32(522); b.I32(ue5); }
         b.U16(4); b.U16(26); b.U16(2); b.I32(0); b.Str("++UE4+Release-4.26");
-        b.I32(3); b.I32(1); b.Raw(new byte[16]); b.I32(7); // one custom version
+        b.I32(customVersionFormat); b.I32(1); b.Raw(new byte[16]); b.I32(7); // one custom version
         b.Str(saveClass);
         return b;
     }
@@ -29,11 +29,24 @@ internal sealed class GvasBuilder
     public GvasBuilder Str(string s)
     {
         if (s.Length == 0) return I32(0);
-        if (s.All(c => c < 0x100)) { I32(s.Length + 1); Raw(Encoding.Latin1.GetBytes(s)); return U8(0); }
+        if (s.All(c => c < 0x80)) { I32(s.Length + 1); Raw(Encoding.Latin1.GetBytes(s)); return U8(0); }
         I32(-(s.Length + 1)); Raw(Encoding.Unicode.GetBytes(s)); return U8(0).U8(0);
     }
 
     private GvasBuilder Head(string name, string type, long size) => Str(name).Str(type).I64(size);
+
+    /// <summary>A property whose FString payload is given as exact bytes (any encoding form).</summary>
+    public GvasBuilder StrRaw(string n, byte[] fstring) => Head(n, "StrProperty", fstring.Length).U8(0).Raw(fstring);
+    /// <summary>An int property with an explicit array index in its tag.</summary>
+    public GvasBuilder IntAt(string n, int index, int v) => Str(n).Str("IntProperty").I32(4).I32(index).U8(0).I32(v);
+    public GvasBuilder EnumByte(string n, string enumType, string v) => Head(n, "ByteProperty", PayloadLen(v)).Str(enumType).U8(0).Str(v);
+    public GvasBuilder ObjectProp(string n, string v) => Head(n, "ObjectProperty", PayloadLen(v)).U8(0).Str(v);
+    public GvasBuilder ObjectArray(string n, params string[] values)
+    {
+        Head(n, "ArrayProperty", 4 + values.Sum(PayloadLen)).Str("ObjectProperty").U8(0).I32(values.Length);
+        foreach (var v in values) Str(v);
+        return this;
+    }
 
     public GvasBuilder Int(string n, int v) => Head(n, "IntProperty", 4).U8(0).I32(v);
     public GvasBuilder UInt(string n, uint v) => Head(n, "UInt32Property", 4).U8(0).Raw(BitConverter.GetBytes(v));
@@ -76,7 +89,7 @@ internal sealed class GvasBuilder
         return Raw(header).Raw(bytes);
     }
 
-    private static long PayloadLen(string s) => s.Length == 0 ? 4 : s.All(c => c < 0x100) ? 4 + s.Length + 1 : 4 + (s.Length + 1) * 2;
+    private static long PayloadLen(string s) => s.Length == 0 ? 4 : s.All(c => c < 0x80) ? 4 + s.Length + 1 : 4 + (s.Length + 1) * 2;
 
     public byte[] Finish() => new GvasBuilder().Raw(_ms.ToArray()).Str("None").I32(0)._ms.ToArray();
 
@@ -513,5 +526,298 @@ public sealed class GvasValidatorTests : IDisposable
     {
         var report = Validator.Run(_f.Store);
         Assert.Contains(report.Errors, e => e.Contains("Unknown type hint ':wat'"));
+    }
+}
+
+/// <summary>Review fixes: hand-written byte fixtures that do not go through the builder's own string/size assumptions.</summary>
+public sealed class GvasReviewFixTests
+{
+    // FString forms written out byte by byte
+    private static byte[] Ansi(string s) => [.. BitConverter.GetBytes(s.Length + 1), .. Encoding.ASCII.GetBytes(s), 0];
+    private static byte[] Utf16(string s) => [.. BitConverter.GetBytes(-(s.Length + 1)), .. Encoding.Unicode.GetBytes(s), 0, 0];
+    private static readonly byte[] EmptyLen1 = [1, 0, 0, 0, 0];   // length 1: just the terminator
+    private static readonly byte[] EmptyLen0 = [0, 0, 0, 0];
+
+    private static byte[] StringsSave(int edit) => GvasBuilder.Start()
+        .StrRaw("Ascii16", Utf16("hello"))        // ASCII text stored as UTF-16
+        .StrRaw("Latin1", Utf16("café"))          // Latin-1 text: UTF-16 is the only form Unreal uses for it
+        .StrRaw("Empty1", EmptyLen1)              // empty string in the length-1 form
+        .StrRaw("Empty0", EmptyLen0)
+        .StrRaw("Plain", Ansi("plain"))
+        .Int("Edit", edit)
+        .Finish();
+
+    [Fact]
+    public void Strings_KeepTheirStoredForm_WhenAnotherPropertyIsEdited()
+    {
+        var original = StringsSave(1);
+        var f = GvasFile.Parse(original);
+        Assert.Equal(original, f.ToBytes());          // untouched: identical
+        Assert.Equal("café", f.Get("Latin1"));
+        Assert.Equal("", f.Get("Empty1"));
+
+        f.Set("Edit", "7");
+        // exactly what a hand-built file with only the int changed looks like: every string byte-identical
+        Assert.Equal(StringsSave(7), f.ToBytes());
+        Assert.Equal(StringsSave(7), GvasFile.Parse(f.ToBytes()).ToBytes());
+    }
+
+    [Fact]
+    public void EditedString_IsWrittenInUnrealsForm_AnsiOnlyBelow0x80()
+    {
+        var f = GvasFile.Parse(StringsSave(1));
+        f.Set("Ascii16", "hi");                       // changed: back to the canonical 8-bit form
+        f.Set("Plain", "naïve");                      // ï is 0x80+: IsPureAnsi is false, so UTF-16
+        f.Set("Empty1", "x");
+        f.Set("Latin1", "");                          // cleared: Unreal's empty form is length 0
+        var expected = GvasBuilder.Start()
+            .StrRaw("Ascii16", Ansi("hi")).StrRaw("Latin1", EmptyLen0).StrRaw("Empty1", Ansi("x")).StrRaw("Empty0", EmptyLen0)
+            .StrRaw("Plain", Utf16("naïve")).Int("Edit", 1).Finish();
+        Assert.Equal(expected, f.ToBytes());
+    }
+
+    [Fact]
+    public void StringArray_ElementsKeepTheirForm()
+    {
+        byte[] Build(byte[] second, int edit) => GvasBuilder.Start()
+            .Str("Names").Str("ArrayProperty").I32(4 + Utf16("abc").Length + second.Length).I32(0)
+            .Str("StrProperty").U8(0).I32(2).Raw(Utf16("abc")).Raw(second).Int("Edit", edit).Finish();
+        var bytes = Build(Ansi("def"), 1);
+        var f = GvasFile.Parse(bytes);
+        Assert.Equal(bytes, f.ToBytes());
+        f.Set("Names[1]", "xyz");
+        f.Set("Edit", "2");
+        Assert.Equal(Build(Ansi("xyz"), 2), f.ToBytes());   // element 0 stays UTF-16
+    }
+
+    [Theory]
+    [InlineData(1012)]   // PROPERTY_TAG_COMPLETE_TYPE_NAME (UE 5.4+)
+    [InlineData(1011)]   // PROPERTY_TAG_EXTENSION_AND_OVERRIDABLE_SERIALIZATION
+    [InlineData(1100)]
+    public void TooNewUe5Save_IsAClearUnsupportedError(int ue5)
+    {
+        var ex = Assert.Throws<GvasException>(() => GvasFile.Parse(GvasBuilder.Start(ue5: ue5).Int("A", 1).Finish()));
+        Assert.Contains("UE 5.4+ property tags", ex.Message);
+    }
+
+    [Fact]
+    public void Ue5SaveBelowTheTagChange_Parses_AndKeepsTheVersion()
+    {
+        var bytes = GvasBuilder.Start(ue5: 1009).Int("A", 1).Finish();
+        var f = GvasFile.Parse(bytes);
+        Assert.Equal(1009, f.PackageVersionUE5);
+        Assert.Equal(3, f.SaveGameVersion);
+        Assert.Equal(bytes, f.ToBytes());
+    }
+
+    [Fact]
+    public void CustomVersionFormatOtherThan3_IsRefused()
+    {
+        var ex = Assert.Throws<GvasException>(() => GvasFile.Parse(GvasBuilder.Start(customVersionFormat: 2).Int("A", 1).Finish()));
+        Assert.Contains("custom version format 2", ex.Message);
+    }
+
+    [Fact]
+    public void ArrayIndexedTags_ParseRoundTripAndAreAddressable()
+    {
+        var bytes = GvasBuilder.Start().IntAt("Dim", 0, 10).IntAt("Dim", 1, 20).IntAt("Dim", 2, 30).Int("After", 5).Finish();
+        var f = GvasFile.Parse(bytes);
+        Assert.Equal(bytes, f.ToBytes());
+        Assert.Equal("10", f.Get("Dim"));
+        Assert.Equal("20", f.Get("Dim#1"));
+        Assert.Equal("5", f.Get("After"));
+        Assert.Contains(f.Enumerate(), e => e.Path == "Dim#2" && e.Value == "30" && e.Writable);
+
+        f.Set("Dim#1", "99");
+        Assert.Equal(GvasBuilder.Start().IntAt("Dim", 0, 10).IntAt("Dim", 1, 99).IntAt("Dim", 2, 30).Int("After", 5).Finish(), f.ToBytes());
+        Assert.Throws<GvasException>(() => f.Set("Dim#7", "1"));
+    }
+
+    [Fact]
+    public void NumberToEnumByte_IsRejected_ValueNamesAccepted()
+    {
+        var original = GvasBuilder.Start().EnumByte("Mode", "EMode", "EMode::Low").Byte("Plain", 3).Finish();
+        var f = GvasFile.Parse(original);
+        var ex = Assert.Throws<GvasException>(() => f.Set("Mode", "2"));
+        Assert.Contains("enum value name", ex.Message);
+        Assert.Throws<GvasException>(() => f.Set("Mode", "EOther::High"));     // other enum's prefix
+        Assert.Throws<GvasException>(() => f.Set("Mode", "High"));             // no prefix
+        Assert.Equal(original, f.ToBytes());
+
+        f.Set("Mode", "EMode::High");
+        f.Set("Plain", "9");                                                  // a plain byte still takes a number
+        Assert.Equal(GvasBuilder.Start().EnumByte("Mode", "EMode", "EMode::High").Byte("Plain", 9).Finish(), f.ToBytes());
+    }
+
+    [Fact]
+    public void NamespacedEnumInsert_NeedsAnExplicitType()
+    {
+        var f = GvasFile.Parse(GvasBuilder.Start().Int("A", 1).Finish());
+        var ex = Assert.Throws<GvasException>(() => f.Set("WindowMode:enum", "EWindowMode::Fullscreen"));
+        Assert.Contains("enum type", ex.Message);
+        Assert.Throws<GvasException>(() => f.Set("WindowMode:enum(EWindowMode::Type)", "EOther::Fullscreen"));
+        Assert.Throws<GvasException>(() => f.Set("WindowMode:enum(EWindowMode::Type)", "2"));
+        Assert.Throws<GvasException>(() => f.Set("N:int(EFoo)", "2"));
+
+        f.Set("WindowMode:enum(EWindowMode::Type)", "EWindowMode::Fullscreen");
+        f.Set("Quality:byte(EQuality)", "EQuality::High");
+        var expected = GvasBuilder.Start().Int("A", 1)
+            .Enum("WindowMode", "EWindowMode::Type", "EWindowMode::Fullscreen")
+            .EnumByte("Quality", "EQuality", "EQuality::High").Finish();
+        Assert.Equal(expected, f.ToBytes());
+
+        var again = GvasFile.Parse(f.ToBytes());
+        Assert.Equal("EWindowMode::Fullscreen", again.Get("WindowMode"));
+        again.Set("WindowMode:enum(EWindowMode::Type)", "EWindowMode::Windowed");   // existing: same type is fine
+        Assert.Throws<GvasException>(() => again.Set("WindowMode:enum(EOther)", "EOther::X"));
+    }
+
+    [Fact]
+    public void SplitHint_ParsesEnumArgumentsWithColons()
+    {
+        Assert.Equal("Mode", GvasFile.SplitHint("Mode:enum(EWindowMode::Type)", out var t, out var e));
+        Assert.Equal("EnumProperty", t);
+        Assert.Equal("EWindowMode::Type", e);
+        Assert.Equal("A", GvasFile.SplitHint("A:int", out t, out e));
+        Assert.Null(e);
+        Assert.Equal("A.B", GvasFile.SplitHint("A.B", out t, out _));
+        Assert.Null(t);
+    }
+
+    [Fact]
+    public void Enumerate_DoesNotAdvertiseWhatCannotBeWritten()
+    {
+        var f = GvasFile.Parse(GvasBuilder.Start().ObjectProp("Ref", "/Game/X").ObjectArray("Refs", "/Game/A", "/Game/B").IntArray("Ints", 1, 2).Finish());
+        var e = f.Enumerate().ToDictionary(x => x.Path);
+        Assert.False(e["Ref"].Writable);
+        Assert.DoesNotContain("Refs[0]", e.Keys);
+        Assert.True(e["Ints[1]"].Writable);
+        Assert.Throws<GvasException>(() => f.Set("Refs[0]", "/Game/Z"));
+        Assert.Throws<GvasException>(() => f.Set("Ref", "/Game/Z"));
+    }
+}
+
+public sealed class GvasPartialApplyTests : IDisposable
+{
+    private readonly TempDir _tmp = new();
+    private readonly GvasHandler _h = new();
+    public void Dispose() => _tmp.Dispose();
+
+    private static FileDef Def() => new() { Id = "sav", Handler = "gvas" };
+    private string Sav()
+    {
+        var p = Path.Combine(_tmp.Dir("g"), "s.sav");
+        File.WriteAllBytes(p, GvasBuilder.Sample());
+        return p;
+    }
+
+    [Fact]
+    public void WritePartial_AppliesTheGoodKeys_AndNamesTheBadOnes()
+    {
+        var p = Sav();
+        var rejected = _h.WritePartial(Def(), p, new Dictionary<string, string>
+        {
+            ["Gamma"] = "3", ["Quality"] = "1", ["Nope"] = "1", ["ShadowQuality:int"] = "2", ["Mode"] = "300",
+        });
+        Assert.Equal(["Mode", "Nope", "Quality"], rejected.Keys.Order());
+        Assert.Contains("container", rejected["Quality"]);
+        var after = GvasFile.Parse(File.ReadAllBytes(p));
+        Assert.Equal("3", after.Get("Gamma"));
+        Assert.Equal("2", after.Get("ShadowQuality"));
+        Assert.Equal("2", after.Get("Mode"));      // refused: untouched
+    }
+
+    [Fact]
+    public void Write_Strict_NamesTheKey_AndLeavesTheFileAlone()
+    {
+        var p = Sav();
+        var before = File.ReadAllBytes(p);
+        var ex = Assert.Throws<ConfigException>(() => _h.Write(Def(), p, new Dictionary<string, string> { ["Gamma"] = "3", ["Nope"] = "1" }));
+        Assert.Contains("'Nope'", ex.Message);
+        Assert.Equal(before, File.ReadAllBytes(p));
+    }
+
+    [Fact]
+    public void Preflight_ReportsWithoutWriting()
+    {
+        var p = Sav();
+        var before = File.ReadAllBytes(p);
+        var rejected = _h.Preflight(Def(), p, new Dictionary<string, string> { ["Gamma"] = "3", ["Nope"] = "1" });
+        Assert.Equal(["Nope"], rejected.Keys);
+        Assert.Equal(before, File.ReadAllBytes(p));
+    }
+
+    [Fact]
+    public void LockedFile_IsAnErrorOrNull_NotACrash()
+    {
+        var p = Sav();
+        using var lockFile = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.None);
+        Assert.Null(_h.Read(Def(), p, ["Gamma"])["Gamma"]);
+        Assert.StartsWith("(could not read", _h.Describe(p, false));
+        Assert.Throws<ConfigException>(() => _h.Write(Def(), p, new Dictionary<string, string> { ["Gamma"] = "3" }));
+    }
+}
+
+public sealed class GvasPartialEngineTests : IDisposable
+{
+    private readonly EngineFixture _f = new("""
+        name: Test Game
+        store: other
+        processes: [Test.exe]
+        files:
+          - id: usersav
+            handler: gvas
+            path: "{T}/GameUserSettings.sav"
+        presets:
+          desktop:
+            performance:
+              usersav:
+                Gamma:float: 3
+                Slots: 1
+                ShadowQuality:int: 0
+        """);
+    public void Dispose() => _f.Dispose();
+
+    [Fact]
+    public void OneBadKey_DoesNotBlockTheOthers_InPlanAndApply()
+    {
+        File.WriteAllBytes(_f.GameFile("GameUserSettings.sav"), GvasBuilder.Sample());
+        var ctx = _f.Load("desktop", PresetRef.Recommended("performance"));
+        var plan = GameEngine.Plan(ctx).Single();
+        Assert.Equal(["Slots"], plan.Rejected.Keys);
+        Assert.Contains("container", plan.Rejected["Slots"]);
+        Assert.Equal(["Gamma:float", "ShadowQuality:int"], plan.Changes.Select(c => c.Key).Order());
+
+        var applied = GameEngine.Apply(ctx, [plan]);
+        var after = GvasFile.Parse(File.ReadAllBytes(_f.GameFile("GameUserSettings.sav")));
+        Assert.Equal("3", after.Get("Gamma"));
+        Assert.Equal("0", after.Get("ShadowQuality"));
+        Assert.DoesNotContain("Slots", applied.Targets["usersav"].Keys);   // not tracked, so never reported as drift
+        Assert.Empty(GameEngine.FindDrift(ctx, applied));
+    }
+
+    [Fact]
+    public void KeyTheGameDropped_IsANote_NotAnOverride()
+    {
+        File.WriteAllBytes(_f.GameFile("GameUserSettings.sav"), GvasBuilder.Sample());
+        var ctx = _f.Load("desktop", PresetRef.Recommended("performance"));
+        var applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
+
+        // on exit the game rewrites the save without the inserted default-valued property and moves Gamma
+        var g = GvasFile.Parse(GvasBuilder.Sample());
+        g.Set("Gamma", "1.5");
+        File.WriteAllBytes(_f.GameFile("GameUserSettings.sav"), g.ToBytes());
+
+        var dropped = new List<DroppedKey>();
+        var drift = GameEngine.FindDrift(ctx, applied, dropped);
+        Assert.Equal(["Gamma:float"], drift.Select(d => d.Key));
+        Assert.Equal(["ShadowQuality:int"], dropped.Select(d => d.Key));
+    }
+
+    [Fact]
+    public void Validator_WarnsAboutUnhintedKeys()
+    {
+        var report = Validator.Run(_f.Store);
+        Assert.Contains(report.Warnings, w => w.Contains("without a type hint") && w.Contains("Slots") && !w.Contains("Gamma"));
     }
 }

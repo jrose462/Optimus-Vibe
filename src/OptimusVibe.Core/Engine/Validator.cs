@@ -261,11 +261,15 @@ public static class Validator
             var flat = handler.Flatten(block);
             if (handler is GvasHandler)
             {
+                // Unreal omits properties equal to their defaults, so a key without a type hint may not exist in a given save and then cannot be added.
+                var unhinted = new List<string>();
                 foreach (var key in flat.Keys)
                 {
-                    try { GvasFile.SplitHint(key, out _); }
+                    try { GvasFile.SplitHint(key, out var hinted); if (hinted is null && !key.Contains('[')) unhinted.Add(key); }
                     catch (GvasException ex) { report.Errors.Add($"{where}.{fileId}: {ex.Message}"); }
                 }
+                if (unhinted.Count > 0)
+                    report.Warnings.Add($"{where}.{fileId}: gvas keys without a type hint ({string.Join(", ", unhinted.Take(5))}{(unhinted.Count > 5 ? ", ..." : "")}): Unreal leaves out properties equal to their default, so these may be absent from a save and are then refused; add ':int', ':float', ':bool'... where the property can be missing");
             }
             if (handler is JsonHandler)
             {
