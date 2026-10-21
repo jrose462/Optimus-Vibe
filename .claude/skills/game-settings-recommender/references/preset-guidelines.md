@@ -55,7 +55,8 @@ assumption on ally-x), `targetFps`.
 - Upscaler: FSR or XeSS **Performance** from 1080p (960x540 internal) for heavy UE5/modern games; **Balanced**
   or **Quality** for older/lighter games that still hold 60. TSR is fine in UE5 if FSR/XeSS look worse. Prefer
   the game's built-in "Steam Deck"/"handheld" preset as a starting point when it exists.
-- RT off, hardware Lumen off (software Lumen Low/Medium or GI Low), frame gen off.
+- RT off, hardware Lumen off (software Lumen Low/Medium or GI Low), in-game frame gen off. Driver frame generation (AFMF):
+  see hardware.md (on for single-player games holding a ~50-60 base).
 - Settings: Low/Medium mix — see "cost" below; textures Medium-High (cheap if VRAM allocation is 6+ GB).
 - Cap 60 (in-game limiter). If the game easily holds 70+ consider uncapped with VRR, but default to 60:
   sustained beats peak on a handheld. Vsync off with VRR (or on if the game tears and has no VRR support in
