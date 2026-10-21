@@ -8,7 +8,7 @@ namespace OptimusVibe.App.Services;
 
 /// <summary>
 /// `OptimusVibe.exe run &lt;game&gt; [--preset p] [--profile d] [--config dir] [--no-prompt]
-/// [--launch &lt;uri-or-exe&gt; [--launch-arg a]... [--install-dir d]] [-- %command%]`:
+/// [--verify] [--launch &lt;uri-or-exe&gt; [--launch-arg a]... [--install-dir d]] [-- %command%]`:
 /// the Steam launch-option wrapper, without a window or console. Same behaviour as `optimus-vibe run`.
 /// </summary>
 public static class HeadlessRun
@@ -18,35 +18,10 @@ public static class HeadlessRun
 
     public static int Execute(string[] args)
     {
-        string? game = null, preset = null, profile = null, config = null, launch = null, installDir = null;
-        var launchArgs = new List<string>();
-        bool prompt = true, noBigPicture = false;
-        var command = new List<string>();
-
-        for (int i = 1; i < args.Length; i++)
-        {
-            var a = args[i];
-            if (a == "--")
-            {
-                command.AddRange(args.Skip(i + 1));
-                break;
-            }
-            switch (a.ToLowerInvariant())
-            {
-                case "--preset" when i + 1 < args.Length: preset = args[++i]; break;
-                case "--profile" when i + 1 < args.Length: profile = args[++i]; break;
-                case "--config" when i + 1 < args.Length: config = args[++i]; break;
-                case "--no-prompt": prompt = false; break;
-                case "--no-big-picture": noBigPicture = true; break;
-                case "--launch" when i + 1 < args.Length: launch = args[++i]; break;           // app library: uri or exe when no %command%
-                case "--launch-arg" when i + 1 < args.Length: launchArgs.Add(args[++i]); break;
-                case "--install-dir" when i + 1 < args.Length: installDir = args[++i]; break; // to wait on a URI-launched game
-                default:
-                    if (game is null && !a.StartsWith("--")) game = a;
-                    else command.Add(a); // tolerate a missing "--" before the game command line
-                    break;
-            }
-        }
+        var parsed = RunArgs.Parse(args);
+        string? game = parsed.Game, preset = parsed.Preset, profile = parsed.Profile, config = parsed.Config, launch = parsed.Launch;
+        var launchArgs = parsed.LaunchArgs;
+        var command = parsed.Command;
 
         if (game is null)
         {
@@ -60,7 +35,7 @@ public static class HeadlessRun
         try
         {
             ctx = GameContext.Load(AppPaths.Resolve(config), game, profile, preset is null ? null : PresetRef.Parse(preset),
-                bigPicture: new BigPictureOptions { Suppress = noBigPicture });
+                bigPicture: new BigPictureOptions { Suppress = parsed.NoBigPicture });
         }
         catch (Exception ex)
         {
@@ -68,8 +43,7 @@ public static class HeadlessRun
             Log.Error($"Settings not applied for {game}: {ex.Message}");
             return command.Count == 0 && launch is not null ? Runner.LaunchPlain([launch, .. launchArgs]) : LaunchUnmanaged(command);
         }
-        return Runner.Run(ctx, command.ToArray(), prompt,
-            new RunOptions { Launch = launch, LaunchArgs = launchArgs, InstallDir = installDir });
+        return Runner.Run(ctx, command.ToArray(), parsed.Prompt, parsed.ToOptions());
     }
 
     /// <summary>

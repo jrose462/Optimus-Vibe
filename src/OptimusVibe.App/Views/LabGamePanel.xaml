@@ -51,6 +51,9 @@
                             Visibility="{Binding ShowRefresh, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Refresh presets" />
                     <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" Margin="0,0,8,6"
                             Visibility="{Binding ShowSyncCheck, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Re-check settings sync" />
+                    <Button Command="{Binding TestCommand}" Content="Test preset" Margin="0,0,8,6"
+                            Visibility="{Binding ShowTest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Test preset"
+                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
                 </WrapPanel>
             </StackPanel>
 
@@ -76,6 +79,9 @@
                             Visibility="{Binding ShowRefresh, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Refresh presets" />
                     <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" Margin="0,2,8,2"
                             Visibility="{Binding ShowSyncCheck, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Re-check settings sync" />
+                    <Button Command="{Binding TestCommand}" Content="Test preset" Margin="0,2,8,2"
+                            Visibility="{Binding ShowTest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Test preset"
+                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
                 </WrapPanel>
                 <Button Grid.Column="2" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
                         Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
@@ -95,6 +101,100 @@
                 <Button Style="{StaticResource DisabledAction}" Command="{Binding OpenSettingsCommand}" Content="Open the game lab in Settings"
                         Visibility="{Binding NeedsSetup, Converter={StaticResource VisibleWhen}}" />
             </Grid>
+
+            <!-- passive hint: after a normal launch where the game changed most of the preset -->
+            <TextBlock Text="{Binding HintText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
+                       Visibility="{Binding HasHint, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Last launch note" />
+
+            <!-- Test preset: confirm before launching -->
+            <Border Style="{StaticResource Card.Inset}" Margin="0,12,0,0" Visibility="{Binding IsTestConfirming, Converter={StaticResource VisibleWhen}}"
+                    KeyboardNavigation.DirectionalNavigation="Contained">
+                <StackPanel>
+                    <TextBlock Text="{Binding TestTitle}" Style="{StaticResource Text.H3}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding TestLead}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,6,0,0" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding TestNote}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <WrapPanel Margin="0,14,0,0">
+                        <Button Style="{StaticResource Button.Primary}" Command="{Binding StartTestCommand}" Margin="0,0,8,0" MinWidth="130"
+                                input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Start test">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding StartTestText}" /></StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding CancelCommand}" AutomationProperties.Name="Cancel">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Cancel" /></StackPanel>
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Test preset: running -->
+            <TextBlock Text="Testing the preset. Play for about a minute without changing anything, then quit the game." Style="{StaticResource Text.Dim}"
+                       TextWrapping="Wrap" Margin="2,10,0,0" Visibility="{Binding IsTesting, Converter={StaticResource VisibleWhen}}" />
+
+            <!-- Test preset: result -->
+            <Border Style="{StaticResource Card.Inset}" Margin="0,12,0,0" Visibility="{Binding HasResult, Converter={StaticResource VisibleWhen}}"
+                    KeyboardNavigation.DirectionalNavigation="Contained">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Test result" Style="{StaticResource Text.H3}" VerticalAlignment="Center" />
+                        <Border CornerRadius="11" Padding="10,2,10,3" Margin="12,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="{Binding ResultHeadline}">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ResultOverridden}" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding ResultHeadline}" FontSize="12.5" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ResultOverridden}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding ResultText}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                    <ScrollViewer MaxHeight="{DynamicResource LabListMaxHeight}" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,8,0,0"
+                                  Visibility="{Binding HasResultLines, Converter={StaticResource VisibleWhen}}">
+                        <ItemsControl ItemsSource="{Binding ResultLines}" Focusable="False" Margin="0,0,8,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding}" Margin="0,1" Foreground="{DynamicResource TextDimBrush}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock Text="{Binding ResultMore}" Style="{StaticResource Text.Caption}" Margin="0,2,0,0"
+                               Visibility="{Binding HasResultMore, Converter={StaticResource VisibleWhen}}" />
+                    <TextBlock Text="Sent to the game lab." Style="{StaticResource Text.Caption}" Margin="0,8,0,0"
+                               Visibility="{Binding ShowResultSent, Converter={StaticResource VisibleWhen}}" />
+                    <WrapPanel Margin="0,14,0,0">
+                        <Button Style="{StaticResource Button.Primary}" Command="{Binding SendResultCommand}" Margin="0,0,8,6"
+                                Visibility="{Binding ShowSendResult, Converter={StaticResource VisibleWhen}}" input:FocusCue.FocusWhenShown="True"
+                                AutomationProperties.Name="Send to game lab">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Send to game lab" /></StackPanel>
+                        </Button>
+                        <Button Command="{Binding SaveResultCommand}" Margin="0,0,8,6"
+                                Visibility="{Binding ShowSaveResult, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Make a manual save"
+                                ToolTip="Keep the settings the game left as a manual save.">
+                            <TextBlock Text="Make a manual save" />
+                        </Button>
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding DismissResultCommand}" Margin="0,0,8,6"
+                                input:FocusCue.FocusWhenShown="{Binding ShowSendResult, Converter={StaticResource Not}}"
+                                AutomationProperties.Name="Close the test result">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding ResultCloseText}" /></StackPanel>
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
 
             <!-- confirmation with the evidence preview -->
             <Border Style="{StaticResource Card.Inset}" Margin="0,12,0,0" Visibility="{Binding IsConfirming, Converter={StaticResource VisibleWhen}}"

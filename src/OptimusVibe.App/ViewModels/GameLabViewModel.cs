@@ -524,13 +524,13 @@ public sealed class GameLabViewModel : ObservableObject
 
     public DetectedGame? DetectedFor(GameDef game) => LibraryService.FindInstall(game, _main.Library.Detected);
 
-    public Task<EvidencePreview> PreviewAsync(LabTarget target)
+    public Task<EvidencePreview> PreviewAsync(LabTarget target, string? verifyRun = null)
     {
         var session = _main.Session ?? throw new InvalidOperationException("No config loaded.");
-        return Task.Run(() => GameLabService.Preview(session, target));
+        return Task.Run(() => GameLabService.Preview(session, target, verifyRun));
     }
 
-    public async Task<LabRequestOutcome?> FileRequestAsync(LabKind kind, LabTarget target)
+    public async Task<LabRequestOutcome?> FileRequestAsync(LabKind kind, LabTarget target, string? verifyRun = null)
     {
         var s = await SettingsStore.LoadAsync();
         var session = _main.Session;
@@ -543,7 +543,7 @@ public sealed class GameLabViewModel : ObservableObject
         }
         LabRequestOutcome? outcome = null;
         var ok = await _main.RunAsync($"Sending {target.Name} to your config repo", async () =>
-            outcome = await Task.Run(() => _service.FileOrQueueAsync(conn, session, _main.Outbox.Store, kind, target)));
+            outcome = await Task.Run(() => _service.FileOrQueueAsync(conn, session, _main.Outbox.Store, kind, target, verifyRun)));
         if (!ok || outcome is null) return null;
         new LabStateStore(session.Paths.DataDir).Update(st => st.Requested[target.Key] = DateTime.UtcNow);
         if (outcome.WasQueued) _main.Outbox.Service.NotifyQueued();
@@ -649,7 +649,7 @@ public sealed class GameLabViewModel : ObservableObject
                 return await LabRouter.RouteAsync(needs, conn is not null, s.GameLabAutoRequest,
                     async (e, ct) =>
                     {
-                        var outcome = await _service.FileOrQueueAsync(conn!, session, store, LabRouter.KindFor(e), LabTarget.From(e), ct).ConfigureAwait(false);
+                        var outcome = await _service.FileOrQueueAsync(conn!, session, store, LabRouter.KindFor(e), LabTarget.From(e), ct: ct).ConfigureAwait(false);
                         if (outcome.Filed is { } filed) return filed;
                         Interlocked.Increment(ref queuedOffline);
                         // Waiting in the outbox: counts as handled (remembered, not queued in requests.yaml), not as "filed".

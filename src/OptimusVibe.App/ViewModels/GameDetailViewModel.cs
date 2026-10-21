@@ -59,7 +59,8 @@ public sealed class GameDetailViewModel : ObservableObject
             var game = _snap.Game;
             var det = game is null ? null : shell.Lab.DetectedFor(game);
             return new LabGameContext(Name, det?.Key ?? (game is null ? null : LibraryService.ConfiguredKey(game)), game?.Id ?? GameId,
-                det is null ? null : shell.Lab.TargetFor(game, det, Name), game is not null, _snap.Context?.Profile.IsEmpty == true);
+                det is null ? null : shell.Lab.TargetFor(game, det, Name), game is not null, _snap.Context?.Profile.IsEmpty == true,
+                _snap.Context is { } c && !c.Profile.IsEmpty ? c.Profile.Label ?? c.Preset?.Name : null);
         });
         Rebuild();
     }
@@ -358,10 +359,13 @@ public sealed class GameDetailViewModel : ObservableObject
         }
     }
 
-    /// <summary>Close the diff panel, save form, rename or delete confirmation. True if anything was open.</summary>
-    public bool CancelTransient()
+    /// <summary>
+    /// Close the diff panel, save form, rename or delete confirmation. True if anything was open. <paramref name="back"/> = B / Esc:
+    /// the lab panel then also closes a test result (one layer per press); opening another panel keeps the result on screen.
+    /// </summary>
+    public bool CancelTransient(bool back = false)
     {
-        bool any = (Preview is not null || IsSaveFormOpen || IsEditingIntent) | Lab.CancelTransient();
+        bool any = (Preview is not null || IsSaveFormOpen || IsEditingIntent) | (back ? Lab.CancelTransient() : Lab.CloseCards());
         Preview = null;
         IsSaveFormOpen = false;
         IsEditingIntent = false;

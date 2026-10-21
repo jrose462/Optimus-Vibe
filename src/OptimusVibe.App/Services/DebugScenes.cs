@@ -109,7 +109,8 @@ public static class DebugScenes
 
     /// <summary>
     /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, game-request,
-    /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review.
+    /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
+    /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint (the Test preset cards, with sample data).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
     /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
@@ -168,6 +169,24 @@ public static class DebugScenes
                         i % 3 == 0 ? null : "-novid", "\"OptimusVibe.exe\" run game -- %command%")).ToList());
                 vm.ReviewSteamCommand.Execute(null);
                 await Task.Delay(800);
+                break;
+            case "verify-confirm":
+            case "verify-held":
+            case "verify-overridden":
+            case "verify-sent":
+            case "verify-unknown":
+            case "verify-hint":
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(800);
+                tuned.Lab.ShowDemo(scene["verify-".Length..]);
+                vm.SelectedDetail?.Lab.ShowDemo(scene["verify-".Length..]); // the manage page has its own panel
+                await Task.Delay(500);
+                if (Descendants<LabGamePanel>(window).FirstOrDefault(p => p.IsVisible) is { } panel)
+                {
+                    panel.BringIntoView(new Rect(0, 0, panel.ActualWidth, panel.ActualHeight));
+                    await Task.Delay(300);
+                }
                 break;
             case "game-request":
                 var tile = vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.NeedsPresets) ?? vm.Library.Tiles.FirstOrDefault();
