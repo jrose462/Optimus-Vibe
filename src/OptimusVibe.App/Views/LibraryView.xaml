@@ -166,16 +166,12 @@
             </StackPanel>
         </DataTemplate>
 
-        <!-- the filter strip: stacked rows on the desktop; compact, one row whose spare width is shared evenly between the gap
-             before the status pills and the gap before the sync pills (columns: gap * | status | gap * | sync) -->
-        <Style x:Key="StatusRow" TargetType="StackPanel">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Grid.ColumnSpan" Value="4" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
+        <!-- the filter strip's container: stacked rows on the desktop, one scrolling row when compact -->
+        <Style x:Key="FilterRows" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Vertical" />
             <Style.Triggers>
                 <Trigger Property="svc:Density.IsCompact" Value="True">
-                    <Setter Property="Grid.Column" Value="1" />
-                    <Setter Property="Grid.ColumnSpan" Value="1" />
+                    <Setter Property="Orientation" Value="Horizontal" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -207,15 +203,9 @@
         <Style x:Key="SyncRow" TargetType="StackPanel">
             <Setter Property="Orientation" Value="Horizontal" />
             <Setter Property="Margin" Value="0,4,0,6" />
-            <Setter Property="Grid.Row" Value="1" />
-            <Setter Property="Grid.ColumnSpan" Value="4" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
             <Style.Triggers>
                 <Trigger Property="svc:Density.IsCompact" Value="True">
                     <Setter Property="Margin" Value="18,0,0,0" />
-                    <Setter Property="Grid.Row" Value="0" />
-                    <Setter Property="Grid.Column" Value="3" />
-                    <Setter Property="Grid.ColumnSpan" Value="1" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -298,19 +288,9 @@
 
             <!-- ============================================================ filters: status pills + settings sync (stacked; one scrolling row beside the chip when compact) -->
             <ScrollViewer x:Name="FilterScroller" Style="{StaticResource FilterPlacement}" Focusable="False">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
+                <StackPanel Style="{StaticResource FilterRows}">
                     <!-- status pills (outlined pill strip) + scan status -->
-                    <StackPanel Style="{StaticResource StatusRow}">
+                    <StackPanel Orientation="Horizontal">
                         <views:ButtonGlyph Kind="LB" Margin="0,0,8,0" />
                         <Border Style="{StaticResource SegmentStrip}">
                             <ItemsControl x:Name="Pills" ItemsSource="{Binding Filters}" Focusable="False">
@@ -366,7 +346,7 @@
                             </ItemsControl>
                         </Border>
                     </StackPanel>
-                </Grid>
+                </StackPanel>
             </ScrollViewer>
 
             <!-- the grid -->
