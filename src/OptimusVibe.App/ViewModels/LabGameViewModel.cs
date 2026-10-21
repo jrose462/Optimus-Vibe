@@ -39,10 +39,16 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _lastRunLoaded;
     private string? _applyStatus;
     private bool _applyStatusLoaded;
+    private bool _autoLoaded;
+    private string? _autoLine;
+    private bool _autoHasCopy;
+    private bool _forgetConfirming;
 #if DEBUG
     private bool _demo;
     private RunResult? _demoHint;
     private string? _demoStatus;
+    private string? _demoAuto;
+    private bool _demoAutoCopy;
 #endif
 
     public LabGameViewModel(GameLabViewModel lab, MainViewModel main, Func<LabGameContext> context)
@@ -65,6 +71,8 @@ public sealed class LabGameViewModel : ObservableObject
         DismissResultCommand = new RelayCommand(DismissResult);
         MapCommand = new RelayCommand(BeginMap, () => Idle() && CanMap && !_testing);
         MapFirstCommand = new RelayCommand(BeginMap, () => Idle() && CanMap);
+        ForgetAutoCommand = new RelayCommand(BeginForget, () => Idle() && HasAutoCopy && !_forgetConfirming);
+        ConfirmForgetCommand = new RelayCommand(ConfirmForget, () => Idle() && _forgetConfirming);
         lab.IssuesChanged += Refresh;
         lab.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(GameLabViewModel.IsReady)) Refresh(); };
     }
@@ -85,11 +93,14 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand DismissResultCommand { get; }
     public ICommand MapCommand { get; }
     public ICommand MapFirstCommand { get; }
+    public ICommand ForgetAutoCommand { get; }
+    public ICommand ConfirmForgetCommand { get; }
 
     public void Refresh()
     {
         _lastRunLoaded = false;
         _applyStatusLoaded = false;
+        _autoLoaded = false;
         OnPropertyChanged(string.Empty);
     }
 
@@ -316,6 +327,8 @@ public sealed class LabGameViewModel : ObservableObject
         _result = null;
         _demoHint = null;
         _demoStatus = null;
+        _demoAuto = null;
+        _demoAutoCopy = false;
         _resultSent = false;
         switch (kind)
         {
@@ -326,6 +339,9 @@ public sealed class LabGameViewModel : ObservableObject
             case "unknown": _result = Sample(0, seen: false); break;
             case "hint": _demoHint = Sample(10, verify: false); break;
             case "status": _demoStatus = "Applied by file edit - verified held on 2026-10-20."; break;
+            case "auto": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; break;
+            case "auto-first": _demoAuto = "First launch with this preset: set it up in-game; Optimus-Vibe keeps it for next time."; break;
+            case "auto-forget": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; _forgetConfirming = true; break;
             case "map-first":
                 _confirming = LabKind.New;
                 Preview = new EvidencePreview(3, 2, 1,
@@ -409,6 +425,88 @@ public sealed class LabGameViewModel : ObservableObject
 
     public bool HasApplyStatus => ApplyStatusText is not null;
 
+    // ---------------------------------------------------------------- auto snapshot (this device's kept copy of a cloud-synced file)
+
+    private void LoadAuto()
+    {
+        if (_autoLoaded) return;
+        _autoLoaded = true;
+        _autoLine = null;
+        _autoHasCopy = false;
+        try
+        {
+            if (_main.Session is { } s && Ctx.GameId is { } id && Ctx.HasConfig)
+            {
+                var game = GameContext.Load(s.Store, id, s.Device);
+                _autoLine = AutoSnapshots.StatusLine(game);
+                _autoHasCopy = _autoLine is not null && AutoSnapshots.HasCopy(game);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read this device's kept settings file: {ex.Message}");
+        }
+    }
+
+    /// <summary>"Settings file kept per device: Performance copy from Oct 20, 2026" or the first-launch hint; null when the game has no autoSnapshot file.</summary>
+    public string? AutoSnapshotLine
+    {
+        get
+        {
+#if DEBUG
+            if (_demo) return _demoAuto;
+#endif
+            LoadAuto();
+            return _autoLine;
+        }
+    }
+
+    public bool HasAutoSnapshot => AutoSnapshotLine is not null;
+
+    public bool HasAutoCopy
+    {
+        get
+        {
+#if DEBUG
+            if (_demo) return _demoAutoCopy;
+#endif
+            LoadAuto();
+            return _autoHasCopy;
+        }
+    }
+
+    public bool ShowForgetAuto => HasAutoCopy && !_forgetConfirming;
+    public bool IsForgetConfirming => _forgetConfirming;
+
+    private void BeginForget()
+    {
+        ClearTransient();
+        _forgetConfirming = true;
+        OnPropertyChanged(nameof(IsForgetConfirming));
+        OnPropertyChanged(nameof(ShowForgetAuto));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void ConfirmForget()
+    {
+        _forgetConfirming = false;
+        try
+        {
+            if (_main.Session is { } s && Ctx.GameId is { } id)
+            {
+                var n = AutoSnapshots.ForgetActive(GameContext.Load(s.Store, id, s.Device));
+                _main.Notify(n > 0 ? "Forgot this device's copy. The next launch starts from what the game has." : "There was no copy to forget.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not forget this device's copy: {ex.Message}");
+            _main.Notify("Couldn't forget the copy.", error: true);
+        }
+        Refresh();
+        CommandManager.InvalidateRequerySuggested();
+    }
+
     // ---------------------------------------------------------------- status chip
 
     public LabIssue? Issue => LabStatusIndex.For(_lab.Issues, Ctx.Key, Ctx.GameId);
@@ -469,10 +567,15 @@ public sealed class LabGameViewModel : ObservableObject
 
     private bool ClearTransient()
     {
-        var any = IsConfirming || _testConfirming;
+        var any = IsConfirming || _testConfirming || _forgetConfirming;
         _generation++;
         _confirming = null;
         _verifyText = null;
+        if (_forgetConfirming)
+        {
+            _forgetConfirming = false;
+            OnPropertyChanged(nameof(IsForgetConfirming));
+        }
         if (_testConfirming)
         {
             _testConfirming = false;

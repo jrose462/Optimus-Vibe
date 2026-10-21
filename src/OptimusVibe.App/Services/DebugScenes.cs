@@ -159,7 +159,7 @@ public static class DebugScenes
     /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
     /// map-sent | map-failed (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
     /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
-    /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint | verify-status (the Test preset cards and the apply-status line, with sample data).
+    /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
     /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
@@ -226,6 +226,9 @@ public static class DebugScenes
             case "verify-unknown":
             case "verify-hint":
             case "verify-status":
+            case "verify-auto":
+            case "verify-auto-first":
+            case "verify-auto-forget":
                 if (tuned is null) break;
                 vm.OpenLibraryDetail(tuned);
                 await Task.Delay(800);
