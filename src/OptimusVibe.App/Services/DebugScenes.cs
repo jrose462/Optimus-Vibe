@@ -199,16 +199,26 @@ public static class DebugScenes
                 if (scene == "detail-saves" && vm.SelectedDetail is { } d) d.SelectedTabIndex = GameDetailViewModel.ManualTab;
                 break;
             case "detail-pad-down":
-                // Issue #50: D-pad Down from the Recommended tab header must reach the first preset card.
+            case "detail-pad-up":
+                // Issue #50: D-pad Down from the Recommended tab header must reach the first preset card; Up must reach the toggles above.
                 if (tuned is null) break;
                 vm.OpenLibraryDetail(tuned);
                 await Task.Delay(800);
                 window.LibraryDetail.GameDetail.FocusSelectedTab();
                 OptimusVibe.App.Input.FocusCue.SetShow(window, true);
-                var moved = System.Windows.Input.Keyboard.FocusedElement is UIElement from
-                    && window.TryMove(from, System.Windows.Input.FocusNavigationDirection.Down);
-                OptimusVibe.Logging.Log.Info($"debug scene detail-pad-down: moved={moved}, focus now {System.Windows.Input.Keyboard.FocusedElement?.GetType().Name} " +
-                         $"'{(System.Windows.Input.Keyboard.FocusedElement as FrameworkElement)?.DataContext}'");
+                var dir = scene == "detail-pad-up" ? System.Windows.Input.FocusNavigationDirection.Up : System.Windows.Input.FocusNavigationDirection.Down;
+                var moved = System.Windows.Input.Keyboard.FocusedElement is UIElement from && window.TryMove(from, dir);
+                if (scene == "detail-pad-up")
+                    for (var step = 0; step < 2; step++)
+                    {
+                        // further Up presses take the gamepad navigator's normal route (MoveFocus)
+                        (System.Windows.Input.Keyboard.FocusedElement as UIElement)?.MoveFocus(new System.Windows.Input.TraversalRequest(dir));
+                        var at = System.Windows.Input.Keyboard.FocusedElement;
+                        OptimusVibe.Logging.Log.Info($"debug scene {scene}: then Up -> {at?.GetType().Name} '{(at as System.Windows.Controls.ContentControl)?.Content}'");
+                    }
+                var now = System.Windows.Input.Keyboard.FocusedElement;
+                OptimusVibe.Logging.Log.Info($"debug scene {scene}: moved={moved}, focus now {now?.GetType().Name} " +
+                         $"'{(now as System.Windows.Controls.ContentControl)?.Content ?? (now as FrameworkElement)?.DataContext}'");
                 await Task.Delay(300);
                 break;
             case "manage":
