@@ -54,10 +54,10 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _flagLoaded;
     private FlagDef? _flag;
     private FlagDef? _userFlag;
-    private int _streak;
     private bool _flagConfirming;
     private string? _flagReason;
     private string? _flagEvidence;
+    private string? _flagRunText;
     private int _researchFinishedFor;
     private bool _healthLoaded;
     private GameHealth? _health;
@@ -983,7 +983,6 @@ public sealed class LabGameViewModel : ObservableObject
         _flagLoaded = true;
         _flag = null;
         _userFlag = null;
-        _streak = 0;
         try
         {
             if (_main.Session is { } s && Ctx.GameId is { } id && Ctx.HasConfig)
@@ -992,7 +991,6 @@ public sealed class LabGameViewModel : ObservableObject
                 var lib = LibraryService.LoadLibrary(s.Store);
                 _userFlag = GameFlags.FromLibrary(lib, id);
                 _flag = GameFlags.Effective(game, lib);
-                _streak = RunResults.OverriddenStreak(s.Paths.DataDir, id, s.Device.Name);
             }
         }
         catch (Exception ex)
@@ -1091,7 +1089,9 @@ public sealed class LabGameViewModel : ObservableObject
         if (reason is null) return;
         ClearTransient();
         _flagReason = reason;
-        _flagEvidence = EvidenceFor(reason);
+        var finding = CurrentFlagFinding();
+        _flagEvidence = finding?.Summary ?? reason;
+        _flagRunText = finding?.RunText;
         _flagConfirming = true;
         OnPropertyChanged(nameof(IsFlagConfirming));
         OnPropertyChanged(nameof(FlagTitle));
@@ -1104,19 +1104,22 @@ public sealed class LabGameViewModel : ObservableObject
         CommandManager.InvalidateRequerySuggested();
     }
 
-    /// <summary>The short evidence the flag keeps: the last overridden settings, or the mapping run's reason.</summary>
-    private string EvidenceFor(string reason)
+    /// <summary>
+    /// The evidence behind the suggestion the user is confirming (<see cref="GameHealth.FlagEvidence"/>): which rule fired and its run (the last
+    /// overridden test, or the newest launch the game reset), from the same inputs the health was judged on. Null when unknown.
+    /// </summary>
+    private FlagFinding? CurrentFlagFinding()
     {
         try
         {
-            if (_main.Session is { } s && Ctx.GameId is { } id && GameFlags.SuggestsFromVerify(_streak) && LastOverriddenTest(s, id) is { } last)
-                return $"Test preset: the game changed {last.Drift.Count} of {last.Applied} setting(s) in the last test ({RunResults.Names(last, 3)})";
+            _ = Health; // the inputs the suggestion came from
+            return _inputs is { } inputs ? GameHealth.FlagEvidence(inputs) : null;
         }
         catch (Exception ex)
         {
-            Log.Warn($"Could not describe the last test: {ex.Message}");
+            Log.Warn($"Could not describe why the flag is suggested: {ex.Message}");
+            return null;
         }
-        return reason;
     }
 
     private async Task ConfirmFlagAsync()
@@ -1125,8 +1128,8 @@ public sealed class LabGameViewModel : ObservableObject
         var reason = _flagReason;
         if (_main.Session is not { } s || ctx.GameId is not { } id || reason is null) return;
         var evidence = _flagEvidence;
+        var runText = _flagRunText;
         var target = ctx.Target;
-        var verifyText = LastOverriddenTest(s, id) is { } last ? RunResults.EvidenceText(last) : null;
         ClearTransient();
 
         // 1. the flag first: it must hold even when nothing can be filed
@@ -1134,10 +1137,20 @@ public sealed class LabGameViewModel : ObservableObject
         if (!await _main.RunAsync($"Flagging {ctx.Name} as set in-game", () => Task.Run(() => LibraryService.SetInGame(s.Store, id, flag)))) return;
         Log.Info($"{id}: flagged as set in-game ({reason})");
 
+        // a flagged game gets no automatic findings: one still waiting in the outbox from before the flag is withdrawn (the research task asks instead)
+        try
+        {
+            if (AutoFindings.WithdrawQueued(_main.Outbox.Store, id) > 0) _main.Outbox.Service.RaiseChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not withdraw {id}'s waiting automatic requests: {ex.Message}");
+        }
+
         // 2. the research task; a failure leaves the flag in place and says so
         FiledRequest? filed = null;
         string? problem = target is null ? "the game isn't installed here" : null;
-        if (target is not null) (filed, problem) = await _lab.FileResearchLaterAsync(target, reason, verifyText);
+        if (target is not null) (filed, problem) = await _lab.FileResearchLaterAsync(target, reason, runText);
         if (filed is not null)
         {
             flag.Issue = filed.Number;
@@ -1149,20 +1162,6 @@ public sealed class LabGameViewModel : ObservableObject
             _main.NotifyWithAction($"{ctx.Name} is set in-game now: Optimus-Vibe leaves its settings alone. Research task #{filed.Number} is filed.", "Open task", () => _lab.OpenUrl(filed.Url));
         else
             _main.Notify($"{ctx.Name} is set in-game now: Optimus-Vibe leaves its settings alone. The research task wasn't filed ({problem}).", error: true);
-    }
-
-    private static RunResult? LastOverriddenTest(AppSession s, string gameId)
-    {
-        try
-        {
-            var last = RunResults.Get(s.Paths.DataDir, gameId, s.Device.Name, verifyOnly: true);
-            return last is not null && RunResults.Verdict(last) == RunVerdict.Overridden ? last : null;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Could not read the last test: {ex.Message}");
-            return null;
-        }
     }
 
     private async Task ManageAgainAsync()
