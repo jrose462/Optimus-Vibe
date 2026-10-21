@@ -241,7 +241,7 @@ public partial class MainWindow : Window, IGamepadActions
     }
 
     public bool TryMove(UIElement focused, FocusNavigationDirection direction) =>
-        _vm.IsLibraryPage && LibraryPage.TryMove(focused, direction);
+        (_vm.IsLibraryPage && LibraryPage.TryMove(focused, direction)) || (IsInDetail() && ActiveGameDetail.TryMove(focused, direction));
 
     /// <summary>A on a library tile plays it.</summary>
     public bool TryActivate(UIElement focused)
