@@ -219,10 +219,10 @@ internal static class NvidiaSettingTable
         ["DlssRrOverrideDll"] = [("Off", 0x0u), ("On", 0x1u)],
         ["DlssFgOverrideDll"] = [("Off", 0x0u), ("On", 0x1u)],
         ["DlssPreset"] = [("NotApplicable", 0x0u), ("Recommended", 0xFFFFFFu), ("A", 0x1u), ("B", 0x2u), ("C", 0x3u), ("D", 0x4u), ("E", 0x5u), ("F", 0x6u), ("J", 0xAu), ("K", 0xBu), ("L", 0xCu), ("M", 0xDu), ("N", 0xEu), ("O", 0xFu)],
-        ["DlssRrPreset"] = [("NotApplicable", 0x0u), ("Recommended", 0xFFFFFFu), ("A", 0x1u), ("B", 0x2u), ("C", 0x3u), ("D", 0x4u), ("E", 0x5u), ("F", 0x6u)],
-        ["DlssQualityLevel"] = [("Performance", 0x0u), ("Balanced", 0x1u), ("Quality", 0x2u), ("DLAA", 0x4u), ("UltraPerformance", 0x5u), ("Custom", 0x6u)],
+        ["DlssRrPreset"] = [("NotApplicable", 0x0u), ("Recommended", 0xFFFFFFu), ("A", 0x1u), ("B", 0x2u), ("C", 0x3u), ("D", 0x4u), ("E", 0x5u), ("F", 0x6u), ("G", 0x7u), ("H", 0x8u), ("I", 0x9u), ("J", 0xAu), ("K", 0xBu), ("L", 0xCu), ("M", 0xDu), ("N", 0xEu), ("O", 0xFu)],
+        ["DlssQualityLevel"] = [("Performance", 0x0u), ("Balanced", 0x1u), ("Quality", 0x2u), ("NotApplicable", 0x3u), ("DLAA", 0x4u), ("UltraPerformance", 0x5u), ("Custom", 0x6u)],
         ["UltraLowLatency"] = [("Off", 0x0u), ("On", 0x1u)],
-        ["ShaderCacheSize"] = [("Off", 0x0u), ("MB128", 0x80u), ("MB256", 0x100u), ("MB512", 0x200u), ("GB1", 0x400u), ("GB4", 0x1000u), ("GB8", 0x2000u), ("GB10", 0x2800u), ("GB16", 0x4000u), ("GB100", 0x19000u), ("Unlimited", 0xFFFFFFFFu)],
+        ["ShaderCacheSize"] = [("Off", 0x0u), ("MB128", 0x80u), ("MB256", 0x100u), ("MB512", 0x200u), ("GB1", 0x400u), ("GB4", 0x1000u), ("GB5", 0x1400u), ("GB8", 0x2000u), ("GB10", 0x2800u), ("GB16", 0x4000u), ("GB100", 0x19000u), ("Unlimited", 0xFFFFFFFFu)],
         ["SmoothMotion"] = [("Off", 0x0u), ("On", 0x1u)],
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 }
