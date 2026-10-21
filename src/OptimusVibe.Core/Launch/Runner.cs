@@ -135,7 +135,7 @@ public static class Runner
         };
         ApplyDisplay(ctx, state, options?.DisplayApply);
         ApplyDriver(ctx, state);
-        if (!state.IsEmpty) state.Save(ctx.Paths.StateFile);
+        if (!state.IsEmpty) state.Save(ctx.Paths.RunStateFile(ctx.Game.Id));
 
         int exitCode;
         var processSeen = true;
@@ -149,8 +149,9 @@ public static class Runner
         }
         finally
         {
-            state.Undo();
-            if (File.Exists(ctx.Paths.StateFile)) File.Delete(ctx.Paths.StateFile);
+            var stateFile = ctx.Paths.RunStateFile(ctx.Game.Id);
+            if (state.Undo()) { if (File.Exists(stateFile)) File.Delete(stateFile); }
+            else state.Save(stateFile); // a driver restore that failed keeps its token for the next start
         }
 
         // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
@@ -276,10 +277,17 @@ public static class Runner
         }
         var wanted = ctx.Profile.Display ?? (ctx.BigPictureUsed ? ctx.BigPicture?.Mode : null);
         if (wanted is null) return;
+        var stateFile = ctx.Paths.RunStateFile(ctx.Game.Id);
+        if (RunState.FindHolder(ctx.Paths.StateFile, stateFile, s => s.Display is not null, liveOnly: true) is { } held)
+        {
+            Log.Warn($"display change skipped: {held}");
+            return;
+        }
         try
         {
             state.Display = (apply ?? DisplayManager.Apply)(wanted, ctx.DisplayTarget);
             if (state.Display is not null) Log.Info($"Display set to {wanted}{(ctx.DisplayTarget is { } t ? $" on {t}" : "")}");
+            if (state.Display is not null) state.Save(stateFile); // recoverable even if killed before the launch
         }
         catch (Exception ex)
         {
@@ -298,16 +306,32 @@ public static class Runner
                 Log.Warn($"{ctx.Device.Driver} driver settings skipped: {reason}");
                 return;
             }
-            var token = driver.Apply(ctx.Game, ctx.DriverTargets);
-            if (token is not null)
+            // Driver settings are machine-wide: never stack on another run's (or an unrestored leftover's) changes, or their "previous" values would be wrong.
+            var stateFile = ctx.Paths.RunStateFile(ctx.Game.Id);
+            if (RunState.FindHolder(ctx.Paths.StateFile, stateFile, s => s.DriverToken is not null) is { } held)
+            {
+                Log.Warn($"{driver.Vendor} driver settings skipped: {held}");
+                return;
+            }
+            // The token is persisted before the first write (intent record), so a kill between apply and save is still recoverable.
+            var token = driver.Apply(ctx.Game, ctx.DriverTargets, t =>
             {
                 state.DriverVendor = driver.Vendor;
-                state.DriverToken = token;
+                state.DriverToken = t;
+                state.Save(stateFile);
+            });
+            state.DriverVendor = token is null ? null : driver.Vendor;
+            state.DriverToken = token;
+            if (token is null) // nothing changed after all: drop the intent record
+            {
+                if (state.IsEmpty) { if (File.Exists(stateFile)) File.Delete(stateFile); }
+                else state.Save(stateFile);
             }
         }
         catch (Exception ex)
         {
             Log.Error("Could not apply driver settings", ex);
+            state.UndoDriver(); // a partial apply is undone right away; if that fails the token stays and is retried
         }
     }
 

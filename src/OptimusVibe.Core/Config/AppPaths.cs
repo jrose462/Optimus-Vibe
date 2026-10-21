@@ -16,6 +16,9 @@ public sealed class AppPaths
     public string AutoSnapshotsDir => Path.Combine(DataDir, "auto-snapshots");
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string StateFile => Path.Combine(DataDir, "state.json");
+    /// <summary>Per-run state file (display / driver changes of one run): one file per game and wrapper process so overlapping runs never overwrite each other's restore tokens. <see cref="StateFile"/> is the legacy single file, still recovered.</summary>
+    public string RunStateFile(string gameId) =>
+        Path.Combine(DataDir, $"state-{new string(gameId.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_').ToArray())}-{Environment.ProcessId}.json");
     public string SelectionsFile => Path.Combine(DataDir, "selections.json");
     public string LibraryFile => Path.Combine(ConfigRoot, "library.yaml");
     public string RequestsFile => Path.Combine(ConfigRoot, "requests.yaml");

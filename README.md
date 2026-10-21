@@ -459,9 +459,16 @@ with `--profile <device>` or `setup --force-profile <device>`.
 - **NVIDIA (desktop)**: the `nvidia:` block in a game preset (e.g. `FrameRateLimiter: 162`) is written to the
   driver's per-application profile for the game's exe via NVAPI DRS. It persists like a setting made in NVIDIA
   Control Panel and is not undone on exit.
-- **AMD (Ally X)**: AMD has no supported API for Adrenalin per-game profiles. The plan is to apply ADLX *global* 3D
-  settings (Chill, RSR, AFMF, Anti-Lag...) on launch and restore them on exit. **Not implemented yet**: `amd:`
-  blocks are ignored. See [docs/amd-adlx.md](docs/amd-adlx.md).
+- **AMD (Ally X)**: AMD has no supported API for Adrenalin per-game profiles, so the `amd:` block drives ADLX *global* 3D
+  settings (Radeon Chill, FRTC, RSR, AFMF, Anti-Lag, image sharpening, VSync...). They are applied before launch and restored
+  when the game exits (a restore token is kept for crash recovery). Missing driver, unsupported setting or older driver:
+  a logged warning, never a failed launch. **Unverified on real Ally hardware until you run `optimus-vibe driver status`
+  and `driver test-amd` on it.** Keys and the verification steps are in [docs/amd-adlx.md](docs/amd-adlx.md).
+- **Diagnostics**: `optimus-vibe driver status` (vendor, API availability, versions, every readable setting) and
+  `optimus-vibe driver test-amd [--dry-run | --apply-and-restore]` change nothing by default.
+
+Prefer driver keys over file edits when the game has no in-game option for it (frame cap, VSync, low latency, RSR/AFMF)
+or the game rewrites its config files; see the recommender skill.
 
 A vendor block on the wrong hardware is skipped.
 

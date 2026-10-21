@@ -70,3 +70,28 @@ The rest of this file is hardware-agnostic reasoning to apply to those specs.
 
 Laptops, mini PCs, Steam Deck-class handhelds: classify by `description` (discrete GPU -> desktop reasoning with a
 power/thermal haircut; APU -> handheld reasoning) and name the presets after what the user's `defaultPreset` expects.
+
+## Driver keys (`nvidia:` / `amd:`) instead of file edits
+
+Use a driver key when the game has no reliable in-game option, rewrites its config on exit, or the lever only exists in the
+driver. Use the game's own settings file for everything the game exposes (resolution, quality, upscaler mode): the driver
+cannot see inside the game, and double-capping (game limiter plus driver cap) just adds latency.
+
+**NVIDIA (`driver: nvidia`)** is per game exe (DRS profile, persistent, no restore). Aliases: `FrameRateLimiter` (fps | off),
+`VSync` (app | off | on), `PowerMode` (adaptive | max | optimal). Any `NvidiaSettingTable` name works too, notably
+`PreRenderLimit` (max pre-rendered frames), `UltraLowLatency` (On/Off), `ShaderCacheSize`, `PerformanceStateShaderDiskCache`,
+and (Profile Inspector ids, verify with `inspect` first) `DlssPreset` (K/L/M transformer presets, needs
+`DlssModelPresetProfile: Custom`), `DlssOverrideDll`, `DlssFgOverrideDll`, `SmoothMotion`. Prefer the driver cap
+(`FrameRateLimiter`) over the in-game limiter only when frame generation is on or the game limiter is broken.
+
+**AMD (`driver: amd`)** is GLOBAL (ADLX has no per-app scope): applied at launch, restored at exit. Keys: `FrtcFps`
+(fps | off), `ChillEnabled` / `ChillMinFps` / `ChillMaxFps`, `RsrEnabled` / `RsrSharpness`, `AfmfEnabled`, `AntiLag`
+(off | on | next), `RisEnabled` / `RisSharpness`, `WaitForVSync` (off | app-off | app-on | on), `EnhancedSync`,
+`BoostEnabled` / `BoostMinResolution`. Ally recommendations:
+- Battery presets: `FrtcFps: 40` (or 30) is the single best driver lever; pair with `AfmfEnabled: false`. Chill
+  (`ChillMinFps`/`ChillMaxFps`) saves more on slow scenes but makes pacing variable; prefer a flat FRTC cap for 40 fps.
+- Performance presets: `AfmfEnabled: false` unless the base fps is above ~55 (then true is an option); `AntiLag: on`.
+- `RsrEnabled: true` only for games with no in-game FSR/XeSS (RSR works on the whole frame, including the HUD, and conflicts
+  with in-game upscalers); `RsrSharpness` 50-70.
+- Use `WaitForVSync: app-off` (the Adrenalin default) unless a game tears on the 120 Hz VRR panel.
+- Anything the driver reports as unsupported is skipped with a warning, so these blocks are safe on older drivers.

@@ -101,7 +101,7 @@ public sealed class NvidiaDrsManager : IDriverSettings
         }
     }
 
-    public string? Apply(GameDef game, IReadOnlyDictionary<string, string> settings)
+    public string? Apply(GameDef game, IReadOnlyDictionary<string, string> settings, Action<string>? beforeWrite = null)
     {
         var resolved = Resolve(settings);
         if (resolved.Count == 0) return null;
@@ -159,10 +159,7 @@ public sealed class NvidiaDrsManager : IDriverSettings
         return null; // per-application profile: persistent, nothing to undo
     }
 
-    public void Restore(string token)
-    {
-        // Apply never returns a token (per-app profiles are persistent).
-    }
+    public bool Restore(string token) => true; // Apply never returns a token (per-app profiles are persistent).
 
     // ---------------------------------------------------------------------------------------------
 

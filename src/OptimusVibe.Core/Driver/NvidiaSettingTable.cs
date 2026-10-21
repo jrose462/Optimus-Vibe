@@ -105,6 +105,19 @@ internal static class NvidiaSettingTable
         ["WKSStereoDongleSupport"] = 0x112493BD,
         ["WKSStereoSupport"] = 0x11AA9E99,
         ["WKSStereoSwapMode"] = 0x11333333,
+
+        // Not in NvApiDriverSettings.h: ids from NVIDIA Profile Inspector's CustomSettingNames.xml
+        // (https://github.com/Orbmu2k/nvidiaProfileInspector). Verify with `optimus-vibe inspect` before relying on them.
+        ["DlssModelPresetProfile"] = 0x00634291,
+        ["DlssOverrideDll"] = 0x10E41E01,
+        ["DlssRrOverrideDll"] = 0x10E41E02,
+        ["DlssFgOverrideDll"] = 0x10E41E03,
+        ["DlssPreset"] = 0x10E41DF3,
+        ["DlssRrPreset"] = 0x10E41DF7,
+        ["DlssQualityLevel"] = 0x10AFB768,
+        ["UltraLowLatency"] = 0x10835000,
+        ["ShaderCacheSize"] = 0x00AC8497,
+        ["SmoothMotion"] = 0xB0D384C0,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Value names per setting name (first listed name wins when formatting a value).</summary>
@@ -198,5 +211,18 @@ internal static class NvidiaSettingTable
         ["WKSStereoDongleSupport"] = [("Default", 0x0u), ("Off", 0x0u), ("DAC", 0x1u), ("DLP", 0x2u)],
         ["WKSStereoSupport"] = [("Default", 0x0u), ("Off", 0x0u), ("On", 0x1u)],
         ["WKSStereoSwapMode"] = [("ApplicationControl", 0x0u), ("Default", 0x0u), ("PerEye", 0x1u), ("PerEyePair", 0x2u), ("LegacyBehavior", 0x3u)],
+
+        // Not in NvApiDriverSettings.h: ids and value names from NVIDIA Profile Inspector's CustomSettingNames.xml
+        // (https://github.com/Orbmu2k/nvidiaProfileInspector). Verify with `optimus-vibe inspect` before relying on them.
+        ["DlssModelPresetProfile"] = [("NotApplicable", 0x0u), ("Recommended", 0x1u), ("Custom", 0x2u)],
+        ["DlssOverrideDll"] = [("Off", 0x0u), ("On", 0x1u)],
+        ["DlssRrOverrideDll"] = [("Off", 0x0u), ("On", 0x1u)],
+        ["DlssFgOverrideDll"] = [("Off", 0x0u), ("On", 0x1u)],
+        ["DlssPreset"] = [("NotApplicable", 0x0u), ("Recommended", 0xFFFFFFu), ("A", 0x1u), ("B", 0x2u), ("C", 0x3u), ("D", 0x4u), ("E", 0x5u), ("F", 0x6u), ("J", 0xAu), ("K", 0xBu), ("L", 0xCu), ("M", 0xDu), ("N", 0xEu), ("O", 0xFu)],
+        ["DlssRrPreset"] = [("NotApplicable", 0x0u), ("Recommended", 0xFFFFFFu), ("A", 0x1u), ("B", 0x2u), ("C", 0x3u), ("D", 0x4u), ("E", 0x5u), ("F", 0x6u), ("G", 0x7u), ("H", 0x8u), ("I", 0x9u), ("J", 0xAu), ("K", 0xBu), ("L", 0xCu), ("M", 0xDu), ("N", 0xEu), ("O", 0xFu)],
+        ["DlssQualityLevel"] = [("Performance", 0x0u), ("Balanced", 0x1u), ("Quality", 0x2u), ("NotApplicable", 0x3u), ("DLAA", 0x4u), ("UltraPerformance", 0x5u), ("Custom", 0x6u)],
+        ["UltraLowLatency"] = [("Off", 0x0u), ("On", 0x1u)],
+        ["ShaderCacheSize"] = [("Off", 0x0u), ("MB128", 0x80u), ("MB256", 0x100u), ("MB512", 0x200u), ("GB1", 0x400u), ("GB4", 0x1000u), ("GB5", 0x1400u), ("GB8", 0x2000u), ("GB10", 0x2800u), ("GB16", 0x4000u), ("GB100", 0x19000u), ("Unlimited", 0xFFFFFFFFu)],
+        ["SmoothMotion"] = [("Off", 0x0u), ("On", 0x1u)],
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 }

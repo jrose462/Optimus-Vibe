@@ -61,6 +61,7 @@ public static class Program
             LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(), LibraryCommands.SetInGameCommand(), LibraryCommands.ManageSettingsCommand(),
             CloudCheckCommands.CloudCheckCommand(), AutoSnapshotCommands.AutoSnapshotCommand(), DeviceCommands.DevicesCommand(),
             GameLabCommands.LabCommand(), GameLabCommands.ProbeCommand(), OutboxCommands.OutboxCommand(),
+            DriverCommands.DriverCommand(),
         };
         return root.Parse(args).Invoke();
     }

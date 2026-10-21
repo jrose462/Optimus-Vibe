@@ -186,7 +186,9 @@ profiles:
 #   nvidia       NVIDIA driver profile settings for the game's exe (applied only when the device driver is nvidia;
 #                persistent DRS profile, not undone on exit)
 #   amd          AMD ADLX global settings (only when the driver is amd; applied on launch, restored on exit).
-#                NOT IMPLEMENTED YET â€” see docs/amd-adlx.md. Safe to write; it is ignored for now.
+#                Keys: FrtcFps, ChillEnabled/ChillMinFps/ChillMaxFps, RsrEnabled/RsrSharpness, AfmfEnabled, AntiLag,
+#                RisEnabled/RisSharpness, WaitForVSync, EnhancedSync, BoostEnabled/BoostMinResolution (docs/amd-adlx.md).
+#                Unsupported settings are skipped with a warning.
 # Every other key must be a file id from `files:`. Upscalers differ by vendor: DLSS on the desktop, FSR/XeSS on
 # the Ally. Within one device, every preset should set the same keys (directly or via base) so switching presets
 # never leaves a value from the previous one behind.
@@ -231,8 +233,9 @@ presets:
       extends: base
       display:
         refresh: 120                        # width/height default to the device's 1920x1080
-      # amd:                                # not implemented yet (docs/amd-adlx.md)
-      #   AFMF: false
+      # amd:                                # ADLX global settings, applied on launch and restored on exit (docs/amd-adlx.md)
+      #   FrtcFps: 60                       # driver frame cap; keep the in-game limiter off or equal
+      #   AfmfEnabled: false
       gus:
         /Script/Engine.GameUserSettings:
           ResolutionSizeX: 1920

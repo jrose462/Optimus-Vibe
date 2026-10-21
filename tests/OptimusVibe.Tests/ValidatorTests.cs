@@ -81,6 +81,39 @@ public sealed class ValidatorTests : IDisposable
     }
 
     [Fact]
+    public void AmdKeysAreValidated()
+    {
+        var r = Run(ValidGame.Replace("amd: { AFMF: false }", "amd: { AfmfEnabled: maybe, Turbo: 1, ChillMaxFps: 45 }"));
+        Assert.Contains(r.Errors, e => e.Contains("amd.AfmfEnabled"));
+        Assert.Contains(r.Errors, e => e.Contains("amd.Turbo") && e.Contains("unknown amd setting"));
+        Assert.DoesNotContain(r.Errors, e => e.Contains("amd.ChillMaxFps"));
+    }
+
+    [Fact]
+    public void AmdAliasAndCanonicalKeyInOneBlock_IsError()
+    {
+        var r = Run(ValidGame.Replace("amd: { AFMF: false }", "amd: { AFMF: false, AfmfEnabled: true }"));
+        Assert.Contains(r.Errors, e => e.Contains("set the same setting"));
+    }
+
+    [Fact]
+    public void AmdChillMinAboveMax_IsError()
+    {
+        var r = Run(ValidGame.Replace("amd: { AFMF: false }", "amd: { ChillMinFps: 100, ChillMaxFps: 50 }"));
+        Assert.Contains(r.Errors, e => e.Contains("ChillMinFps") && e.Contains("above"));
+    }
+
+    [Fact]
+    public void AmdBlockInABaseProfile_IsValidatedToo()
+    {
+        var yaml = ValidGame.ReplaceLineEndings("\n");   // the source file's line endings vary with git checkout settings
+        var r = Run(yaml.Replace("base:\n    user: { S: { Shadows: 3 } }", "base:\n    user: { S: { Shadows: 3 } }\n    amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }"));
+        Assert.NotEqual(yaml, yaml.Replace("base:\n    user: { S: { Shadows: 3 } }", ""));
+        Assert.Contains(r.Errors, e => e.Contains("profiles.base") && e.Contains("amd.Turbo"));
+        Assert.Contains(r.Errors, e => e.Contains("profiles.base") && e.Contains("set the same setting"));
+    }
+
+    [Fact]
     public void ValidSample_WithValidSave_NoErrors()
     {
         _store.WriteSave("sample", "desktop", new ManualSave
