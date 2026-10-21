@@ -82,12 +82,16 @@ public sealed class GameLabService
     public static GameLabClient ClientFor(Connection c) => new(c.Api, c.Repo.Repo, c.Repo.Branch);
 
     /// <param name="verifyRun">The text of a "### Verify run" section (<see cref="OptimusVibe.Launch.RunResults.EvidenceText"/>), when the request carries a preset test.</param>
-    public static EvidenceCollector CollectorFor(AppSession session, string? verifyRun = null) => new(new EvidenceOptions
+    /// <param name="passive">Attach the passive pass A (<see cref="PassiveMapping"/>) when no mapping run is stored: for a request the player started
+    /// (the preview lists it), or an automatic one with "Send findings to the game lab automatically" on.</param>
+    /// <param name="launchRun">The text of a "### Normal launch" section: the normal launch that suggested the "set in-game" flag (not a test).</param>
+    public static EvidenceCollector CollectorFor(AppSession session, string? verifyRun = null, bool passive = true, string? launchRun = null) => new(new EvidenceOptions
     {
         CloudCheck = LabCloud.ForChecker(session.Store, session.Device),
         CurrentConfig = LabCloud.CurrentConfigFrom(session.Paths),
         VerifyRun = verifyRun is null ? null : _ => verifyRun,
-        Probe = t => StoredMapping(session, t)?.Evidence,
+        LaunchRun = launchRun is null ? null : _ => launchRun,
+        Probe = t => StoredMapping(session, t)?.Evidence ?? (passive ? PassiveMappingEvidence(session, t) : null),
     });
 
     /// <summary>How long a stored mapping run keeps being attached to requests (a patch can move the settings).</summary>
@@ -98,6 +102,29 @@ public sealed class GameLabService
     {
         var record = ProbeStore.Get(session.Paths.DataDir, target.Key);
         return record is not null && DateTime.UtcNow - record.Utc <= MappingMaxAge && record.Evidence.Length > 0 ? record : null;
+    }
+
+    /// <summary>
+    /// What the game rewrote by itself in this PC's recent normal launches (the passive pass A, <see cref="PassiveWatch"/>), when it is recent
+    /// enough; null otherwise. "Map this game" then needs only its second launch.
+    /// </summary>
+    public static PassivePassA? PassiveMapping(AppSession session, LabTarget target) =>
+        ProbeStore.PassiveA(session.Paths.DataDir, target.Key, MappingMaxAge);
+
+    /// <summary>The passive pass A as a "### Mapping run" body (tokenized and sanitized like a mapping run), for a request when no mapping run is stored.</summary>
+    private static string? PassiveMappingEvidence(AppSession session, LabTarget target)
+    {
+        try
+        {
+            if (PassiveMapping(session, target) is not { } passive) return null;
+            var probe = new ProbeSession(target, new EvidenceOptions { CurrentConfig = LabCloud.CurrentConfigFrom(session.Paths) });
+            return probe.ToEvidence(passive.Diff, null, passive.Launches).Render();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"game lab: passive mapping for {target.Name} failed: {ex.Message}");
+            return null;
+        }
     }
 
     public static EvidencePreview Preview(AppSession session, LabTarget target, string? verifyRun = null) =>
@@ -147,30 +174,46 @@ public sealed class GameLabService
     {
         if (IsDemo)
             return new FiledRequest(7, $"https://github.com/{c.Repo.Repo}/issues/7", false, 1, $"Demo: would file #7 ({GameLabContract.KindText(kind)})");
-        return await ClientFor(c).FileRequestAsync(kind, target, session.Device.Name, CollectorFor(session), ct).ConfigureAwait(false);
+        return await ClientFor(c).FileRequestAsync(kind, target, session.Device.Name, CollectorFor(session, passive: AutoFindings.ConsentFrom(c.Settings)), ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Files the request, or - when GitHub can't be reached because we are offline - stores it (with the evidence as collected now) in
     /// the outbox to be sent later. An already open request is reused as before.
     /// </summary>
+    /// <param name="automatic">An automatic finding: a queued copy is withdrawn when that consent is turned off.</param>
+    /// <param name="manual">The player started this request (and saw its preview): the passive pass A goes with it.</param>
     public async Task<LabRequestOutcome> FileOrQueueAsync(Connection c, AppSession session, OutboxStore store, LabKind kind, LabTarget target,
-        string? verifyRun = null, CancellationToken ct = default)
+        string? verifyRun = null, CancellationToken ct = default, bool automatic = false, bool manual = false)
     {
         if (IsDemo) return new LabRequestOutcome(await FileRequestAsync(c, session, kind, target, ct).ConfigureAwait(false), null);
-        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
+        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name,
+            CollectorFor(session, verifyRun, passive: manual || AutoFindings.ConsentFrom(c.Settings)), ct,
+            automatic).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether GitHub reports the config repo as private; null when it can't be read now (offline, signed out).</summary>
+    public async Task<bool?> IsRepoPrivateAsync(Connection c, CancellationToken ct = default)
+    {
+        if (IsDemo) return true;
+        try { return (await c.Api.GetRepoAsync(c.Repo.Repo, ct).ConfigureAwait(false)).Private; }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Log.Warn($"Game lab: could not read whether {c.Repo.Repo} is private: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>
     /// "Flag as set in-game": files a research-later issue in the config repo (the lab's evidence plus the reason and open questions; not the
     /// game-lab label, so nothing starts by itself).
     /// </summary>
-    public async Task<FiledRequest> FileResearchLaterAsync(Connection c, AppSession session, LabTarget target, string reason, string? verifyRun = null,
+    public async Task<FiledRequest> FileResearchLaterAsync(Connection c, AppSession session, LabTarget target, string reason, string? verifyRun = null, string? launchRun = null,
         CancellationToken ct = default)
     {
         if (IsDemo)
             return new FiledRequest(9, $"https://github.com/{c.Repo.Repo}/issues/9", false, 1, "Demo: would file research task #9");
-        return await ClientFor(c).FileResearchLaterAsync(target, session.Device.Name, reason, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
+        return await ClientFor(c).FileResearchLaterAsync(target, session.Device.Name, reason, CollectorFor(session, verifyRun, launchRun: launchRun), ct).ConfigureAwait(false);
     }
 
     /// <summary>Whether an issue of the config repo is still open; null when it can't be read.</summary>
@@ -221,7 +264,7 @@ public sealed class GameLabService
         {
             Client = ClientFor(c),
             TargetFor = TargetFor,
-            Collector = () => CollectorFor(session),
+            Collector = () => CollectorFor(session, passive: AutoFindings.ConsentFrom(c.Settings)),
             SyncBoard = ct2 => new BoardSync(c.Api, c.Repo.Repo, session.Paths.DataDir).SyncAsync(ct2),
             Paths = session.Paths,
             Provider = SyncProviders.For(session.Paths),

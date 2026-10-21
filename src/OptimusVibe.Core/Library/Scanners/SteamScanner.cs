@@ -79,6 +79,10 @@ public sealed class SteamScanner : IGameScanner
 
         var installDirName = app.Str("installdir");
         var installDir = string.IsNullOrEmpty(installDirName) ? null : Path.Combine(steamapps, "common", installDirName);
+        var buildId = app.Str("buildid")?.Trim();
+        DateTime? updated = long.TryParse(app.Str("LastUpdated"), out var unix) && unix > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime
+            : null;
 
         return new DetectedGame
         {
@@ -89,6 +93,8 @@ public sealed class SteamScanner : IGameScanner
             LaunchUri = $"steam://rungameid/{appId}",
             ArtPath = FindArt(appId),
             Exes = ScanUtil.FindExes(installDir),
+            BuildId = string.IsNullOrEmpty(buildId) || buildId == "0" ? null : buildId,
+            BuildUpdatedUtc = updated,
         };
     }
 

@@ -40,6 +40,26 @@ public sealed class SteamLocator
         }
     }
 
+    /// <summary>steamapps/appmanifest_&lt;appid&gt;.acf of an installed app (the first library that has it), or null.</summary>
+    public string? ManifestPath(int appId)
+    {
+        foreach (var lib in Libraries())
+        {
+            var manifest = Path.Combine(lib, "steamapps", $"appmanifest_{appId}.acf");
+            if (File.Exists(manifest)) return manifest;
+        }
+        return null;
+    }
+
+    /// <summary>The installed build of an app (the manifest's <c>buildid</c>), or null when not installed or not recorded.</summary>
+    public string? BuildId(int appId)
+    {
+        var manifest = ManifestPath(appId);
+        if (manifest is null) return null;
+        var id = Vdf.Load(manifest).Child("AppState")?.Str("buildid")?.Trim();
+        return string.IsNullOrEmpty(id) || id == "0" ? null : id;
+    }
+
     /// <summary>steamapps/common/&lt;installdir&gt; for an installed app, or null.</summary>
     public string? InstallDir(int appId)
     {

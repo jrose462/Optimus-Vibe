@@ -567,6 +567,27 @@ public sealed class ResearchLaterTests
     }
 
     [Fact]
+    public async Task A_research_task_from_normal_launches_says_normal_launch_not_verify_run()
+    {
+        using var p = new LabProfile();
+        var fake = new FakeLabGitHub();
+        var client = new GameLabClient(fake.Api(), FakeLabGitHub.Repo);
+        var o = p.Options();
+        var options = new EvidenceOptions
+        {
+            Folders = o.Folders, Registry = o.Registry, UserProfile = o.UserProfile, UserName = o.UserName, MachineName = o.MachineName,
+            LaunchRun = _ => $"run: normal\nuser dir {p.User}\n",
+        };
+
+        await client.FileResearchLaterAsync(p.Target(), "desktop", "the game reset the preset after 2 launches", new EvidenceCollector(options));
+
+        var issue = Assert.Single(fake.Issues);
+        Assert.Contains("### Normal launch", issue.Body);
+        Assert.DoesNotContain("### Verify run", issue.Body);
+        Assert.DoesNotContain(p.User, issue.Body);
+    }
+
+    [Fact]
     public async Task A_closed_issue_reads_as_finished_and_an_unknown_one_as_null()
     {
         var fake = new FakeLabGitHub();

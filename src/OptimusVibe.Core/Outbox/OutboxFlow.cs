@@ -62,8 +62,9 @@ public static class OutboxFlow
     /// the evidence is collected once, on this PC, and either posted or stored in the outbox exactly as collected (no network is
     /// needed to queue). An already open request for the same game is still reused when we can reach GitHub (nothing is queued then).
     /// </summary>
+    /// <param name="automatic">An automatic finding: a queued item is marked so turning that consent off withdraws it (<see cref="AutoFindings.WithdrawQueued"/>).</param>
     public static async Task<LabRequestOutcome> FileLabRequestAsync(OutboxStore store, GameLabClient client, LabKind kind, LabTarget target,
-        string device, EvidenceCollector collector, CancellationToken ct = default)
+        string device, EvidenceCollector collector, CancellationToken ct = default, bool automatic = false)
     {
         var info = GameLabClient.InfoFor(kind, target, device);
         var offline = false;
@@ -85,7 +86,7 @@ public static class OutboxFlow
             }
             catch (Exception ex) when (OfflineDetector.IsOffline(ex, ct)) { offline = true; }
         }
-        return new LabRequestOutcome(null, store.Add(OutboxItem.ForLabRequest(client.Repo, client.Branch, prepared)));
+        return new LabRequestOutcome(null, store.Add(OutboxItem.ForLabRequest(client.Repo, client.Branch, prepared, automatic: automatic)));
     }
 
     // ------------------------------------------------------------ draining

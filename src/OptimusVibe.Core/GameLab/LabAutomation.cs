@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OptimusVibe.Config;
+using OptimusVibe.Launch;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
 using OptimusVibe.Sync;
@@ -130,6 +131,73 @@ public sealed class LabState
 
     /// <summary>The first background pass counts everything already done as announced, so old requests don't toast on first start.</summary>
     public bool Baselined { get; set; }
+
+    /// <summary>Game id → when the lab's presets for it last arrived on this device, and the game build they were made against.</summary>
+    public Dictionary<string, PresetsMark> PresetsMade { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The mark for a game, or null when no lab result was pulled for it on this device.</summary>
+    public PresetsMark? PresetsFor(string gameId) => PresetsMade.TryGetValue(gameId, out var m) ? m : null;
+
+    /// <summary>
+    /// Game id → the newest normal run the post-session card has looked at (<see cref="PostSession.Detect"/>), so each session is offered once,
+    /// also across restarts of the app.
+    /// </summary>
+    public Dictionary<string, DateTime> SessionsSeen { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The first look at run-results.json counts every session already there as seen, so old sessions never show a card.</summary>
+    public bool SessionsBaselined { get; set; }
+
+    /// <summary>"game id|card kind" → until when that post-session card stays away ("Not now", <see cref="PostSession.SnoozeDays"/>).</summary>
+    public Dictionary<string, DateTime> Snoozed { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The post-session card kinds snoozed for a game at <paramref name="nowUtc"/>; every kind while the game's cards are muted.</summary>
+    public IReadOnlySet<PostSessionKind> SnoozedFor(string gameId, DateTime nowUtc) =>
+        IsMuted(gameId)
+            ? Enum.GetValues<PostSessionKind>().ToHashSet()
+            : Enum.GetValues<PostSessionKind>().Where(k => Snoozed.TryGetValue(PostSession.SnoozeKey(gameId, k), out var until) && until > nowUtc).ToHashSet();
+
+    /// <summary>
+    /// Game id → when the player chose "Don't ask again" on a post-session card: no post-session card for that game on this device until they
+    /// turn the cards back on (the game page's More). The game stays managed and its health keeps updating.
+    /// </summary>
+    public Dictionary<string, DateTime> Muted { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsMuted(string gameId) => Muted.ContainsKey(gameId);
+
+    /// <summary>
+    /// Game id → when the player asked to check the preset on their own next launch ("Also check presets on my next launch", a manual opt-in per
+    /// game). The wrapper treats that launch as a Test preset run (no capture prompt) and clears the entry once the game was seen.
+    /// </summary>
+    public Dictionary<string, DateTime> VerifyNext { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool VerifiesNext(string gameId) => VerifyNext.ContainsKey(gameId);
+
+    /// <summary>
+    /// Game id → when the app last asked the lab to re-research the game by itself (<see cref="AutoFindings"/>): at most one automatic Refresh
+    /// per game every <see cref="AutoFindings.RefreshMemory"/>.
+    /// </summary>
+    public Dictionary<string, DateTime> AutoRefresh { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Game id → when the app asked the lab to re-check the game's settings sync by itself. Once per game, ever.</summary>
+    public Dictionary<string, DateTime> AutoSyncCheck { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// When a game's presets were made and the build they were made against (<see cref="GameBuild"/>), so "the game updated since" can be told.
+/// Written when a merged lab result is pulled (<see cref="LabCycle"/>). Per device: each device sees its own installed build.
+/// </summary>
+public sealed class PresetsMark
+{
+    public DateTime MadeUtc { get; set; }
+
+    /// <summary>The installed build when the presets arrived; null when it was not known then (filled in by <see cref="LabStateStore.ObservePresetsBuild"/>).</summary>
+    public string? BuildId { get; set; }
+
+    /// <summary>The lab request whose result brought them.</summary>
+    public int? Issue { get; set; }
+
+    /// <summary>new | refresh (the request kind, lower case).</summary>
+    public string? Kind { get; set; }
 }
 
 public sealed class LabStateStore(string dataDir)
@@ -139,17 +207,36 @@ public sealed class LabStateStore(string dataDir)
 
     public string FilePath => Path.Combine(dataDir, "gamelab-state.json");
 
+    /// <summary>The stored state; an empty one when there is none yet or the file could not be read.</summary>
     public LabState Load()
     {
-        lock (Gate) return LoadCore();
+        lock (Gate) return LoadCore(out _);
     }
 
-    /// <summary>Read-modify-write. Never throws.</summary>
-    public void Update(Action<LabState> change)
+    /// <summary>The stored state (empty when there is no file yet or it is damaged), or null when the file exists but could not be read right now.</summary>
+    public LabState? TryLoad()
     {
         lock (Gate)
         {
-            var s = LoadCore();
+            var s = LoadCore(out var ok);
+            return ok ? s : null;
+        }
+    }
+
+    /// <summary>
+    /// Read-modify-write. Never throws. False when nothing was written: the file could not be saved, or it exists but could not be read (another
+    /// process replacing it, a lock), in which case it is left alone rather than overwritten with an empty state plus this change.
+    /// </summary>
+    public bool Update(Action<LabState> change)
+    {
+        lock (Gate)
+        {
+            var s = LoadCore(out var ok);
+            if (!ok)
+            {
+                Log.Warn($"Not saving {FilePath}: it could not be read, so saving would lose what it holds.");
+                return false;
+            }
             change(s);
             try
             {
@@ -157,27 +244,121 @@ public sealed class LabStateStore(string dataDir)
                 var tmp = FilePath + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(s, Opts), new UTF8Encoding(false));
                 File.Move(tmp, FilePath, overwrite: true);
+                return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 Log.Warn($"Could not save {FilePath}: {ex.Message}");
+                return false;
             }
         }
     }
 
-    private LabState LoadCore()
+    /// <summary>
+    /// Looks for sessions finished since the last look (<see cref="PostSession.Detect"/>) and stores their seen marks, in one read-modify-write
+    /// so the marks and the "baselined" flag always come from the same state: when the file was replaced by an empty one meanwhile, this look
+    /// only baselines again (every game marked, nothing offered) instead of offering every game's old session. Writes only when something
+    /// changed. Nothing is offered while the file exists but cannot be read. <c>Saved</c> is false when the marks could not be stored.
+    /// Never throws.
+    /// </summary>
+    public (IReadOnlyList<RunResult> Fresh, bool Saved) MarkSessionsSeen(IReadOnlyDictionary<string, RunResultEntry> entries)
     {
+        if (TryLoad() is not { } peek) return ([], false);
+        var look = PostSession.Detect(entries, peek.SessionsSeen, peek.SessionsBaselined);
+        if (!look.Changed && peek.SessionsBaselined) return ([], true);
+        IReadOnlyList<RunResult> fresh = [];
+        var saved = Update(s =>
+        {
+            var found = PostSession.Detect(entries, s.SessionsSeen, s.SessionsBaselined);
+            foreach (var (gameId, utc) in found.Seen)
+                if (!s.SessionsSeen.TryGetValue(gameId, out var seen) || utc > seen) s.SessionsSeen[gameId] = utc;
+            s.SessionsBaselined = true;
+            fresh = found.Fresh;
+        });
+        // unreadable at write time: the change never ran, so nothing is offered now and the next look tries again with the real marks
+        return (fresh, saved);
+    }
+
+    /// <summary>Turns "check presets on my next launch" on or off for a game. False when it could not be saved. Never throws.</summary>
+    public bool SetVerifyNext(string gameId, bool on, DateTime? nowUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return false;
+        return Update(s =>
+        {
+            if (on) s.VerifyNext[gameId] = nowUtc ?? DateTime.UtcNow;
+            else s.VerifyNext.Remove(gameId);
+        });
+    }
+
+    /// <summary>Whether the next launch of the game checks the preset; false when it can't be read. Never throws.</summary>
+    public bool VerifiesNext(string gameId) => !string.IsNullOrWhiteSpace(gameId) && Load().VerifiesNext(gameId);
+
+    /// <summary>"Don't ask again" on a post-session card (<paramref name="on"/>), or the cards turned back on. False when it could not be saved. Never throws.</summary>
+    public bool SetMuted(string gameId, bool on, DateTime? nowUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return false;
+        return Update(s =>
+        {
+            if (on) s.Muted[gameId] = nowUtc ?? DateTime.UtcNow;
+            else s.Muted.Remove(gameId);
+        });
+    }
+
+    /// <summary>Records that a game's presets just arrived (made against <paramref name="build"/>, null when unknown). Never throws.</summary>
+    public void MarkPresets(string gameId, DateTime utc, string? build, int? issue = null, LabKind? kind = null)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return;
+        Update(s => s.PresetsMade[gameId] = new PresetsMark
+        {
+            MadeUtc = utc, BuildId = string.IsNullOrEmpty(build) ? null : build, Issue = issue, Kind = kind?.ToString().ToLowerInvariant(),
+        });
+    }
+
+    /// <summary>
+    /// Fills in the build of a mark made while the build was unknown (the first build seen after the presets arrived counts as theirs).
+    /// Leaves a known build alone. Returns true when it wrote. Never throws.
+    /// </summary>
+    public bool ObservePresetsBuild(string gameId, string? build)
+    {
+        if (string.IsNullOrEmpty(build) || Load().PresetsFor(gameId) is not { BuildId: null }) return false;
+        var wrote = false;
+        Update(s =>
+        {
+            if (s.PresetsFor(gameId) is { BuildId: null } m) { m.BuildId = build; wrote = true; }
+        });
+        return wrote;
+    }
+
+    /// <param name="ok">False when the file exists but could not be read right now (the empty state returned is not what it holds).</param>
+    private LabState LoadCore(out bool ok)
+    {
+        ok = true;
         try
         {
             if (!File.Exists(FilePath)) return new LabState();
             var s = JsonSerializer.Deserialize<LabState>(File.ReadAllText(FilePath), Opts) ?? new LabState();
             s.Requested = new Dictionary<string, DateTime>(s.Requested ?? [], StringComparer.OrdinalIgnoreCase);
             s.Applied ??= [];
+            s.PresetsMade = new Dictionary<string, PresetsMark>(s.PresetsMade ?? [], StringComparer.OrdinalIgnoreCase);
+            s.SessionsSeen = new Dictionary<string, DateTime>(s.SessionsSeen ?? [], StringComparer.OrdinalIgnoreCase);
+            s.Snoozed = new Dictionary<string, DateTime>(s.Snoozed ?? [], StringComparer.OrdinalIgnoreCase);
+            s.AutoRefresh = new Dictionary<string, DateTime>(s.AutoRefresh ?? [], StringComparer.OrdinalIgnoreCase);
+            s.AutoSyncCheck = new Dictionary<string, DateTime>(s.AutoSyncCheck ?? [], StringComparer.OrdinalIgnoreCase);
+            s.Muted = new Dictionary<string, DateTime>(s.Muted ?? [], StringComparer.OrdinalIgnoreCase);
+            s.VerifyNext = new Dictionary<string, DateTime>(s.VerifyNext ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // locked or being replaced right now: a later read gets it back, so nothing may overwrite it meanwhile
             Log.Warn($"Could not read {FilePath}: {ex.Message}");
+            ok = false;
+            return new LabState();
+        }
+        catch (JsonException ex)
+        {
+            // damaged for good (writes replace it whole, so a reader never sees half a file): start afresh rather than never saving again
+            Log.Warn($"Could not read {FilePath}, starting afresh: {ex.Message}");
             return new LabState();
         }
     }
@@ -374,6 +555,23 @@ public static class LabCycle
             var gameId = string.IsNullOrWhiteSpace(result.GameId) ? issue.Request?.GameId ?? "" : result.GameId;
             if (kind == LabKind.SyncCheck && !File.Exists(d.Paths.GameFile(gameId))) continue;
             newPresets.Add(new LabNewPresets(gameId, issue.Request?.Name is { Length: > 0 } n ? n : issue.Name, kind));
+            if (kind != LabKind.SyncCheck && gameId.Length > 0) d.State.MarkPresets(gameId, now, BuildFor(d, issue), issue.Number, kind);
+        }
+    }
+
+    /// <summary>The installed build of the request's game on this device (null when not installed or unknown). Never throws.</summary>
+    private static string? BuildFor(LabCycleDeps d, LabIssue issue)
+    {
+        try
+        {
+            var target = d.TargetFor(issue);
+            if (target?.Detected is { } detected) return GameBuild.Of(detected);
+            return target?.Game is { } game ? GameBuild.ForGame(game, target.InstallDir) : GameBuild.ExeFingerprint(target?.InstallDir);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"game lab: could not read the build of #{issue.Number}: {ex.Message}");
+            return null;
         }
     }
 }

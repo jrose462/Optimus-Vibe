@@ -1,0 +1,685 @@
+using OptimusVibe.CloudSync;
+using OptimusVibe.Config;
+using OptimusVibe.GameLab;
+using OptimusVibe.Launch;
+using OptimusVibe.Library;
+
+namespace OptimusVibe.Tests;
+
+/// <summary>
+/// <see cref="GameHealth.Evaluate"/>: one state per game and device, first match in the order Flagged > NoPresets > CantBeSetFromOutside >
+/// GameUpdated > GameChangedSettings > SyncUnsure > Working > NotChecked, each with one status line, one why line and at most one action.
+/// </summary>
+public sealed class GameHealthTests
+{
+    private const string Preset = "recommended:performance";
+    private static readonly DateTime T0 = new(2026, 10, 20, 12, 0, 0, DateTimeKind.Utc);
+
+    private static HealthInputs In() => new()
+    {
+        GameId = "g", Device = "desktop", HasConfig = true, HasPresets = true, LabReady = true, CanLaunch = true, CurrentPreset = Preset,
+    };
+
+    private static RunResult Run(int day, int drifted = 0, bool verify = false, CaptureAnswer? capture = null, int? sec = 1800,
+        string preset = Preset, string now = "Low")
+    {
+        var r = new RunResult
+        {
+            Utc = T0.AddDays(day), Game = "g", Device = "desktop", Preset = preset, Mode = verify ? RunResult.VerifyMode : RunResult.NormalMode,
+            AppliedKeys = 10, ProcessSeen = true, DurationSec = verify ? null : sec, UserChanged = verify ? false : null,
+            Capture = verify ? null : capture ?? (drifted > 0 ? CaptureAnswer.DontSave : CaptureAnswer.NotAsked),
+        };
+        for (var i = 0; i < drifted; i++) r.Drift.Add(new RunDrift { FileId = "gfx", Key = $"Quality{i}", Applied = "High", Now = now });
+        return r;
+    }
+
+    private static LabIssue Issue(LabStatus status, bool open = true) =>
+        new(12, "Request presets: Game", "https://github.com/owner/config/issues/12", open, [], status, null, null, null);
+
+    private static FlagDef Flag() => GameFlags.Create("the game rewrites its settings on every boot", issue: 7, today: T0);
+
+    /// <summary>Researched as per machine, but the settings travel after all (the contradiction that does doubt the presets).</summary>
+    private static CloudSyncReport SyncsAnyway(string contradiction) => new()
+    {
+        GameId = "g", Device = "desktop", Declared = false, Detected = SyncVerdict.Synced, Confidence = SyncConfidence.High, Contradiction = contradiction,
+    };
+
+    /// <summary>A launch the passive check rates overridden on its own: most of the preset drifted in a short, unsaved session.</summary>
+    private static RunResult Overridden(int day, string preset = Preset) => Run(day, drifted: 6, sec: 120, preset: preset);
+
+    // ---------------------------------------------------------------- flagged
+
+    [Fact]
+    public void Flagged_ByTheUser_ShowsTheFlagsStatusLine_AndSuggestsNothing()
+    {
+        var flag = Flag();
+        var h = GameHealth.Evaluate(In() with { Flag = flag, HasUserFlag = true, OverriddenStreak = 3, Recent = [Run(0, drifted: 8)] });
+        Assert.Equal(HealthState.Flagged, h.State);
+        Assert.Equal(GameFlags.StatusLine(flag), h.Headline);
+        Assert.Null(h.Why);
+        Assert.Equal(HealthAction.None, h.Suggested);
+        Assert.Null(h.FlagReason); // flagged already: never suggested again
+    }
+
+    [Fact]
+    public void Flagged_WinsOverMissingPresets()
+    {
+        var h = GameHealth.Evaluate(In() with { HasPresets = false, Flag = Flag(), HasUserFlag = true });
+        Assert.Equal(HealthState.Flagged, h.State);
+    }
+
+    [Fact]
+    public void Flagged_ByTheGameConfigOnly_SaysOnlyTheLabCanLiftIt_EvenWhenResearchFinished()
+    {
+        var h = GameHealth.Evaluate(In() with { Flag = Flag(), FlagFromConfig = true, ResearchFinished = true });
+        Assert.Equal(HealthState.Flagged, h.State);
+        Assert.Equal(GameHealth.ConfigFlagLine, h.Why);
+        Assert.Equal(HealthAction.None, h.Suggested);
+    }
+
+    [Fact]
+    public void Flagged_ByTheUser_ResearchFinished_SuggestsManagingSettingsAgain()
+    {
+        var h = GameHealth.Evaluate(In() with { Flag = Flag(), HasUserFlag = true, ResearchFinished = true });
+        Assert.Equal(HealthAction.ManageAgain, h.Suggested);
+        Assert.Equal(GameHealth.ResearchFinishedLine, h.Why);
+    }
+
+    // ---------------------------------------------------------------- no presets
+
+    [Fact]
+    public void NoPresets_LabReady_SuggestsRequestingThem()
+    {
+        var h = GameHealth.Evaluate(In() with { HasConfig = false, HasPresets = false });
+        Assert.Equal(HealthState.NoPresets, h.State);
+        Assert.Equal("No presets for this device yet", h.Headline);
+        Assert.Equal(HealthAction.RequestPresets, h.Suggested);
+        Assert.False(h.LabWorking);
+    }
+
+    [Fact]
+    public void NoPresets_WithoutTheLab_SuggestsNothing_ThePanelAlreadyLinksToSettings()
+    {
+        var h = GameHealth.Evaluate(In() with { HasPresets = false, LabReady = false });
+        Assert.Equal(HealthState.NoPresets, h.State);
+        Assert.Equal(HealthAction.None, h.Suggested);
+        Assert.Null(h.Why);
+    }
+
+    [Fact]
+    public void NoPresets_OpenRequest_SaysTheLabIsWorkingOnIt()
+    {
+        var h = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.Researching) });
+        Assert.Equal(HealthState.NoPresets, h.State);
+        Assert.Equal("Game lab is working on it (#12, researching)", h.Headline);
+        Assert.True(h.LabWorking);
+        Assert.Equal(HealthAction.None, h.Suggested); // the chip row already has Open issue
+    }
+
+    [Fact]
+    public void NoPresets_LabNeedsEvidence_AndNoMapping_SuggestsMappingTheGame()
+    {
+        var h = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence) });
+        Assert.Equal(HealthAction.MapGame, h.Suggested);
+        Assert.Contains("needs evidence", h.Headline);
+
+        var mapped = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence), Mapping = new ProbeRecord { Evidence = "x" } });
+        Assert.Equal(HealthAction.None, mapped.Suggested);
+
+        var notHere = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence), CanLaunch = false });
+        Assert.Equal(HealthAction.None, notHere.Suggested);
+    }
+
+    [Fact]
+    public void NoPresets_LabNeedsEvidence_TheMappingWhy_CountsTheLaunches()
+    {
+        var two = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence) });
+        Assert.Contains("two quick launches", two.Why);
+        var one = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.NeedsEvidence), HasPassiveA = true });
+        Assert.Contains("one launch where you change a few graphics options", one.Why);
+    }
+
+    [Fact]
+    public void NoPresets_AClosedRequest_IsNotWorking()
+    {
+        var h = GameHealth.Evaluate(In() with { HasPresets = false, LabRequest = Issue(LabStatus.Done, open: false) });
+        Assert.Equal("No presets for this device yet", h.Headline);
+        Assert.Equal(HealthAction.RequestPresets, h.Suggested);
+    }
+
+    // ---------------------------------------------------------------- can't be set from outside (suggested, never flagged)
+
+    [Fact]
+    public void TwoOverriddenTests_SuggestTheFlag()
+    {
+        var h = GameHealth.Evaluate(In() with { OverriddenStreak = 2 });
+        Assert.Equal(HealthState.CantBeSetFromOutside, h.State);
+        Assert.Equal(HealthAction.FlagSetInGame, h.Suggested);
+        Assert.Equal(GameFlags.VerifySuggestionReason(2), h.FlagReason);
+        Assert.Contains(h.FlagReason!, h.Why);
+    }
+
+    [Fact]
+    public void TwoPassivelyOverriddenLaunches_SuggestTheFlag()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Overridden(0), Overridden(1)], PassiveOverriddenStreak = 2 });
+        Assert.Equal(HealthState.CantBeSetFromOutside, h.State);
+        Assert.Equal(GameFlags.PassiveSuggestionReason(2), h.FlagReason);
+    }
+
+    [Fact]
+    public void TwoOverriddenTests_ThenThreeHeldLaunches_AreWorking()
+    {
+        // the stored verify streak is only reset by a held test: newer held launches still win
+        var h = GameHealth.Evaluate(In() with
+        {
+            OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true), Recent = [Run(1), Run(2), Run(3)],
+        });
+        Assert.Equal(HealthState.Working, h.State);
+        Assert.Null(h.FlagReason);
+    }
+
+    [Fact]
+    public void OverriddenTestsOfAnotherPreset_DoNotSuggestTheFlag()
+    {
+        var h = GameHealth.Evaluate(In() with { OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true, preset: "recommended:quality") });
+        Assert.Null(h.FlagReason);
+        Assert.Equal(HealthState.NotChecked, h.State);
+    }
+
+    [Fact]
+    public void NewPresets_AfterTheOverriddenTests_ClearTheSuggestion()
+    {
+        var inputs = In() with { OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true) };
+        Assert.NotNull(GameHealth.FlagSuggestion(inputs));
+        Assert.Null(GameHealth.FlagSuggestion(inputs with { Presets = new PresetsMark { MadeUtc = T0.AddDays(1) } }));
+    }
+
+    [Fact]
+    public void PassiveOverridesOfAnotherPreset_DoNotCount_WhateverTheStoredStreak()
+    {
+        // Quality was overridden twice, then the user switched to Performance, whose launches stay unclear (short sessions)
+        const string quality = "recommended:quality";
+        var h = GameHealth.Evaluate(In() with
+        {
+            Recent = [Overridden(0, quality), Overridden(1, quality), Run(2, sec: 20), Run(3, sec: 20)], PassiveOverriddenStreak = 2,
+        });
+        Assert.Null(h.FlagReason);
+        Assert.NotEqual(HealthState.CantBeSetFromOutside, h.State);
+
+        // the same launches of the current preset do count
+        Assert.Equal(2, GameHealth.PassiveOverridden(In() with { Recent = [Overridden(0), Overridden(1), Run(2, sec: 20)] }));
+    }
+
+    [Fact]
+    public void PassiveOverrides_EndAtAHeldLaunch_AndAtNewPresets()
+    {
+        Assert.Equal(0, GameHealth.PassiveOverridden(In() with { Recent = [Overridden(0), Overridden(1), Run(2)] }));
+        Assert.Equal(1, GameHealth.PassiveOverridden(In() with
+        {
+            Recent = [Overridden(0), Overridden(2)], Presets = new PresetsMark { MadeUtc = T0.AddDays(1) },
+        }));
+        var h = GameHealth.Evaluate(In() with { Recent = [Overridden(0), Overridden(1), Run(2), Run(3), Run(4)], PassiveOverriddenStreak = 2 });
+        Assert.Equal(HealthState.Working, h.State);
+    }
+
+    [Fact]
+    public void AMappingRun_StopsCounting_OnceThePresetHeldLater_OrNewPresetsArrived()
+    {
+        var mapping = new ProbeRecord { Utc = T0, SuggestSetInGame = true, OpaqueFiles = ["{LocalAppData}/Game/system.save"] };
+        var inputs = In() with { Mapping = mapping, ConfiguredFiles = ["{Documents}/Game/settings.ini"] };
+        Assert.Equal(HealthState.CantBeSetFromOutside, GameHealth.Evaluate(inputs).State);
+
+        var tested = GameHealth.Evaluate(inputs with { LastVerify = Run(1, verify: true) });
+        Assert.Equal(HealthState.Working, tested.State);
+        Assert.Null(tested.FlagReason);
+
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(inputs with { Recent = [Run(1), Run(2), Run(3)] }).State);
+        Assert.Null(GameHealth.FlagSuggestion(inputs with { Presets = new PresetsMark { MadeUtc = T0.AddDays(1) } }));
+
+        // held evidence from before the mapping run doesn't clear it
+        Assert.NotNull(GameHealth.FlagSuggestion(inputs with { LastVerify = Run(-1, verify: true) }));
+    }
+
+    [Fact]
+    public void OneOverriddenTest_DoesNotSuggestTheFlag()
+    {
+        var h = GameHealth.Evaluate(In() with { OverriddenStreak = 1, PassiveOverriddenStreak = 1 });
+        Assert.NotEqual(HealthState.CantBeSetFromOutside, h.State);
+        Assert.Null(h.FlagReason);
+    }
+
+    [Fact]
+    public void AMappingRunWithOnlyBinaryChanges_SuggestsTheFlag()
+    {
+        var mapping = new ProbeRecord { SuggestSetInGame = true, SuggestReason = "only system.save changed", OpaqueFiles = ["{LocalAppData}/Game/system.save"] };
+        var h = GameHealth.Evaluate(In() with { Mapping = mapping, ConfiguredFiles = ["{Documents}/Game/settings.ini"] });
+        Assert.Equal(HealthState.CantBeSetFromOutside, h.State);
+        Assert.Equal("only system.save changed", h.FlagReason);
+    }
+
+    [Fact]
+    public void AMappingRun_WhoseBinaryFilesTheConfigAlreadyWrites_DoesNotSuggestTheFlag()
+    {
+        // a GVAS .sav is "binary" to the mapping run, but the gvas handler writes its keys
+        var mapping = new ProbeRecord
+        {
+            SuggestSetInGame = true, SuggestReason = "only GameUserSettings.sav changed",
+            OpaqueFiles = ["{LocalAppData}\\Game\\Saved\\SaveGames\\GameUserSettings.sav"],
+        };
+        var inputs = In() with { Mapping = mapping, ConfiguredFiles = ["{LocalAppData}/Game/Saved/SaveGames/GameUserSettings.sav"] };
+        Assert.Null(GameHealth.FlagSuggestion(inputs));
+        Assert.NotEqual(HealthState.CantBeSetFromOutside, GameHealth.Evaluate(inputs).State);
+
+        // one binary file the config doesn't know is enough to suggest it again
+        var more = inputs with { Mapping = new ProbeRecord { SuggestSetInGame = true, OpaqueFiles = [.. mapping.OpaqueFiles, "{LocalAppData}/Game/other.bin"] } };
+        Assert.NotNull(GameHealth.FlagSuggestion(more));
+    }
+
+    [Fact]
+    public void FlagSuggestion_NeedsAConfig()
+    {
+        Assert.Null(GameHealth.FlagSuggestion(In() with { HasConfig = false, HasPresets = false, OverriddenStreak = 2 }));
+    }
+
+    [Fact]
+    public void CantBeSetFromOutside_WinsOverAGameUpdate()
+    {
+        var h = GameHealth.Evaluate(In() with
+        {
+            OverriddenStreak = 2, Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2",
+        });
+        Assert.Equal(HealthState.CantBeSetFromOutside, h.State);
+    }
+
+    // ---------------------------------------------------------------- game updated
+
+    [Fact]
+    public void GameUpdated_SuggestsAskingTheLabToReCheck()
+    {
+        var updated = In() with { Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2" };
+        var h = GameHealth.Evaluate(updated);
+        Assert.Equal(HealthState.GameUpdated, h.State);
+        Assert.Equal("Game updated since these presets were made", h.Headline);
+        Assert.Equal(HealthAction.RefreshPresets, h.Suggested);
+        Assert.Equal("Ask the game lab to re-check", GameHealth.ActionText(h.Suggested));
+
+        Assert.Equal(HealthAction.TestPreset, GameHealth.Evaluate(updated with { LabReady = false }).Suggested);
+        Assert.Equal(HealthAction.TestPreset, GameHealth.Evaluate(updated with { LabRequest = Issue(LabStatus.Researching) }).Suggested);
+        Assert.Equal(HealthAction.None, GameHealth.Evaluate(updated with { LabReady = false, CanLaunch = false }).Suggested);
+    }
+
+    [Fact]
+    public void GameUpdated_WinsOverChangedSettings()
+    {
+        var h = GameHealth.Evaluate(In() with
+        {
+            Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2", LastVerify = Run(1, drifted: 3, verify: true),
+        });
+        Assert.Equal(HealthState.GameUpdated, h.State);
+    }
+
+    [Fact]
+    public void SameBuild_IsNotAnUpdate()
+    {
+        var h = GameHealth.Evaluate(In() with { Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:1" });
+        Assert.Equal(HealthState.NotChecked, h.State);
+    }
+
+    // ---------------------------------------------------------------- game changed settings
+
+    [Fact]
+    public void TheSameDriftTwice_IsTheGamesDoing()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 4), Run(1, drifted: 4)] });
+        Assert.Equal(HealthState.GameChangedSettings, h.State);
+        Assert.Equal("The game changed some settings (4 of 10)", h.Headline);
+        Assert.StartsWith("Last launch, ", h.Why);
+        Assert.Contains("Quality0", h.Why);
+        // a normal launch can't tell the game's doing from the player's: the next launch checks it, no extra launch (Test preset stays in More)
+        Assert.Equal(HealthAction.VerifyNextLaunch, h.Suggested);
+        Assert.Equal(T0.AddDays(1), h.ChangedRun!.Utc); // the page's "See which" lists the newest run's changes
+    }
+
+    [Fact]
+    public void AnOverriddenTest_SuggestsAskingTheLab()
+    {
+        var h = GameHealth.Evaluate(In() with { LastVerify = Run(0, drifted: 3, verify: true) });
+        Assert.Equal(HealthState.GameChangedSettings, h.State);
+        Assert.StartsWith("Last test, ", h.Why);
+        Assert.Equal(HealthAction.RefreshPresets, h.Suggested);
+    }
+
+    [Fact]
+    public void MostOfThePresetDrifted_IsTheOldHint_UnlessKeptAsASave()
+    {
+        // the player was never asked (prompt off): passively unclear, but the old "Test preset?" hint still applies
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 8, capture: CaptureAnswer.Off)] });
+        Assert.Equal(HealthState.GameChangedSettings, h.State);
+
+        var saved = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 8, capture: CaptureAnswer.Saved)] });
+        Assert.Equal(HealthState.NotChecked, saved.State);
+    }
+
+    [Fact]
+    public void ALittleUnaskedDrift_IsNotBlamedOnTheGame()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 2, capture: CaptureAnswer.Off)] });
+        Assert.Equal(HealthState.NotChecked, h.State);
+    }
+
+    [Fact]
+    public void AHeldLaunchAfterAnOverriddenTest_ClearsIt()
+    {
+        var h = GameHealth.Evaluate(In() with { LastVerify = Run(0, drifted: 3, verify: true), Recent = [Run(1)] });
+        Assert.Equal(HealthState.NotChecked, h.State);
+        Assert.Contains("last launch", h.Why);
+    }
+
+    [Fact]
+    public void AHeldTestAfterAnOverriddenLaunch_ClearsIt()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 8, capture: CaptureAnswer.Off)], LastVerify = Run(1, verify: true) });
+        Assert.Equal(HealthState.Working, h.State);
+    }
+
+    [Fact]
+    public void ChangedSettings_WinOverSyncDoubts()
+    {
+        var h = GameHealth.Evaluate(In() with
+        {
+            LastVerify = Run(0, drifted: 3, verify: true),
+            CloudSync = SyncsAnyway("Declared not synced, but it is"),
+        });
+        Assert.Equal(HealthState.GameChangedSettings, h.State);
+    }
+
+    // ---------------------------------------------------------------- sync unsure
+
+    [Fact]
+    public void ACloudSyncContradiction_IsSyncUnsure_WithItAsTheWhy()
+    {
+        var h = GameHealth.Evaluate(In() with
+        {
+            Recent = [Run(0), Run(1), Run(2)],
+            CloudSync = SyncsAnyway("Researched as per machine, but Steam Cloud syncs it"),
+        });
+        Assert.Equal(HealthState.SyncUnsure, h.State);
+        Assert.Equal("Settings may be changed by cloud sync", h.Headline);
+        Assert.Equal("Researched as per machine, but Steam Cloud syncs it.", h.Why);
+        Assert.Equal(HealthAction.SyncCheck, h.Suggested);
+    }
+
+    [Fact]
+    public void ExternalChanges_AreSyncUnsure_OnlyWhileConfidenceIsLow()
+    {
+        CloudSyncReport Report(SyncConfidence c) => new() { GameId = "g", Device = "desktop", HasExternalChanges = true, Confidence = c };
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(In() with { CloudSync = Report(SyncConfidence.Low) }).State);
+        Assert.Equal(HealthState.NotChecked, GameHealth.Evaluate(In() with { CloudSync = Report(SyncConfidence.Medium) }).State);
+    }
+
+    [Fact]
+    public void ExternalChanges_StopCounting_OnceThePresetHeldOnLaterLaunches()
+    {
+        CloudSyncReport Changed(int day) => new()
+        {
+            GameId = "g", Device = "desktop", HasExternalChanges = true, Confidence = SyncConfidence.None, LastExternalChangeUtc = T0.AddDays(day),
+        };
+        var held = In() with { Recent = [Run(1), Run(2), Run(3)] };
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(held with { CloudSync = Changed(0) }).State);
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(In() with { LastVerify = Run(1, verify: true), CloudSync = Changed(0) }).State);
+
+        // a change after the last held launch still doubts it
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(held with { CloudSync = Changed(5) }).State);
+    }
+
+    [Fact]
+    public void TheNewestExternalChange_IsOnTheReport()
+    {
+        var observed = new ObservationSummary
+        {
+            Changes = [new ExternalChangeRecord { Utc = T0.AddDays(2) }, new ExternalChangeRecord { Utc = T0.AddDays(4) }, new ExternalChangeRecord { Utc = T0 }],
+        };
+        Assert.Equal(T0.AddDays(4), CloudSyncVerdict.Combine("g", "desktop", null, [], observed).LastExternalChangeUtc);
+        Assert.Null(CloudSyncVerdict.Combine("g", "desktop", null, [], new ObservationSummary()).LastExternalChangeUtc);
+    }
+
+    [Fact]
+    public void AContradictionSayingPerMachine_IsNoSyncDoubt()
+    {
+        // research says the settings sync, the launcher says only saves do: "probably per machine"
+        var perMachine = CloudSyncVerdict.Combine("g", "desktop", true,
+            [new LauncherEvidence { Verdict = SyncVerdict.NotSynced, Confidence = SyncConfidence.High }], new ObservationSummary());
+        Assert.NotNull(perMachine.Contradiction);
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)], CloudSync = perMachine });
+        Assert.Equal(HealthState.Working, h.State);
+
+        // the opposite one still is
+        var synced = CloudSyncVerdict.Combine("g", "desktop", false,
+            [new LauncherEvidence { Verdict = SyncVerdict.Synced, Confidence = SyncConfidence.High }], new ObservationSummary());
+        Assert.NotNull(synced.Contradiction);
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)], CloudSync = synced }).State);
+    }
+
+    [Fact]
+    public void ALaunchWhereOnlyCloudSyncRewritesDrifted_IsSyncUnsure()
+    {
+        var run = Run(0, drifted: 2);
+        run.SyncReapplied = ["gfx"];
+        var h = GameHealth.Evaluate(In() with { Recent = [run] });
+        Assert.Equal(HealthState.SyncUnsure, h.State);
+        Assert.Contains("cloud sync", h.Why);
+    }
+
+    // ---------------------------------------------------------------- working / not checked
+
+    [Fact]
+    public void ThreeHeldLaunches_AreWorking()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)] });
+        Assert.Equal(HealthState.Working, h.State);
+        Assert.Equal("Working. Presets held on your last 3 launches.", h.Headline);
+        Assert.StartsWith("Last checked ", h.Why);
+        Assert.Equal(HealthAction.None, h.Suggested);
+    }
+
+    [Fact]
+    public void AHeldTest_IsWorking_AndSaysWhenItWasVerified()
+    {
+        var h = GameHealth.Evaluate(In() with { LastVerify = Run(0, verify: true) });
+        Assert.Equal(HealthState.Working, h.State);
+        Assert.StartsWith("Verified on this device, ", h.Why);
+    }
+
+    [Fact]
+    public void RunsOfAnotherPreset_DontCount()
+    {
+        const string other = "recommended:quality";
+        var h = GameHealth.Evaluate(In() with
+        {
+            Recent = [Run(0, preset: other), Run(1, preset: other), Run(2, preset: other)], LastVerify = Run(3, verify: true, preset: other),
+        });
+        Assert.Equal(HealthState.NotChecked, h.State);
+
+        // and a run of another preset in between ends the streak
+        var broken = GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2, preset: other), Run(3)] });
+        Assert.Equal(HealthState.NotChecked, broken.State);
+    }
+
+    [Fact]
+    public void NoRuns_AreNotChecked_AndSuggestNothing()
+    {
+        var h = GameHealth.Evaluate(In());
+        Assert.Equal(HealthState.NotChecked, h.State);
+        Assert.Equal("Not checked on this device yet", h.Headline);
+        Assert.Equal(HealthAction.None, h.Suggested);
+        Assert.False(h.NeedsAttention);
+    }
+
+    [Fact]
+    public void TwoHeldLaunches_SayHowManyMore()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1)] });
+        Assert.Equal(HealthState.NotChecked, h.State);
+        Assert.Contains("2 launches", h.Why);
+        Assert.Contains("1 more", h.Why);
+    }
+
+    [Fact]
+    public void LaunchesThatStayUnclear_SuggestATest()
+    {
+        // short sessions with no drift: not long enough to count as held
+        var unclear = In() with { Recent = [Run(0, sec: 20), Run(1, sec: 20), Run(2, sec: 20)] };
+        Assert.Equal(HealthAction.VerifyNextLaunch, GameHealth.Evaluate(unclear).Suggested);
+        Assert.Equal(HealthAction.None, GameHealth.Evaluate(unclear with { CanLaunch = false }).Suggested);
+    }
+
+    [Fact]
+    public void AnOpenRequest_IsASecondaryChip_WhenPresetsExist()
+    {
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)], LabRequest = Issue(LabStatus.Researching) });
+        Assert.Equal(HealthState.Working, h.State);
+        Assert.True(h.LabWorking);
+    }
+
+    // ---------------------------------------------------------------- precedence, words
+
+    [Fact]
+    public void Precedence_FirstMatchWins()
+    {
+        // every signal at once, then peeled off one at a time
+        var all = In() with
+        {
+            Flag = Flag(), HasUserFlag = true, HasPresets = false, OverriddenStreak = 2,
+            Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2",
+            LastVerify = Run(5, drifted: 3, verify: true),
+            CloudSync = SyncsAnyway("x"),
+            Recent = [Run(0), Run(1), Run(2)],
+        };
+        Assert.Equal(HealthState.Flagged, GameHealth.Evaluate(all).State);
+        all = all with { Flag = null, HasUserFlag = false };
+        Assert.Equal(HealthState.NoPresets, GameHealth.Evaluate(all).State);
+        all = all with { HasPresets = true };
+        Assert.Equal(HealthState.CantBeSetFromOutside, GameHealth.Evaluate(all).State);
+        all = all with { OverriddenStreak = 0 };
+        Assert.Equal(HealthState.GameUpdated, GameHealth.Evaluate(all).State);
+        all = all with { CurrentBuild = "steam:1" };
+        Assert.Equal(HealthState.GameChangedSettings, GameHealth.Evaluate(all).State);
+        all = all with { LastVerify = null };
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(all).State);
+        all = all with { CloudSync = null };
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(all).State);
+        all = all with { Recent = [] };
+        Assert.Equal(HealthState.NotChecked, GameHealth.Evaluate(all).State);
+    }
+
+    [Fact]
+    public void AttentionStates_AreTheOnesWorthATileChip()
+    {
+        Assert.True(GameHealth.Evaluate(In() with { LastVerify = Run(0, drifted: 3, verify: true) }).NeedsAttention);
+        Assert.True(GameHealth.Evaluate(In() with { OverriddenStreak = 2 }).NeedsAttention);
+        Assert.False(GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)] }).NeedsAttention);
+    }
+
+    // ---------------------------------------------------------------- check presets on my next launch
+
+    [Fact]
+    public void CheckOnNextLaunch_OnceOn_IsNoLongerSuggested_AndTheWhyLineSaysSo()
+    {
+        var unclear = In() with { Recent = [Run(0, sec: 20), Run(1, sec: 20), Run(2, sec: 20)], VerifyNextLaunch = true };
+        var h = GameHealth.Evaluate(unclear);
+        Assert.Equal(HealthState.NotChecked, h.State);
+        Assert.Equal(HealthAction.None, h.Suggested);
+        Assert.Equal(GameHealth.VerifyNextLine, h.Why);
+
+        var changed = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 4), Run(1, drifted: 4)], VerifyNextLaunch = true });
+        Assert.Equal(HealthState.GameChangedSettings, changed.State);
+        Assert.Equal(HealthAction.None, changed.Suggested);
+        Assert.Equal(GameHealth.VerifyNextLine, changed.Why);
+        Assert.NotNull(changed.ChangedRun); // "See which" still lists them
+    }
+
+    [Fact]
+    public void CheckOnNextLaunch_IsNeverSuggested_ForATestResult_OrAClearState()
+    {
+        // an overridden test already is the check: ask the lab
+        Assert.Equal(HealthAction.RefreshPresets, GameHealth.Evaluate(In() with { LastVerify = Run(0, drifted: 3, verify: true) }).Suggested);
+        // still counting held launches: nothing to do
+        Assert.Equal(HealthAction.None, GameHealth.Evaluate(In() with { Recent = [Run(0)] }).Suggested);
+        Assert.Equal(HealthAction.None, GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)] }).Suggested);
+    }
+
+    // ---------------------------------------------------------------- the lab needs evidence for a game that has presets
+
+    [Fact]
+    public void LabNeedsEvidence_WithPresets_SuggestsMappingTheGame_InAnyState()
+    {
+        var needs = Issue(LabStatus.NeedsEvidence);
+        foreach (var inputs in new[]
+                 {
+                     In() with { LabRequest = needs },                                                        // not checked
+                     In() with { LabRequest = needs, Recent = [Run(0), Run(1), Run(2)] },                      // working
+                     In() with { LabRequest = needs, Recent = [Run(0, drifted: 4), Run(1, drifted: 4)] },      // game changed settings
+                     In() with { LabRequest = needs, Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2" },
+                 })
+        {
+            var h = GameHealth.Evaluate(inputs);
+            Assert.Equal(HealthAction.MapGame, h.Suggested);
+            Assert.StartsWith("The game lab needs to know where this game keeps its settings", h.Why);
+            Assert.True(h.LabWorking);
+        }
+
+        // mapped already, not installed here, or the lab is researching: no Map suggestion from the request
+        Assert.NotEqual(HealthAction.MapGame, GameHealth.Evaluate(In() with { LabRequest = needs, Mapping = new ProbeRecord { Evidence = "x" } }).Suggested);
+        Assert.NotEqual(HealthAction.MapGame, GameHealth.Evaluate(In() with { LabRequest = needs, CanLaunch = false }).Suggested);
+        Assert.NotEqual(HealthAction.MapGame, GameHealth.Evaluate(In() with { LabRequest = Issue(LabStatus.Researching) }).Suggested);
+        // the flag suggestion stays the stronger one
+        Assert.Equal(HealthAction.FlagSetInGame, GameHealth.Evaluate(In() with { LabRequest = needs, OverriddenStreak = 2 }).Suggested);
+    }
+
+    // ---------------------------------------------------------------- re-check settings sync
+
+    [Fact]
+    public void SyncUnsure_SuggestsReCheckingSync_OnlyWhenTheLabCanBeAsked()
+    {
+        var unsure = In() with { CloudSync = SyncsAnyway("Researched as per machine, but Steam Cloud syncs it") };
+        Assert.Equal(HealthAction.SyncCheck, GameHealth.Evaluate(unsure).Suggested);
+        Assert.Equal(HealthAction.None, GameHealth.Evaluate(unsure with { LabReady = false }).Suggested);
+        Assert.Equal(HealthAction.None, GameHealth.Evaluate(unsure with { LabRequest = Issue(LabStatus.Researching) }).Suggested);
+    }
+
+    // ---------------------------------------------------------------- the capture prompt turned off
+
+    [Theory]
+    [InlineData(CaptureAnswer.Off)]
+    [InlineData(CaptureAnswer.DontAskAgain)]
+    [InlineData(CaptureAnswer.NotAsked)]
+    public void AGameThatKeepsResetting_WithThePromptOff_ReachesTheFlagSuggestion(CaptureAnswer answer)
+    {
+        // the same value three launches in a row, never asked about: the second and third recur (two passively overridden launches)
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 4, capture: answer), Run(1, drifted: 4, capture: answer), Run(2, drifted: 4, capture: answer)] });
+        Assert.Equal(HealthState.CantBeSetFromOutside, h.State);
+        Assert.Equal(HealthAction.FlagSetInGame, h.Suggested);
+
+        // one-off unasked drift stays unclear
+        var once = GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 2, capture: answer)] });
+        Assert.Equal(HealthState.NotChecked, once.State);
+    }
+
+    // ---------------------------------------------------------------- the Play button's line
+
+    [Fact]
+    public void PlayLine_OnlyWhenWorking()
+    {
+        Assert.Equal("Presets held on your last 3 launches.", GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)] }).PlayLine);
+        Assert.Null(GameHealth.Evaluate(In() with { Recent = [Run(0)] }).PlayLine);
+        Assert.Null(GameHealth.Evaluate(In() with { Recent = [Run(0, drifted: 4), Run(1, drifted: 4)] }).PlayLine);
+    }
+
+    [Fact]
+    public void EveryAction_HasButtonText()
+    {
+        foreach (var a in Enum.GetValues<HealthAction>())
+            Assert.Equal(a == HealthAction.None, GameHealth.ActionText(a).Length == 0);
+    }
+}

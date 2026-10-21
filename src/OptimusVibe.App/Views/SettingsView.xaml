@@ -431,12 +431,28 @@
                             </StackPanel>
                         </Border>
 
-                        <CheckBox IsChecked="{Binding AutoRequest}" Margin="0,16,0,0">
+                        <!-- automatic behaviour: each toggle is one focus stop, in reading order -->
+                        <TextBlock Text="Automatic" Style="{StaticResource Text.H3}" Margin="0,20,0,0" />
+                        <CheckBox IsChecked="{Binding AutoRequest}" Margin="0,8,0,0" AutomationProperties.Name="Request presets for new games automatically">
                             <TextBlock TextWrapping="Wrap">
                                 <Run Text="Request presets for new games automatically" FontWeight="SemiBold" />
                                 <LineBreak />
                                 <Run Text="Newly found games without presets go to the game lab. Off (or lab not set up): they are queued in requests.yaml for Claude Code, as before. This machine only."
                                      Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
+                            </TextBlock>
+                        </CheckBox>
+                        <CheckBox IsChecked="{Binding WatchSessions}" Margin="0,12,0,0" AutomationProperties.Name="{Binding WatchSessionsTitle, Mode=OneWay}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="{Binding WatchSessionsTitle, Mode=OneWay}" FontWeight="SemiBold" />
+                                <LineBreak />
+                                <Run Text="{Binding WatchSessionsText, Mode=OneWay}" Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
+                            </TextBlock>
+                        </CheckBox>
+                        <CheckBox IsChecked="{Binding AutoFindings}" Margin="0,12,0,0" AutomationProperties.Name="{Binding AutoFindingsTitle, Mode=OneWay}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="{Binding AutoFindingsTitle, Mode=OneWay}" FontWeight="SemiBold" />
+                                <LineBreak />
+                                <Run Text="{Binding AutoFindingsText, Mode=OneWay}" Foreground="{DynamicResource TextDimBrush}" FontSize="14" />
                             </TextBlock>
                         </CheckBox>
                     </StackPanel>

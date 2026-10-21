@@ -1,0 +1,362 @@
+using OptimusVibe.Launch;
+using OptimusVibe.Library;
+
+namespace OptimusVibe.GameLab;
+
+/// <summary>Which post-session card a finished session brings up (at most one, in the order <see cref="PostSession.For"/> checks them).</summary>
+public enum PostSessionKind
+{
+    /// <summary>The lab asked for evidence and nothing is mapped yet: "Map this game" (one launch, or two without a passive pass A).</summary>
+    NeedsMapping,
+
+    /// <summary>
+    /// A finding the game lab could act on (<see cref="AutoFindings.Detect"/>), the first time: asks once whether to send findings like it by
+    /// itself from now on ([Turn on] / [Not now]). Shown only while that setting is off and was never answered.
+    /// </summary>
+    Consent,
+
+    /// <summary>
+    /// "Send findings to the game lab automatically" is on and this session's finding was just sent (or saved to the outbox): says so, with
+    /// the request number, instead of offering to ask again.
+    /// </summary>
+    AskedLab,
+
+    /// <summary>The game passively overrode the preset in a row: it may not accept settings from outside.</summary>
+    Recurring,
+
+    /// <summary>The game updated since its presets were made.</summary>
+    Updated,
+
+    /// <summary>The game changed some of the preset's settings during the session.</summary>
+    Changed,
+
+    /// <summary>The game kept the whole preset, the first time since the presets arrived or the game updated.</summary>
+    Held,
+}
+
+/// <summary>A button on the post-session card. Each runs an existing game-page action (its usual confirm card opens).</summary>
+public enum PostSessionAction
+{
+    None,
+
+    /// <summary>
+    /// Keep what the game left as a manual save (the test result's "Make a manual save"). It writes, so it asks on the card first
+    /// (<see cref="PostSession.Confirms"/>), and a card that offers it never takes focus by itself.
+    /// </summary>
+    KeepThese,
+
+    /// <summary>List the settings the game changed, in the card.</summary>
+    SeeWhich,
+
+    FlagSetInGame,
+
+    /// <summary>Refresh presets: the game lab researches the game again.</summary>
+    AskLab,
+
+    MapGame,
+
+    /// <summary>Turn on "Send findings to the game lab automatically" (<see cref="AutoFindings"/>); the finding at hand is sent right after.</summary>
+    TurnOnAutoFindings,
+
+    /// <summary>Open the lab request the app just filed by itself (<see cref="PostSessionKind.AskedLab"/>).</summary>
+    OpenIssue,
+}
+
+/// <summary>The inline card on the game page after a session: one line, one dim line, at most two actions, and "Not now" (B).</summary>
+public sealed record PostSessionCard
+{
+    public required PostSessionKind Kind { get; init; }
+    public required RunResult Run { get; init; }
+    public required string Text { get; init; }
+    public string? Why { get; init; }
+    public PostSessionAction Primary { get; init; }
+    public PostSessionAction Secondary { get; init; }
+
+    /// <summary>
+    /// "Not now" snoozes this kind of card for the game (<see cref="PostSession.SnoozeDays"/>), and "Don't ask again" mutes the game's cards
+    /// (<see cref="LabState.Muted"/>); the one-off cards ("kept all", "asked the lab") just close.
+    /// </summary>
+    public bool CanSnooze => Kind is not (PostSessionKind.Held or PostSessionKind.AskedLab);
+
+    /// <summary>
+    /// The card asks for something, so it takes focus when the player comes back to the game's page. The "kept all" card never does, and neither
+    /// does one whose first button would write the player's settings ("Keep these"): a reflex A press on the way back from the game must not
+    /// land on it. Nor does the consent card: its first button turns on a setting that sends requests to GitHub.
+    /// </summary>
+    public bool TakesFocus => Kind != PostSessionKind.Held &&
+                              Primary is not (PostSessionAction.None or PostSessionAction.KeepThese or PostSessionAction.TurnOnAutoFindings or PostSessionAction.OpenIssue);
+
+    /// <summary>
+    /// The card has a button for this health action (<see cref="PostSession.AsHealthAction"/>), so the panel's own button for it (the suggested
+    /// one, or its row under "More") steps aside while the card is open: each action is on screen once.
+    /// </summary>
+    public bool Offers(HealthAction action) =>
+        action != HealthAction.None && (PostSession.AsHealthAction(Primary) == action || PostSession.AsHealthAction(Secondary) == action);
+}
+
+/// <summary>
+/// The post-session card: which session is new (<see cref="Detect"/>, from <c>run-results.json</c>, which the headless wrapper writes when the
+/// game exits) and what to say about it (<see cref="For"/>, from the game's health). Pure; the app watches the file and shows the card.
+/// </summary>
+public static class PostSession
+{
+    /// <summary>How long "Not now" keeps a kind of card away for a game.</summary>
+    public const int SnoozeDays = 3;
+
+    /// <summary>The only file that signals a finished session (the data dir also sees <c>state-*.json</c> and <c>.tmp</c> files during runs).</summary>
+    public const string RunResultsFileName = "run-results.json";
+
+    public static string SnoozeKey(string gameId, PostSessionKind kind) => $"{gameId}|{kind}";
+
+    /// <summary>
+    /// Answering this card (any button, or "Not now") leaves the session pending, so the session's own card (<see cref="For"/> again, now
+    /// with <c>askConsent</c> false) shows next. Only the consent card does this: it is about the setting, not about the session, and must not
+    /// take away the session's "Keep these" or "See which".
+    /// </summary>
+    public static bool KeepsSession(PostSessionKind kind) => kind == PostSessionKind.Consent;
+
+    /// <summary>
+    /// The card actions that ask on the card itself before they run (the others open their own command's confirm card): "Keep these" writes a
+    /// manual save of what the game's files hold now and makes it active.
+    /// </summary>
+    public static bool Confirms(PostSessionAction action) => action == PostSessionAction.KeepThese;
+
+    /// <summary>The dim line while "Keep these" asks (the files may have changed since the session the card is about).</summary>
+    public const string KeepConfirmText = "This saves the game's settings as they are now as a manual save and makes it the active setting.";
+
+    /// <summary>The button that confirms "Keep these".</summary>
+    public const string KeepConfirmAction = "Save and use";
+
+    /// <summary>
+    /// The sessions of <paramref name="fresh"/> not offered yet in this app run, recording them in <paramref name="offered"/> (game id, run time).
+    /// The seen marks in gamelab-state.json normally keep a session from coming back; this keeps it away too while that file cannot be written.
+    /// </summary>
+    public static IReadOnlyList<RunResult> NotOfferedYet(IEnumerable<RunResult> fresh, IDictionary<string, DateTime> offered)
+    {
+        var result = new List<RunResult>();
+        foreach (var run in fresh)
+        {
+            if (offered.TryGetValue(run.Game, out var last) && run.Utc <= last) continue;
+            offered[run.Game] = run.Utc;
+            result.Add(run);
+        }
+        return result;
+    }
+
+    /// <summary>A file-system event on <paramref name="path"/> may mean a session finished: only <c>run-results.json</c> itself counts.</summary>
+    public static bool IsSessionSignal(string? path) =>
+        !string.IsNullOrEmpty(path) && string.Equals(Path.GetFileName(path), RunResultsFileName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The newest normal run of an entry once it is final (the capture prompt answered); null while the newest is still pending or there is
+    /// none. Test preset runs never count: their own result card covers them.
+    /// </summary>
+    public static RunResult? NewestFinished(RunResultEntry? entry) =>
+        entry?.Recent is { Count: > 0 } recent && recent[^1] is { IsVerify: false, Capture: not null } run ? run : null;
+
+    /// <summary>What <see cref="Detect"/> found: the sessions to offer a card for, and the "seen" marks to store.</summary>
+    public sealed record Detection(IReadOnlyList<RunResult> Fresh, IReadOnlyDictionary<string, DateTime> Seen)
+    {
+        public bool Changed => Seen.Count > 0;
+    }
+
+    /// <summary>
+    /// The sessions finished since the last look: per game, the newest final normal run when it is newer than <paramref name="seen"/>. Before
+    /// the first look (<paramref name="baselined"/> false) every session is only marked seen, so old sessions never bring up a card. A game
+    /// with no mark yet (first played since) does count.
+    /// </summary>
+    public static Detection Detect(IReadOnlyDictionary<string, RunResultEntry> entries, IReadOnlyDictionary<string, DateTime> seen, bool baselined)
+    {
+        var fresh = new List<RunResult>();
+        var marks = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (gameId, entry) in entries)
+        {
+            if (NewestFinished(entry) is not { } run) continue;
+            if (seen.TryGetValue(gameId, out var last) && run.Utc <= last) continue;
+            marks[gameId] = run.Utc;
+            if (baselined) fresh.Add(run);
+        }
+        return new Detection(fresh.OrderBy(r => r.Utc).ToList(), marks);
+    }
+
+    /// <summary>
+    /// The card for a finished session (<paramref name="run"/>) of a game, or null when there is nothing worth saying (a clean run after the
+    /// first, a run of another preset, a flagged game, a card kind snoozed). In order:
+    /// <list type="number">
+    /// <item><see cref="PostSessionKind.NeedsMapping"/>: an open lab request needs evidence, nothing is mapped and the game can be launched;</item>
+    /// <item><see cref="PostSessionKind.AskedLab"/>: the app just sent this session's finding to the lab by itself (<paramref name="asked"/>,
+    /// consent on): it says so, with Open issue, instead of offering to ask;</item>
+    /// <item><see cref="PostSessionKind.Consent"/>: <paramref name="askConsent"/> (automatic findings are off and were never answered), the lab
+    /// can be asked, and the evidence holds a finding (<see cref="AutoFindings.Detect"/>). Answering it keeps the session pending
+    /// (<see cref="KeepsSession"/>), so the card below that the session brings up still follows;</item>
+    /// <item><see cref="PostSessionKind.Recurring"/>: this session was passively overridden and so were the ones before it, enough to suggest the
+    /// "set in-game" flag (<see cref="GameFlags.SuggestsFromPassive"/>);</item>
+    /// <item><see cref="PostSessionKind.Updated"/>: the health says the game updated since its presets, and the lab can be asked;</item>
+    /// <item><see cref="PostSessionKind.Changed"/>: the game changed some of the preset's settings this session (as the health counts it);</item>
+    /// <item><see cref="PostSessionKind.Held"/>: the game kept everything, the first time since the presets arrived or the build changed.</item>
+    /// </list>
+    /// Nothing here files, flags, saves or launches: every action is the player's press, with its usual confirm card ("Keep these" asks on the
+    /// card itself, <see cref="Confirms"/>).
+    /// </summary>
+    /// <param name="asked">The finding the app just sent to the lab by itself for this session (consent on), if any.</param>
+    public static PostSessionCard? For(HealthInputs i, GameHealth health, RunResult run, string name, IReadOnlySet<PostSessionKind>? snoozed = null,
+        bool askConsent = false, AutoFindingFiled? asked = null)
+    {
+        if (i.Flag is not null || health.State == HealthState.Flagged || run.IsVerify) return null;
+        bool Off(PostSessionKind k) => snoozed?.Contains(k) == true;
+        var open = i.LabRequest is { IsOpen: true } issue ? issue : null;
+
+        // 1. the lab is stuck without evidence
+        if (open is { Status: LabStatus.NeedsEvidence } && i.Mapping is null && i.CanLaunch && !Off(PostSessionKind.NeedsMapping))
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.NeedsMapping, Run = run, Text = $"The lab needs to know where {name} keeps its settings.",
+                Why = $"Map it: {i.MapEffort}, then quit.", Primary = PostSessionAction.MapGame,
+            };
+
+        if (!i.HasPresets || !GameHealth.CountsForCurrentPreset(i, run)) return null;
+        var verdict = VerdictOf(i, run);
+
+        // the app just asked the lab by itself (consent on): say so instead of offering to ask, which would only find that request open
+        if (asked is not null && string.Equals(asked.GameId, run.Game, StringComparison.OrdinalIgnoreCase) && !Off(PostSessionKind.AskedLab))
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.AskedLab, Run = run, Text = AskedText(asked, name),
+                Why = asked.Queued ? "It goes to the game lab when you're back online." : "The presets arrive by themselves when the lab is done.",
+                Primary = asked.Queued || asked.Url is null ? PostSessionAction.None : PostSessionAction.OpenIssue,
+            };
+        var canAsk = i.LabReady && i.HasConfig && open is null;
+
+        // 2. a finding the lab could act on, the first time: ask once whether to send such findings by itself
+        if (askConsent && canAsk && !Off(PostSessionKind.Consent) && AutoFindings.Detect(i) is { } finding)
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.Consent, Run = run, Text = ConsentText(finding, name, i), Why = AutoFindings.ConsentQuestion,
+                Primary = PostSessionAction.TurnOnAutoFindings,
+                Secondary = finding.Kind == LabKind.Refresh ? PostSessionAction.AskLab : PostSessionAction.None,
+            };
+
+        // 3. the game keeps resetting the preset
+        var streak = GameHealth.PassiveOverridden(i);
+        if (verdict == PassiveVerdict.Overridden && GameFlags.SuggestsFromPassive(streak) && health.FlagReason is not null && !Off(PostSessionKind.Recurring))
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.Recurring, Run = run,
+                Text = $"{name} reset the preset's settings after your last {streak} sessions, so it may not accept them from outside.",
+                Why = $"Last session: {RunResults.Names(run, 3)}",
+                Primary = PostSessionAction.FlagSetInGame, Secondary = canAsk ? PostSessionAction.AskLab : PostSessionAction.None,
+            };
+
+        // 4. the game updated since the presets were made
+        if (health.State == HealthState.GameUpdated && canAsk && !Off(PostSessionKind.Updated))
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.Updated, Run = run, Text = $"{name} updated since these presets were made.", Why = health.Why,
+                Primary = PostSessionAction.AskLab,
+            };
+
+        // 5. the game changed some settings this session
+        if (GameHealth.ChangedByGame(run, verdict) &&
+            health.State is HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside or HealthState.GameUpdated &&
+            !Off(PostSessionKind.Changed))
+        {
+            // offer to keep them only when the wrapper never asked (--no-prompt). The player already answered at the capture prompt (don't save)
+            // or turned that question off for this game (don't ask again / off): don't ask again here, just show which
+            var keep = run.Capture == CaptureAnswer.NotAsked && i.HasConfig;
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.Changed, Run = run,
+                Text = $"Last session the game changed {run.Drift.Count} of {run.Applied} settings ({RunResults.Names(run, 3).TrimEnd('.')}).",
+                Why = keep ? "Keep them as a manual save if you set them yourself." : null,
+                Primary = keep ? PostSessionAction.KeepThese : PostSessionAction.SeeWhich,
+                Secondary = keep ? PostSessionAction.SeeWhich : PostSessionAction.None,
+            };
+        }
+
+        // 6. the first clean session of these presets (or of this build)
+        if (verdict == PassiveVerdict.Held && FirstHeld(i, run) && !Off(PostSessionKind.Held))
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.Held, Run = run,
+                Text = run.Applied == 1 ? $"{name} kept the preset's setting." : $"{name} kept all {run.Applied} settings.",
+                Why = "Optimus-Vibe keeps checking after each session.",
+            };
+        return null;
+    }
+
+    /// <summary>The button text of a card action.</summary>
+    public static string ActionText(PostSessionAction action) => action switch
+    {
+        PostSessionAction.KeepThese => "Keep these",
+        PostSessionAction.SeeWhich => "See which",
+        PostSessionAction.FlagSetInGame => "Flag as set in-game",
+        PostSessionAction.AskLab => "Ask the game lab to re-check",
+        PostSessionAction.MapGame => "Map it",
+        PostSessionAction.TurnOnAutoFindings => "Turn on",
+        PostSessionAction.OpenIssue => "Open issue",
+        _ => "",
+    };
+
+    /// <summary>"Hades updated. Asked the game lab to re-check it (#14)."</summary>
+    public static string AskedText(AutoFindingFiled f, string name)
+    {
+        var what = f.Finding.Reason switch
+        {
+            AutoFindingReason.GameUpdated => $"{name} updated",
+            AutoFindingReason.TestsOverridden => $"{name} overrode the preset in your tests",
+            AutoFindingReason.KeepsResetting => $"{name} keeps resetting the preset's settings",
+            _ => $"Something keeps changing {name}'s settings",
+        };
+        var ask = f.Finding.Kind == LabKind.SyncCheck ? "re-check its settings sync" : "re-check it";
+        if (f.Queued) return $"{what}. Saved a request for the game lab to {ask}.";
+        var number = f.Issue is { } n ? $" (#{n})" : "";
+        return f.Reused ? $"{what}. The game lab is already looking at it{number}." : $"{what}. Asked the game lab to {ask}{number}.";
+    }
+
+    /// <summary>The consent card's line: what was found, in the player's words.</summary>
+    private static string ConsentText(AutoFinding finding, string name, HealthInputs i) => finding.Reason switch
+    {
+        AutoFindingReason.GameUpdated => $"{name} updated since the presets last worked.",
+        AutoFindingReason.TestsOverridden => $"{name} overrode the preset in your last {i.OverriddenStreak} tests.",
+        AutoFindingReason.KeepsResetting => $"{name} keeps resetting the preset's settings.",
+        _ => $"Something keeps changing {name}'s settings, maybe cloud sync.",
+    };
+
+    /// <summary>The health action a card action runs (so the panel's suggested button steps aside while the card offers the same).</summary>
+    public static HealthAction AsHealthAction(PostSessionAction action) => action switch
+    {
+        PostSessionAction.FlagSetInGame => HealthAction.FlagSetInGame,
+        PostSessionAction.AskLab => HealthAction.RefreshPresets,
+        PostSessionAction.MapGame => HealthAction.MapGame,
+        _ => HealthAction.None,
+    };
+
+    /// <summary>The passive verdict of <paramref name="run"/> as the ring judges it (with the run before it), or on its own when it isn't in the ring.</summary>
+    private static PassiveVerdict VerdictOf(HealthInputs i, RunResult run)
+    {
+        var k = IndexOf(i.Recent, run);
+        return k >= 0 ? i.PassiveVerdicts[k] : RunResults.Passive(run, null);
+    }
+
+    private static int IndexOf(IReadOnlyList<RunResult> recent, RunResult run)
+    {
+        for (var k = recent.Count - 1; k >= 0; k--)
+            if (ReferenceEquals(recent[k], run) || (recent[k].Utc == run.Utc && !recent[k].IsVerify)) return k;
+        return -1;
+    }
+
+    /// <summary>
+    /// No earlier held launch or held Test preset of the current preset, on the same build, since the presets arrived: this is the first time it
+    /// is known to work.
+    /// </summary>
+    private static bool FirstHeld(HealthInputs i, RunResult run)
+    {
+        var since = i.Presets?.MadeUtc ?? DateTime.MinValue;
+        bool Earlier(RunResult r) => r.Utc < run.Utc && r.Utc >= since && GameHealth.CountsForCurrentPreset(i, r) &&
+                                     string.Equals(r.Build, run.Build, StringComparison.Ordinal);
+        var verdicts = i.PassiveVerdicts;
+        for (var k = 0; k < i.Recent.Count; k++)
+            if (verdicts[k] == PassiveVerdict.Held && Earlier(i.Recent[k])) return false;
+        return !(i.LastVerify is { } v && RunResults.Verdict(v) == RunVerdict.Held && Earlier(v));
+    }
+}

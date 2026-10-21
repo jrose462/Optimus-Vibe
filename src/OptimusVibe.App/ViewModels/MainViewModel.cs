@@ -10,6 +10,7 @@ using OptimusVibe.App.Services;
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
 using OptimusVibe.Engine;
+using OptimusVibe.GameLab;
 using OptimusVibe.Launch;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
@@ -324,7 +325,9 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         get => _selectedGame;
         set
         {
+            var previous = _selectedGame;
             if (!Set(ref _selectedGame, value)) return;
+            previous?.Detail?.Lab.CollapseMore(); // its page is no longer on screen
             value?.EnsureDetail(this);
             HookDetail(value?.Detail);
             OnPropertyChanged(nameof(SelectedDetail));
@@ -537,7 +540,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 if (!Settings.CancelTransient()) CloseSettings();
                 return true;
             case AppPage.Detail:
-                if (!((SelectedDetail?.CancelTransient(back: true) ?? false) | (DetailTile?.Lab.CancelTransient() ?? false))) CloseDetail();
+                // only the panel on screen takes B: the game's page when it has a config here, else the tile's own lab panel
+                var closed = DetailHasConfig
+                    ? SelectedDetail?.CancelTransient(back: true) ?? false
+                    : DetailTile?.Lab.CancelTransient() ?? false;
+                if (!closed) CloseDetail();
                 return true;
             case AppPage.Library:
                 return false;
@@ -606,6 +613,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Library.SelectedTile = tile;
         DetailTile = tile;
         if (tile.GameItem is { } item) SelectedGame = item;
+        tile.Lab.CollapseMore();
+        SelectedDetail?.Lab.CollapseMore();
         OnPropertyChanged(nameof(DetailHasConfig));
         Page = AppPage.Detail;
     }
@@ -613,6 +622,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public void CloseDetail()
     {
         SelectedDetail?.CancelTransient();
+        SelectedDetail?.Lab.CollapseMore();
+        DetailTile?.Lab.CollapseMore();
         Page = AppPage.Library;
     }
 
@@ -670,6 +681,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
         await Lab.InitializeAsync();
         StartAutoPull();
+        StartSessionWatch(Session);
         Outbox.Start();
         _ = Library.ScanAsync(rescanLaunchers: rescan || Library.Detected.Count == 0);
     }
@@ -832,7 +844,100 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>The window came back to the front: pull if the last pull is older than 5 minutes.</summary>
     public void OnWindowActivated()
     {
-        if (IsReady) _ = PullAsync(TimeSpan.FromMinutes(5));
+        if (!IsReady) return;
+        _ = PullAsync(TimeSpan.FromMinutes(5));
+        _ = CheckSessionsAsync(); // a session the watcher missed; then a card that waited for the window may take focus
+        Lab.RetrySessionFocus();
+    }
+
+    // ---------------------------------------------------------------- finished sessions (post-session card, tile chip)
+
+    private RunResultWatcher? _sessionWatch;
+    private bool _checkingSessions;
+    private bool _checkSessionsAgain;
+    private readonly Dictionary<string, DateTime> _sessionsOffered = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _runsStamp;
+
+    private static DateTime RunResultsStamp(string dataDir)
+    {
+        try { return File.GetLastWriteTimeUtc(Path.Combine(dataDir, PostSession.RunResultsFileName)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return default; }
+    }
+
+    /// <summary>Watches this device's run-results.json for sessions the wrapper finishes (also ones started from Steam, not from the app).</summary>
+    private void StartSessionWatch(AppSession session)
+    {
+        var dataDir = session.Paths.DataDir;
+        if (_sessionWatch is { } w && string.Equals(w.DataDir, dataDir, StringComparison.OrdinalIgnoreCase)) return;
+        _sessionWatch?.Dispose();
+        _sessionWatch = new RunResultWatcher(dataDir, () => Application.Current?.Dispatcher.BeginInvoke(() => _ = CheckSessionsAsync()));
+        _ = CheckSessionsAsync(); // the first look marks every session already there as seen
+    }
+
+    /// <summary>
+    /// Looks for sessions finished since the last look (<see cref="PostSession.Detect"/>; the marks live in gamelab-state.json, so each session
+    /// is offered once). For each: reloads the game (its tile chip), offers its post-session card and runs the consent-gated automatic findings
+    /// (a request they send turns the card into "Asked the game lab..."). Every game page re-reads its runs afterwards (a check of the preset
+    /// on the player's next launch is a test run, which has no post-session card). Never throws.
+    /// </summary>
+    public async Task CheckSessionsAsync()
+    {
+        if (Session is not { } session || !IsReady) return;
+        if (_checkingSessions)
+        {
+            _checkSessionsAgain = true;
+            return;
+        }
+        _checkingSessions = true;
+        try
+        {
+            do
+            {
+                _checkSessionsAgain = false;
+                var dataDir = session.Paths.DataDir;
+                var device = session.Device.Name;
+                var check = await Task.Run(() => new LabStateStore(dataDir).MarkSessionsSeen(RunResults.Entries(dataDir, device)));
+                if (Session != session) return;
+                if (!check.Saved && check.Fresh.Count > 0) Log.Warn("Could not store which sessions were seen; their cards show once in this run.");
+                // a session whose seen mark could not be stored would come back on every look: offer each one once per app run
+                foreach (var run in PostSession.NotOfferedYet(check.Fresh, _sessionsOffered))
+                {
+                    Log.Info($"{run.Game}: session finished ({run.Drift.Count} of {run.Applied} changed, {run.DurationSec?.ToString(CultureInfo.InvariantCulture) ?? "?"} s)");
+                    if (Games.Any(g => string.Equals(g.Id, run.Game, StringComparison.OrdinalIgnoreCase))) await ReloadGameAsync(run.Game);
+                    // "check presets after each session" off: the session is only marked seen (no card, no findings)
+                    if (Lab.WatchSessions)
+                    {
+                        Lab.AddSession(run, focus: true);
+                        _ = AutoFindingsAfterSessionAsync(run.Game);
+                    }
+                }
+                var stamp = await Task.Run(() => RunResultsStamp(dataDir));
+                if (stamp != _runsStamp)
+                {
+                    _runsStamp = stamp;
+                    Lab.RaiseRunsChanged();
+                }
+            } while (_checkSessionsAgain);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not look for finished sessions: {ex.Message}");
+        }
+        finally
+        {
+            _checkingSessions = false;
+        }
+    }
+
+    /// <summary>
+    /// The automatic findings for a finished session (consent-gated: does nothing unless findings go to the lab automatically). A request it
+    /// sent or queued for the game turns the session's card into "Asked the game lab to re-check it (#N)" instead of offering to ask again.
+    /// </summary>
+    private async Task AutoFindingsAfterSessionAsync(string gameId)
+    {
+        var result = await Lab.AutoFindingsAsync([gameId]);
+        if (result.Filed.FirstOrDefault(f => string.Equals(f.GameId, gameId, StringComparison.OrdinalIgnoreCase)) is { } filed)
+            Lab.SessionAsked(gameId, filed);
     }
 
     /// <summary>

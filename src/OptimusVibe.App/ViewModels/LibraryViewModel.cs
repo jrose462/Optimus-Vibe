@@ -302,6 +302,7 @@ public sealed class LibraryViewModel : ObservableObject
         _ = LoadArtAsync();
         if (routeToLab)
             _ = _main.Lab.AfterScanAsync(result.Entries, result.Detected);
+        _ = _main.Lab.AutoFindingsAfterScanAsync(result.Entries); // consent-gated: does nothing unless findings go to the lab automatically
 
         if (result.Warnings.Count > 0) _main.Notify(string.Join(" ", result.Warnings), error: true);
         if (result.SteamApplied > 0) _main.Notify($"Steam launch options updated for {result.SteamApplied} game(s).");

@@ -47,6 +47,12 @@ public sealed class RunOptions
 
     /// <summary>Test seam: stands in for <see cref="DisplayManager.Apply(DisplayModeDef, string?)"/> so a run can be tested without changing the screen.</summary>
     internal Func<DisplayModeDef, string?, DisplayModeState?>? DisplayApply { get; init; }
+
+    /// <summary>Test seam: stands in for the store scan that finds a game's install when the run knows no install folder (<see cref="Runner.RunBuild"/>).</summary>
+    internal Func<GameDef, DetectedGame?>? FindInstall { get; init; }
+
+    /// <summary>Test seam: stands in for the <see cref="GameLab.ProbeSession"/> snapshot of the passive pass A watch (<see cref="Runner.BeginPassiveWatch"/>).</summary>
+    internal Func<GameLab.LabTarget, Func<GameLab.ProbeSnapshot>>? PassiveSnapshot { get; init; }
 }
 
 /// <summary>
@@ -101,8 +107,15 @@ public static class Runner
         if (inGame is not null)
         {
             Log.Info(GameFlags.RunLine(inGame));
+            // what led to the flag must not suggest it again once it is lifted (never throws)
+            RunResults.MarkFlagged(ctx.Paths.DataDir, ctx.Game.Id, ctx.Device.Name);
             if (options?.Verify == true) Log.Info("Test preset: nothing to test, this game's settings are left to the game");
         }
+
+        // "Also check presets on my next launch" (the game page, a manual opt-in per game): this launch is a Test preset run, so no capture prompt.
+        var verifyNext = inGame is null && options?.Verify != true && VerifyNextArmed(ctx);
+        var verify = options?.Verify == true || verifyNext;
+        if (verifyNext) Log.Info("Checking the preset on this launch (asked on the game page): no capture prompt, the result is stored as a test");
 
         // Did the settings change while we were not running (launcher cloud sync)? Before anything is applied; never throws.
         if (inGame is null) SyncObserver.BeforeRun(ctx);
@@ -125,6 +138,10 @@ public static class Runner
         }
         var details = new RunDetails();
 
+        // Passive pass A: what the game rewrites by itself, watched around this launch (what the run wrote above is left out). The "before"
+        // snapshot is taken alongside the display and driver switch below and joined before the launch. Never throws.
+        var beginWatch = PassiveWatchWanted(ctx) ? Task.Run(() => BeginPassiveWatch(ctx, options, options?.PassiveSnapshot, applied)) : null;
+
         if (inGame is null) SyncObserver.AfterRun(ctx); // interim baseline in case this wrapper is killed before the game exits
 
         var state = new RunState
@@ -137,35 +154,93 @@ public static class Runner
         ApplyDriver(ctx, state);
         if (!state.IsEmpty) state.Save(ctx.Paths.RunStateFile(ctx.Game.Id));
 
+        var watch = JoinPassiveWatch(beginWatch);
+
         int exitCode;
         var processSeen = true;
         try
         {
             var extraArgs = LaunchPolicy.MergeArgs(ctx.Game.Launch?.Args, ctx.Profile.LaunchArgs);
-            Action<Func<bool>>? onDetected = applied is not null && LaunchPolicy.AppliesAfterStart(ctx.Game)
-                ? stillRunning => ReapplyAfterStart(ctx, applied, stillRunning, LaunchPolicy.Settle(ctx.Game), details, cancel: options?.Cancel ?? default)
-                : null;
-            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen, extraArgs, onDetected, details);
+            var reapply = applied is not null && LaunchPolicy.AppliesAfterStart(ctx.Game);
+            void OnDetected(Func<bool> stillRunning)
+            {
+                details.GameSeenUtc ??= DateTime.UtcNow; // the session starts when the game is seen, not when the launcher was asked
+                if (reapply) ReapplyAfterStart(ctx, applied!, stillRunning, LaunchPolicy.Settle(ctx.Game), details, cancel: options?.Cancel ?? default);
+            }
+            details.StartedUtc = DateTime.UtcNow;
+            exitCode = LaunchAndWait(ctx.Game, command, options, out processSeen, extraArgs, OnDetected, details);
         }
         finally
         {
+            details.EndedUtc = DateTime.UtcNow;
             var stateFile = ctx.Paths.RunStateFile(ctx.Game.Id);
             if (state.Undo()) { if (File.Exists(stateFile)) File.Delete(stateFile); }
             else state.Save(stateFile); // a driver restore that failed keeps its token for the next start
         }
 
+        // the "after" snapshot reads the game's files while the result is measured and the capture prompt is open (none of that writes them)
+        var skipWhy = PassiveSkipReason(processSeen, options?.Cancel.IsCancellationRequested == true, details);
+        var endWatch = watch is null ? null : Task.Run(() => watch.End(skipWhy));
+
         // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
         if (inGame is null) AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
 
+        // the check asked for "my next launch" is done once the game was seen (a test of it counts too); a launch that never started keeps it
+        if (inGame is null && verify && processSeen && options?.Cancel.IsCancellationRequested != true) ClearVerifyNext(ctx);
+
         if (applied is not null)
         {
-            var verify = options?.Verify == true;
-            var drift = RecordResult(ctx, applied, verify, processSeen, details);
-            if (prompt && !verify) OfferCapture(ctx, applied, drift: drift);
+            details.Build = RunBuild(ctx.Game, InstallDir(ctx.Game, options), options?.FindInstall);
+            if (inGame is null) ObservePresetsBuild(ctx, details.Build);
+            var (drift, result) = MeasureResult(ctx, applied, verify, processSeen, details);
+            if (prompt && !verify && drift.Count > 0)
+            {
+                // Stored before the prompt (pending, no streak step yet) so a wrapper killed while it is open still leaves the run; the answer follows.
+                StoreResult(ctx, result, capture: null);
+                FinishResult(ctx, result, AskCapture(ctx, applied, drift: drift).Answer);
+            }
+            else StoreResult(ctx, result, CaptureAnswer.NotAsked);
         }
         if (inGame is null) SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
+        JoinPassiveWatch(endWatch);
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
+    }
+
+    /// <summary>The player asked the game page to check the preset on this launch (<see cref="GameLab.LabState.VerifyNext"/>). Never throws.</summary>
+    internal static bool VerifyNextArmed(GameContext ctx)
+    {
+        try { return new GameLab.LabStateStore(ctx.Paths.DataDir).VerifiesNext(ctx.Game.Id); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read whether to check the preset on this launch: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static void ClearVerifyNext(GameContext ctx)
+    {
+        try
+        {
+            var store = new GameLab.LabStateStore(ctx.Paths.DataDir);
+            if (store.VerifiesNext(ctx.Game.Id)) store.SetVerifyNext(ctx.Game.Id, false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not clear the check on next launch: {ex.Message}");
+        }
+    }
+
+    /// <summary>Waits for a background passive-watch step; its result, or null when there was none or it failed. Never throws.</summary>
+    private static T? JoinPassiveWatch<T>(Task<T>? task) where T : class?
+    {
+        if (task is null) return null;
+        try { return task.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            Log.Warn($"session watch: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -204,9 +279,22 @@ public static class Runner
     /// After the game exits: finds what no longer matches the preset (once), stores it in run-results.json for every run, and returns
     /// it so the capture prompt reuses it. Never throws.
     /// </summary>
-    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen, RunDetails? details = null)
+    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen, RunDetails? details = null,
+        CaptureAnswer capture = CaptureAnswer.NotAsked)
     {
-        if (ctx.InGame is not null) return []; // set in-game: no result, no streak, no prompt
+        var (drift, result) = MeasureResult(ctx, applied, verify, processSeen, details);
+        StoreResult(ctx, result, capture);
+        return drift;
+    }
+
+    /// <summary>
+    /// The first half of <see cref="RecordResult"/>: what no longer matches the preset, and the result built from it (not stored yet; null when
+    /// there is nothing to store, e.g. a set in-game game or a failed check). Never throws.
+    /// </summary>
+    internal static (List<Drift> Drift, RunResult? Result) MeasureResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen,
+        RunDetails? details = null)
+    {
+        if (ctx.InGame is not null) return ([], null); // set in-game: no result, no streak, no prompt
         List<Drift> drift;
         try
         {
@@ -217,7 +305,7 @@ public static class Runner
         catch (Exception ex)
         {
             Log.Error("Checking for changed settings failed", ex);
-            return [];
+            return ([], null);
         }
         try
         {
@@ -227,16 +315,162 @@ public static class Runner
                 result.LaunchCommand = details.Command;
                 result.LaunchNote = details.Note;
                 result.Reapplied = details.Reapplied.ToList();
+                result.SyncReapplied = details.SyncReapplied.ToList();
                 result.LateFiles = details.Late.ToList();
+                result.DurationSec = processSeen ? details.DurationSec : null;
+                result.Build = details.Build;
             }
+            return (drift, result);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not build the run result: {ex.Message}");
+            return (drift, null);
+        }
+    }
+
+    /// <summary>
+    /// The second half of <see cref="RecordResult"/>: stores the result with the player's answer at the capture prompt, or (<paramref name="capture"/>
+    /// null) pending, before the prompt is shown; <see cref="FinishResult"/> then adds the answer. Never throws.
+    /// </summary>
+    internal static void StoreResult(GameContext ctx, RunResult? result, CaptureAnswer? capture)
+    {
+        if (result is null || ctx.InGame is not null) return;
+        try
+        {
+            result.Capture = capture;
             RunResults.Record(ctx.Paths.DataDir, result);
-            Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed");
+            Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed" +
+                     $"{(result.DurationSec is { } sec ? $", {sec} s played" : "")}; capture {capture?.ToString().ToLowerInvariant() ?? "pending"}");
         }
         catch (Exception ex)
         {
             Log.Warn($"Could not record the run result: {ex.Message}");
         }
-        return drift;
+    }
+
+    /// <summary>Adds the player's answer to a result stored pending by <see cref="StoreResult"/> (and its passive streak step). Never throws.</summary>
+    internal static void FinishResult(GameContext ctx, RunResult? result, CaptureAnswer capture)
+    {
+        if (result is null || ctx.InGame is not null) return;
+        try
+        {
+            RunResults.SetCapture(ctx.Paths.DataDir, result, capture);
+            Log.Info($"run result: capture {capture.ToString().ToLowerInvariant()}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not record the capture answer: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The build this run played (<see cref="GameBuild"/>): the Steam build id, else the exe fingerprint of the install folder the run knows
+    /// (<c>--install-dir</c> or the Steam folder), else the build of the install a scan of the game's store finds (<paramref name="findInstall"/>,
+    /// default <see cref="LibraryService.FindInstall"/>), fingerprinted the same way the library and the lab do, so held runs of any store carry
+    /// a build comparable with theirs. Null when unknown. Never throws.
+    /// </summary>
+    internal static string? RunBuild(GameDef game, string? installDir, Func<GameDef, DetectedGame?>? findInstall = null)
+    {
+        try
+        {
+            if ((installDir is not null || game.SteamAppId is not null) && GameBuild.ForGame(game, installDir) is { } known) return known;
+            return (findInstall ?? DetectInstall)(game) is { } detected ? GameBuild.Of(detected) : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not tell the build of {game.Id}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>The detected install of a game from a scan of its own store only (null for a store no scanner knows).</summary>
+    private static DetectedGame? DetectInstall(GameDef game) =>
+        GameScanners.Stores.Contains(game.Store, StringComparer.OrdinalIgnoreCase)
+            ? LibraryService.FindInstall(game, GameScanners.ScanAll([game.Store]))
+            : null;
+
+    /// <summary>
+    /// Starts the passive pass A watch (<see cref="GameLab.PassiveWatch"/>) for a run whose settings Optimus-Vibe manages, when "check presets
+    /// after each session" is on and the game has a store id to key it by (the same key "Map this game" uses). Null otherwise. What the run
+    /// wrote before it (<paramref name="applied"/>) is left out of the session's diff (<see cref="PassiveExclusionsFor"/>). Never throws.
+    /// </summary>
+    internal static GameLab.PassiveWatch? BeginPassiveWatch(GameContext ctx, RunOptions? options, Func<GameLab.LabTarget, Func<GameLab.ProbeSnapshot>>? snapshotFor = null,
+        AppliedState? applied = null)
+    {
+        if (!PassiveWatchWanted(ctx)) return null;
+        try
+        {
+            if (!AppPaths.LoadSettings(ctx.Paths.DataDir).GameLabWatchSessions) return null;
+            var target = GameLab.LabTarget.From(null, ctx.Game) with { InstallDir = InstallDir(ctx.Game, options) };
+            if (target.StoreId.Length == 0) return null;
+            var session = new GameLab.ProbeSession(target, new GameLab.EvidenceOptions { CurrentConfig = GameLab.LabCloud.CurrentConfigFrom(ctx.Paths) });
+            Func<GameLab.ProbeSnapshot> snapshot = snapshotFor is not null ? snapshotFor(target) : session.Snapshot;
+            return GameLab.PassiveWatch.Begin(ctx.Paths.DataDir, target.Key, snapshot, exclude: PassiveExclusionsFor(ctx, applied, session.Tokenize));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"session watch: could not start for {ctx.Game.Id}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A run worth watching: its settings are managed (not set in-game) and written before the launch. A game whose settings are written once
+    /// its process is seen (<c>applyTiming: afterProcessStart</c>) has them written while it runs, so its sessions could never be kept.
+    /// </summary>
+    internal static bool PassiveWatchWanted(GameContext ctx) => ctx.InGame is null && LaunchPolicy.AppliesBefore(ctx.Game);
+
+    /// <summary>Handlers whose keys a mapping snapshot reads with the same names, per the file extensions it reads them by.</summary>
+    private static bool KeysMatchProbe(ResolvedFile f) => (f.Handler.Name, Path.GetExtension(f.Path ?? "").ToLowerInvariant()) switch
+    {
+        ("ini", ".ini" or ".cfg" or ".conf") => true,
+        ("json", ".json") => true,
+        ("xml", ".xml" or ".lsx" or ".config") => true,
+        ("keyvalue", _) => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// What this run wrote before the game started (<paramref name="applied"/>): the preset's keys of each text file, the whole file for a whole-file
+    /// save or a format whose keys a snapshot can't match, and registry values. A passive session leaves them out: a normal launch writes them
+    /// first, while a real pass A writes nothing, so a game that resets a preset key on every launch must not make it "state".
+    /// </summary>
+    internal static GameLab.PassiveExclusions PassiveExclusionsFor(GameContext ctx, AppliedState? applied, Func<string, string> tokenize)
+    {
+        var exclude = new GameLab.PassiveExclusions();
+        if (applied is null) return exclude;
+        foreach (var f in ctx.Files)
+        {
+            if (f.Path is null) continue;
+            var whole = applied.SnapshotHashes.ContainsKey(f.Id);
+            var keys = applied.Targets.TryGetValue(f.Id, out var t) && t.Count > 0 ? t.Keys.ToList() : null;
+            if (!whole && keys is null) continue;
+            if (!f.Handler.IsFile) exclude.Registry(f.Path, whole ? null : keys);
+            else exclude.File(tokenize(f.Path), whole || !KeysMatchProbe(f) ? null : keys);
+        }
+        return exclude;
+    }
+
+    /// <summary>Why a session can't show what the game rewrites by itself; null when it can.</summary>
+    internal static string? PassiveSkipReason(bool processSeen, bool cancelled, RunDetails details) =>
+        !processSeen ? "the game process was never seen"
+        : cancelled ? "the run was cancelled"
+        : details.Reapplied.Count > 0 ? "settings were written while the game ran"
+        : null;
+
+    /// <summary>The first build seen after the lab's presets arrived without one counts as theirs (<see cref="GameLab.LabStateStore.ObservePresetsBuild"/>). Never throws.</summary>
+    private static void ObservePresetsBuild(GameContext ctx, string? build)
+    {
+        if (build is null) return;
+        try
+        {
+            if (new GameLab.LabStateStore(ctx.Paths.DataDir).ObservePresetsBuild(ctx.Game.Id, build)) Log.Info($"presets build: {build}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not note the presets build: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -342,6 +576,20 @@ public static class Runner
         public string? Note { get; set; }
         public List<string> Reapplied { get; } = [];
         public List<string> Late { get; } = [];
+
+        /// <summary>Files written before launch and written again once the game was seen because they had changed meanwhile (a launcher's cloud sync).</summary>
+        public List<string> SyncReapplied { get; } = [];
+
+        /// <summary>When the launch was started, when the game process was first seen (null: never, or not watched), and when the wait ended.</summary>
+        public DateTime? StartedUtc { get; set; }
+        public DateTime? GameSeenUtc { get; set; }
+        public DateTime? EndedUtc { get; set; }
+
+        /// <summary>The game build after the session (<see cref="GameBuild"/>); null when unknown.</summary>
+        public string? Build { get; set; }
+
+        /// <summary>Seconds from the game being seen (else from the launch) to the end of the wait; null when either end is missing.</summary>
+        public int? DurationSec => (GameSeenUtc ?? StartedUtc) is { } from && EndedUtc is { } to && to >= from ? (int)(to - from).TotalSeconds : null;
     }
 
     /// <summary>
@@ -359,6 +607,9 @@ public static class Runner
                 cancel.WaitHandle.WaitOne(left < TimeSpan.FromSeconds(1) ? left : TimeSpan.FromSeconds(1));
         };
         var maxWait = lateWait ?? LateFileWait;
+        // what the pre-launch apply wrote: only a rewrite of one of these means something changed it in between (afterProcessStart writes nothing before)
+        var writtenBefore = applied.Targets.Where(t => t.Value.Count > 0).Select(t => t.Key).Concat(applied.SnapshotHashes.Keys)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         try
         {
             if (settle > TimeSpan.Zero) sleep(settle);
@@ -378,6 +629,7 @@ public static class Runner
                         var label = late ? $"{p.File.Id} (created late: takes effect next launch)" : p.File.Id;
                         if (!details.Reapplied.Contains(p.File.Id)) details.Reapplied.Add(p.File.Id);
                         if (late && !details.Late.Contains(p.File.Id)) details.Late.Add(p.File.Id);
+                        if (!late && writtenBefore.Contains(p.File.Id) && !details.SyncReapplied.Contains(p.File.Id)) details.SyncReapplied.Add(p.File.Id);
                         Log.Info($"  re-applied after launch: {label}");
                     }
                 }
@@ -601,20 +853,32 @@ public static class Runner
     /// After the game exits: when its settings drifted (the list <see cref="RecordResult"/> found, or found here), ask (through <see cref="ICapturePrompt"/>) whether to keep them. Skipped when
     /// the player chose "don't ask again" for this game. Returns the save that was written, or null. Never throws.
     /// </summary>
-    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null)
+    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null) =>
+        AskCapture(ctx, applied, prompt, drift).Save;
+
+    /// <summary>What the capture prompt led to: the player's answer, and the save written for it (null unless saved).</summary>
+    internal sealed record CaptureOutcome(CaptureAnswer Answer, SaveResult? Save);
+
+    /// <summary>
+    /// <see cref="OfferCapture"/> that also says what the player answered (<see cref="CaptureAnswer.NotAsked"/> when nothing was asked,
+    /// <see cref="CaptureAnswer.Off"/> when the question is turned off for the game). A save that fails keeps the answer Saved: it was the
+    /// player's intent. Never throws.
+    /// </summary>
+    internal static CaptureOutcome AskCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null)
     {
+        var answer = CaptureAnswer.NotAsked;
         try
         {
-            if (ctx.InGame is not null) return null; // set in-game: the game's settings are not ours to keep
+            if (ctx.InGame is not null) return new(answer, null); // set in-game: the game's settings are not ours to keep
             if (CapturePromptStore.IsSkipped(ctx.Paths.DataDir, ctx.Game.Id))
             {
                 Log.Info($"{ctx.Game.Id}: capture prompt turned off for this game");
-                return null;
+                return new(CaptureAnswer.Off, null);
             }
             drift ??= GameEngine.FindDrift(ctx, applied);
             // whole-file drift on an autoSnapshot file is kept automatically, so it never asks; keyed drift still does
             drift = drift.Where(d => !AutoSnapshots.IsExpectedDrift(ctx, d)).ToList();
-            if (drift.Count == 0) return null;
+            if (drift.Count == 0) return new(answer, null);
 
             foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");
             var lines = drift.Take(CapturePrompts.MaxLines)
@@ -626,25 +890,27 @@ public static class Runner
             switch (decision.Choice)
             {
                 case CaptureChoice.DontSave:
-                    return null;
+                    return new(CaptureAnswer.DontSave, null);
                 case CaptureChoice.DontAskAgain:
+                    answer = CaptureAnswer.DontAskAgain;
                     CapturePromptStore.SetSkipped(ctx.Paths.DataDir, ctx.Game.Id, true);
                     Log.Info($"{ctx.Game.Id}: won't ask to save after playing again");
-                    return null;
+                    return new(answer, null);
             }
 
+            answer = CaptureAnswer.Saved;
             var result = decision.Choice == CaptureChoice.SaveAs
                 ? ManualSaves.SaveCurrent(ctx, string.IsNullOrWhiteSpace(decision.Name) ? request.SuggestedName : decision.Name.Trim())
                 : ctx.Save is { } s
                     ? ManualSaves.SaveCurrent(ctx, s.Name, updateSlug: s.Slug)
                     : ManualSaves.SaveCurrent(ctx, request.SuggestedName);
             Log.Info($"Saved '{result.Save.Name}' ({result.KeysSaved} setting(s)){(result.Sync is { } g ? $"; sync: {g.Message}" : "")}");
-            return result;
+            return new(answer, result);
         }
         catch (Exception ex)
         {
             Log.Error("Capture prompt failed", ex);
-            return null;
+            return new(answer, null);
         }
     }
 

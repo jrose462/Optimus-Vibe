@@ -60,7 +60,7 @@ public sealed class GameDetailViewModel : ObservableObject
             var det = game is null ? null : shell.Lab.DetectedFor(game);
             return new LabGameContext(Name, det?.Key ?? (game is null ? null : LibraryService.ConfiguredKey(game)), game?.Id ?? GameId,
                 det is null ? null : shell.Lab.TargetFor(game, det, Name), game is not null, _snap.Context?.Profile.IsEmpty == true,
-                _snap.Context is { } c && !c.Profile.IsEmpty ? c.Profile.Label ?? c.Preset?.Name : null);
+                _snap.Context is { } c && !c.Profile.IsEmpty ? c.Profile.Label ?? c.Preset?.Name : null, _snap.CloudSync, _snap.Context);
         });
         Rebuild();
     }
@@ -115,6 +115,8 @@ public sealed class GameDetailViewModel : ObservableObject
     {
         get
         {
+            // The toggle always shows (greyed out without a TV preset) so the page keeps the same controls for every game.
+            if (!HasBigPicturePreset) return "This game has no Big Picture (TV) preset on this device yet.";
             var ctx = _snap.Context;
             if (ctx?.BigPicture is not { Active: true } bp) return null;
             if (ctx.BigPictureUsed) return $"TV in use ({bp.Reason}): Big Picture preset is picked automatically.";
@@ -361,16 +363,18 @@ public sealed class GameDetailViewModel : ObservableObject
 
     /// <summary>
     /// Close the diff panel, save form, rename or delete confirmation. True if anything was open. <paramref name="back"/> = B / Esc:
-    /// the lab panel then also closes a test result (one layer per press); opening another panel keeps the result on screen.
+    /// the lab panel then also closes a test result or folds "More" away, but only when nothing of the page itself was open (one layer per
+    /// press); opening another panel keeps the result on screen.
     /// </summary>
     public bool CancelTransient(bool back = false)
     {
-        bool any = (Preview is not null || IsSaveFormOpen || IsEditingIntent) | (back ? Lab.CancelTransient() : Lab.CloseCards());
+        bool page = Preview is not null || IsSaveFormOpen || IsEditingIntent;
         Preview = null;
         IsSaveFormOpen = false;
         IsEditingIntent = false;
-        foreach (var c in Recommended.Concat(Manual)) any |= c.CancelTransient();
-        return any;
+        foreach (var c in Recommended.Concat(Manual)) page |= c.CancelTransient();
+        bool lab = back && !page ? Lab.CancelTransient() : Lab.CloseCards();
+        return page | lab;
     }
 
     public void ClosePreview() => Preview = null;
