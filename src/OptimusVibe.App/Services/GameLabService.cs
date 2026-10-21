@@ -80,14 +80,16 @@ public sealed class GameLabService
 
     public static GameLabClient ClientFor(Connection c) => new(c.Api, c.Repo.Repo, c.Repo.Branch);
 
-    public static EvidenceCollector CollectorFor(AppSession session) => new(new EvidenceOptions
+    /// <param name="verifyRun">The text of a "### Verify run" section (<see cref="OptimusVibe.Launch.RunResults.EvidenceText"/>), when the request carries a preset test.</param>
+    public static EvidenceCollector CollectorFor(AppSession session, string? verifyRun = null) => new(new EvidenceOptions
     {
         CloudCheck = LabCloud.ForChecker(session.Store, session.Device),
         CurrentConfig = LabCloud.CurrentConfigFrom(session.Paths),
+        VerifyRun = verifyRun is null ? null : _ => verifyRun,
     });
 
-    public static EvidencePreview Preview(AppSession session, LabTarget target) =>
-        EvidencePreview.From(CollectorFor(session).Collect(target));
+    public static EvidencePreview Preview(AppSession session, LabTarget target, string? verifyRun = null) =>
+        EvidencePreview.From(CollectorFor(session, verifyRun).Collect(target));
 
     // ------------------------------------------------------------ wizard
 
@@ -141,10 +143,10 @@ public sealed class GameLabService
     /// the outbox to be sent later. An already open request is reused as before.
     /// </summary>
     public async Task<LabRequestOutcome> FileOrQueueAsync(Connection c, AppSession session, OutboxStore store, LabKind kind, LabTarget target,
-        CancellationToken ct = default)
+        string? verifyRun = null, CancellationToken ct = default)
     {
         if (IsDemo) return new LabRequestOutcome(await FileRequestAsync(c, session, kind, target, ct).ConfigureAwait(false), null);
-        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session), ct).ConfigureAwait(false);
+        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
     }
 
     /// <summary>A sync-check on the first configured game that is installed here, for the wizard's test step.</summary>

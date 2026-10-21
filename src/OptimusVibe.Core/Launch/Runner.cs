@@ -25,6 +25,12 @@ public sealed class RunOptions
     /// from here. Defaults to the Steam install dir for games with a steamAppId.
     /// </summary>
     public string? InstallDir { get; init; }
+
+    /// <summary>
+    /// A test of the preset (`run --verify`): the player changes nothing and the result says whether the game kept the preset's values.
+    /// Suppresses the post-game capture prompt; the result is stored as a verify run.
+    /// </summary>
+    public bool Verify { get; init; }
 }
 
 /// <summary>
@@ -95,9 +101,10 @@ public static class Runner
         if (!state.IsEmpty) state.Save(ctx.Paths.StateFile);
 
         int exitCode;
+        var processSeen = true;
         try
         {
-            exitCode = LaunchAndWait(ctx, command, options);
+            exitCode = LaunchAndWait(ctx, command, options, out processSeen);
         }
         finally
         {
@@ -105,10 +112,44 @@ public static class Runner
             if (File.Exists(ctx.Paths.StateFile)) File.Delete(ctx.Paths.StateFile);
         }
 
-        if (applied is not null && prompt) OfferCapture(ctx, applied);
+        if (applied is not null)
+        {
+            var verify = options?.Verify == true;
+            var drift = RecordResult(ctx, applied, verify, processSeen);
+            if (prompt && !verify) OfferCapture(ctx, applied, drift: drift);
+        }
         SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
+    }
+
+    /// <summary>
+    /// After the game exits: finds what no longer matches the preset (once), stores it in run-results.json for every run, and returns
+    /// it so the capture prompt reuses it. Never throws.
+    /// </summary>
+    internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen)
+    {
+        List<Drift> drift;
+        try
+        {
+            drift = GameEngine.FindDrift(ctx, applied);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Checking for changed settings failed", ex);
+            return [];
+        }
+        try
+        {
+            var result = RunResults.Create(ctx, applied, drift, verify, processSeen);
+            RunResults.Record(ctx.Paths.DataDir, result);
+            Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not record the run result: {ex.Message}");
+        }
+        return drift;
     }
 
     /// <summary>
@@ -179,8 +220,9 @@ public static class Runner
         }
     }
 
-    private static int LaunchAndWait(GameContext ctx, string[] command, RunOptions? options)
+    private static int LaunchAndWait(GameContext ctx, string[] command, RunOptions? options, out bool processSeen)
     {
+        processSeen = true; // false only when we waited for a game process that never appeared, or could not tell
         var watched = ctx.Game.Processes.Select(p => Path.GetFileNameWithoutExtension(p)).ToArray();
 
         // No `processes:` → after a URI launch, watch for new processes running from the install folder.
@@ -212,6 +254,7 @@ public static class Runner
         else if (started is null)
         {
             Log.Warn("Launched via URI with no `processes:` or install folder — cannot tell when the game exits; display/driver changes are undone now");
+            processSeen = false;
             return 0;
         }
         else
@@ -246,6 +289,7 @@ public static class Runner
             Thread.Sleep(PollInterval);
         }
 
+        processSeen = seen;
         if (started is null) return 0;
         if (!started.HasExited) started.WaitForExit();
         return started.ExitCode;
@@ -344,10 +388,10 @@ public static class Runner
     }
 
     /// <summary>
-    /// After the game exits: when its settings drifted, ask (through <see cref="ICapturePrompt"/>) whether to keep them. Skipped when
+    /// After the game exits: when its settings drifted (the list <see cref="RecordResult"/> found, or found here), ask (through <see cref="ICapturePrompt"/>) whether to keep them. Skipped when
     /// the player chose "don't ask again" for this game. Returns the save that was written, or null. Never throws.
     /// </summary>
-    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null)
+    internal static SaveResult? OfferCapture(GameContext ctx, AppliedState applied, ICapturePrompt? prompt = null, IReadOnlyList<Drift>? drift = null)
     {
         try
         {
@@ -356,7 +400,7 @@ public static class Runner
                 Log.Info($"{ctx.Game.Id}: capture prompt turned off for this game");
                 return null;
             }
-            var drift = GameEngine.FindDrift(ctx, applied);
+            drift ??= GameEngine.FindDrift(ctx, applied);
             if (drift.Count == 0) return null;
 
             foreach (var d in drift) Log.Info($"  changed in-game: {d.FileId} {d.Key}: {d.Applied} -> {d.Now}");

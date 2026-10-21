@@ -62,6 +62,12 @@ public sealed class EvidenceOptions
     /// <summary>Contents of the existing games\&lt;id&gt;.yaml for "Current config".</summary>
     public Func<LabTarget, string?>? CurrentConfig { get; init; }
 
+    /// <summary>
+    /// Text for the "Verify run" section (what a test of the preset found, see <see cref="Launch.RunResults.EvidenceText"/>); null/empty = no
+    /// section. Sent with a Refresh request after the player tested a preset.
+    /// </summary>
+    public Func<LabTarget, string?>? VerifyRun { get; init; }
+
     /// <summary>Overrides for sanitizing (tests); default: the real user / machine / profile.</summary>
     public string? UserProfile { get; init; }
     public string? UserName { get; init; }
@@ -197,6 +203,12 @@ public sealed class EvidenceCollector(EvidenceOptions? options = null)
             var text = _o.CloudCheck?.Invoke(t);
             if (!string.IsNullOrWhiteSpace(text))
                 bundle.Sections.Add(new EvidenceSection(EvidenceKind.CloudCheck, "", Clean(text, folders)));
+        });
+        TryAdd(bundle, "verify run", () =>
+        {
+            var text = _o.VerifyRun?.Invoke(t);
+            if (!string.IsNullOrWhiteSpace(text))
+                bundle.Sections.Add(new EvidenceSection(EvidenceKind.VerifyRun, "", Clean(text, folders)));
         });
         TryAdd(bundle, "current config", () =>
         {

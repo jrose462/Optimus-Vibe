@@ -10,6 +10,7 @@ using OptimusVibe.App.Services;
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
 using OptimusVibe.Engine;
+using OptimusVibe.Launch;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
 using OptimusVibe.Sync;
@@ -978,6 +979,40 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Launching = null;
         MinimizeRequested?.Invoke();
         if (handle.Process is { } p) _ = RestoreWhenExitedAsync(p, tile.Name);
+    }
+
+    /// <summary>
+    /// Test preset: starts the game through the headless `run --verify`, minimizes while it runs, restores when it ends and returns what
+    /// that run stored (null when it could not be started or left no result).
+    /// </summary>
+    public async Task<RunResult?> TestPresetAsync(GameDef game, DetectedGame? install, string name)
+    {
+        var session = Session;
+        if (session is null) return null;
+        var startedUtc = DateTime.UtcNow.AddSeconds(-2);
+        LaunchHandle? handle = null;
+        var ok = await RunAsync($"Starting {name} to test the preset", () => Task.Run(() =>
+            handle = GameLauncher.TestPreset(name, game, install)));
+        if (!ok || handle is null) return null;
+
+        Notify(handle.Message);
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        MinimizeRequested?.Invoke();
+        if (handle.Process is { } p)
+        {
+            try
+            {
+                using (p)
+                    await p.WaitForExitAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Waiting for the {name} test: {ex.Message}");
+            }
+        }
+        RestoreRequested?.Invoke();
+        var result = RunResults.Get(session.Paths.DataDir, game.Id, session.Device.Name, verifyOnly: true);
+        return result is not null && result.Utc >= startedUtc ? result : null;
     }
 
     private async Task RestoreWhenExitedAsync(Process process, string name)

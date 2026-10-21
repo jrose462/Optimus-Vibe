@@ -86,15 +86,28 @@ public static class GameLauncher
     }
 
     /// <summary>
+    /// "Test preset": the same headless `run` as Play, plus `--verify` (nothing is asked afterwards; the result is stored in
+    /// run-results.json). The caller waits on the returned process and then reads the result.
+    /// </summary>
+    public static LaunchHandle TestPreset(string name, GameDef game, DetectedGame? detected)
+    {
+        var useInstall = !CanLaunch(game) ? detected : null;
+        var p = RunHeadless(game.Id, useInstall, verify: true);
+        Log.Info($"Test preset {game.Id}: headless run --verify{(useInstall is null ? "" : " with detected install " + useInstall.Key)}");
+        return new LaunchHandle($"Starting {name} to test the preset. Change nothing in the game, play about a minute, then quit.", p);
+    }
+
+    /// <summary>
     /// `OptimusVibe.exe run &lt;id&gt;`; when the yaml has no launch target, the detected install is passed as
     /// `--launch &lt;uri-or-exe&gt; [--launch-arg a]... --install-dir &lt;dir&gt;`.
     /// </summary>
-    private static Process? RunHeadless(string gameId, DetectedGame? install)
+    private static Process? RunHeadless(string gameId, DetectedGame? install, bool verify = false)
     {
         var self = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot determine the app's own path");
         var psi = new ProcessStartInfo(self) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory };
         psi.ArgumentList.Add("run");
         psi.ArgumentList.Add(gameId);
+        if (verify) psi.ArgumentList.Add("--verify");
         if (install is not null && (install.LaunchUri ?? install.LaunchExe) is { } target)
         {
             psi.ArgumentList.Add("--launch");

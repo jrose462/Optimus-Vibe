@@ -51,7 +51,7 @@ public static class Program
         {
             ConfigOption, ProfileOption, PresetOption,
             BigPictureCommands.DisplayCommand(), BigPictureCommands.TvCommand(),
-            RunCommand(), ApplyCommand(), PresetsCommand(), UseCommand(), SaveCommand(), DeleteSaveCommand(),
+            RunCommand(), VerifyResultCommand(), ApplyCommand(), PresetsCommand(), UseCommand(), SaveCommand(), DeleteSaveCommand(),
             RestoreCommand(), DetectCommand(), InspectCommand(), ListCommand(), ValidateCommand(),
             SyncCommand(), UpdateCommand(), ShortcutCommand(), SetupCommand(),
             GitHubCommand(), SyncProviderCommand(),
@@ -105,9 +105,13 @@ public static class Program
             Arity = ArgumentArity.ZeroOrMore,
         };
         var noPrompt = new Option<bool>("--no-prompt") { Description = "Don't offer to save settings changed in-game." };
+        var verify = new Option<bool>("--verify")
+        {
+            Description = "Test the preset: change nothing in the game, play about a minute, quit. No save prompt; see the result with verify-result.",
+        };
         var cmd = new Command("run", "Apply settings, launch the game, wait for it to exit, then undo temporary changes.")
         {
-            GameArg, commandArg, noPrompt, NoBigPictureOption,
+            GameArg, commandArg, noPrompt, verify, NoBigPictureOption,
         };
         cmd.SetAction(Guard(pr =>
         {
@@ -127,7 +131,33 @@ public static class Program
                 p?.WaitForExit();
                 return p?.ExitCode ?? 2;
             }
-            return Runner.Run(ctx, command, prompt: !pr.GetValue(noPrompt));
+            return Runner.Run(ctx, command, prompt: !pr.GetValue(noPrompt), new RunOptions { Verify = pr.GetValue(verify) });
+        }));
+        return cmd;
+    }
+
+    /// <summary>`verify-result &lt;game&gt;`: what the last test of the preset (or, failing that, the last run) found.</summary>
+    private static Command VerifyResultCommand()
+    {
+        var cmd = new Command("verify-result", "Print the last 'run --verify' result for a game: did the game keep the preset's values?") { GameArg };
+        cmd.SetAction(Guard(pr =>
+        {
+            var paths = Paths(pr);
+            var game = pr.GetValue(GameArg)!;
+            var device = Context(pr).Device.Name;
+            var result = RunResults.Get(paths.DataDir, game, device, verifyOnly: true) ?? RunResults.Get(paths.DataDir, game, device);
+            if (result is null)
+            {
+                Console.WriteLine($"No run recorded for {game} on {device}. Test it with: optimus-vibe run {game} --verify");
+                return 1;
+            }
+            Console.WriteLine($"{game} on {result.Device}: {result.PresetLabel} ({result.Preset})");
+            Console.WriteLine($"  {result.Mode} run, {result.Utc.ToLocalTime():yyyy-MM-dd HH:mm}");
+            Console.WriteLine($"  verdict: {RunResults.Verdict(result).ToString().ToLowerInvariant()}");
+            Console.WriteLine($"  {RunResults.Describe(result, int.MaxValue)}");
+            foreach (var d in result.Drift)
+                Console.WriteLine(d.IsWholeFile ? $"    {d.FileId}: (whole file) changed" : $"    {d.FileId} {d.Key}: {d.Applied ?? "(not set)"} -> {d.Now ?? "(missing)"}");
+            return RunResults.Verdict(result) == RunVerdict.Overridden ? 3 : 0;
         }));
         return cmd;
     }
