@@ -166,9 +166,9 @@ public sealed class SetInGameFlagTests : IDisposable
     public void Status_and_run_lines_name_the_reason_and_the_research()
     {
         var flag = new FlagDef { Reason = "the game rewrites its store." };
-        Assert.Equal("Set in-game: the game rewrites its store. Optimus-Vibe still sets the display and NVIDIA profile.", GameFlags.StatusLine(flag));
+        Assert.Equal("Set in-game: the game rewrites its store. Optimus-Vibe still sets the display and graphics-driver settings.", GameFlags.StatusLine(flag));
         flag.Issue = 12;
-        Assert.Equal("Set in-game: the game rewrites its store. Optimus-Vibe still sets the display and NVIDIA profile. Research: #12.", GameFlags.StatusLine(flag));
+        Assert.Equal("Set in-game: the game rewrites its store. Optimus-Vibe still sets the display and graphics-driver settings. Research: #12.", GameFlags.StatusLine(flag));
         Assert.Equal("Settings left to the game (set in-game: the game rewrites its store)", GameFlags.RunLine(flag));
         Assert.Contains(GameFlags.FallbackReason, GameFlags.StatusLine(new FlagDef()));
     }

@@ -6,7 +6,7 @@ namespace OptimusVibe.Library;
 
 /// <summary>
 /// "Set in-game": a game that ignores the settings Optimus-Vibe writes gets "settings off, rest on" (no preset, saved-setting or snapshot writes,
-/// no re-apply, no drift prompt, no Test preset; display, NVIDIA profile, launch args and the launch watchdog stay). The flag has two sources and
+/// no re-apply, no drift prompt, no Test preset; display, graphics-driver settings, launch args and the launch watchdog stay). The flag has two sources and
 /// either one counts: the game file's <c>flagged:</c> (the game lab / the skill decided) and library.yaml's <c>setInGame</c> (the user clicked
 /// "Flag as set in-game"; synced between devices like opt-outs). One place answers "is this game flagged, and why".
 /// </summary>
@@ -60,9 +60,9 @@ public static class GameFlags
     /// <summary>The one line a run prints for a flagged game.</summary>
     public static string RunLine(FlagDef flag) => $"Settings left to the game (set in-game: {ReasonText(flag)})";
 
-    /// <summary>"Set in-game: why. Optimus-Vibe still sets the display and NVIDIA profile." plus "Research: #12." when there is an issue.</summary>
+    /// <summary>"Set in-game: why. Optimus-Vibe still sets the display and graphics-driver settings." plus "Research: #12." when there is an issue.</summary>
     public static string StatusLine(FlagDef flag) =>
-        $"Set in-game: {ReasonText(flag)}. Optimus-Vibe still sets the display and NVIDIA profile." +
+        $"Set in-game: {ReasonText(flag)}. Optimus-Vibe still sets the display and graphics-driver settings." +
         (flag.Issue is { } n ? $" Research: #{n}." : "");
 
     /// <summary>The reason a Test preset result suggests: "the game overrode the preset in 2 tests in a row".</summary>

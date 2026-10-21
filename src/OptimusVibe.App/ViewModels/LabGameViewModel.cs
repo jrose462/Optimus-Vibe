@@ -563,7 +563,7 @@ public sealed class LabGameViewModel : ObservableObject
     public string FlagTitle => $"Flag {Ctx.Name} as set in-game?";
 
     public string FlagLead =>
-        "Optimus-Vibe will stop writing this game's settings (display and NVIDIA still apply). A research task is filed so the game lab can look deeper later.";
+        "Optimus-Vibe will stop writing this game's settings (display and graphics-driver settings still apply). A research task is filed so the game lab can look deeper later.";
 
     public string FlagWhy => _flagReason is { } r ? $"Why: {r}." : "";
     public string FlagConfirmText => "Flag it";
