@@ -163,7 +163,7 @@ public static class DebugScenes
     /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
     /// verify-health-working | verify-health-unchecked | verify-health-changed | verify-health-updated | verify-health-sync | verify-health-nopresets |
     /// verify-health-labworking | verify-health-more (the lab panel's status line, why line and suggested action per health state; "more" opens More).
-    /// verify-post-held | verify-post-changed | verify-post-recurring | verify-post-updated | verify-post-map (the post-session card, one per kind).
+    /// verify-post-held | verify-post-changed | verify-post-recurring | verify-post-updated | verify-post-map | verify-post-consent (the post-session card, one per kind).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
     /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
@@ -266,6 +266,7 @@ public static class DebugScenes
             case "verify-post-recurring":
             case "verify-post-updated":
             case "verify-post-map":
+            case "verify-post-consent":
                 if (tuned is not null)
                 {
                     vm.OpenLibraryDetail(tuned);

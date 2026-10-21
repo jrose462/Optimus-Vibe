@@ -119,7 +119,10 @@ public sealed class LabGameViewModel : ObservableObject
         {
             if (string.Equals(id, Ctx.GameId, StringComparison.OrdinalIgnoreCase)) PostSessionFocusRequested?.Invoke();
         };
-        lab.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(GameLabViewModel.IsReady)) Refresh(); };
+        lab.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(GameLabViewModel.IsReady) or nameof(GameLabViewModel.AsksAutoFindingsConsent)) Refresh();
+        };
     }
 
     private LabGameContext Ctx => _context();
@@ -393,10 +396,10 @@ public sealed class LabGameViewModel : ObservableObject
             return r;
         }
 
-        void Post(HealthInputs inputs, RunResult run)
+        void Post(HealthInputs inputs, RunResult run, bool askConsent = false)
         {
             _demoInputs = inputs;
-            _demoPost = PostSession.For(inputs, GameHealth.Evaluate(inputs), run, Ctx.Name);
+            _demoPost = PostSession.For(inputs, GameHealth.Evaluate(inputs), run, Ctx.Name, askConsent: askConsent);
         }
         RunResult Session(int drifted, CaptureAnswer capture, int sec = 1800)
         {
@@ -524,6 +527,19 @@ public sealed class LabGameViewModel : ObservableObject
                 {
                     Recent = [run], Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-30), BuildId = "steam:100" }, CurrentBuild = "steam:200",
                 }, run);
+                break;
+            }
+            case "post-consent":
+            {
+                // the game updated after the preset held on the old build: the first finding asks once whether to send such findings by itself
+                var held = Played(3);
+                held.Build = "steam:100";
+                var run = Session(3, CaptureAnswer.DontSave); // a held session on the new build would settle it
+                run.Build = "steam:200";
+                Post(Inputs() with
+                {
+                    Recent = [held, run], Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-30), BuildId = "steam:100" }, CurrentBuild = "steam:200",
+                }, run, askConsent: true);
                 break;
             }
             case "post-map":
@@ -701,7 +717,7 @@ public sealed class LabGameViewModel : ObservableObject
             try
             {
                 var health = Health;
-                if (_inputs is { } inputs) _post = PostSession.For(inputs, health, run, Ctx.Name, _lab.SnoozedFor(id));
+                if (_inputs is { } inputs) _post = PostSession.For(inputs, health, run, Ctx.Name, _lab.SnoozedFor(id), _lab.AsksAutoFindingsConsent);
             }
             catch (Exception ex)
             {
@@ -768,6 +784,7 @@ public sealed class LabGameViewModel : ObservableObject
         PostSessionAction.FlagSetInGame => FlagCommand.CanExecute(null),
         PostSessionAction.AskLab => RefreshPresetsCommand.CanExecute(null),
         PostSessionAction.MapGame => MapCommand.CanExecute(null),
+        PostSessionAction.TurnOnAutoFindings => CanAct && Ctx.GameId is not null,
         _ => false,
     };
 
@@ -798,6 +815,9 @@ public sealed class LabGameViewModel : ObservableObject
             case PostSessionAction.FlagSetInGame: Run(FlagCommand); break;
             case PostSessionAction.AskLab: Run(RefreshPresetsCommand); break;
             case PostSessionAction.MapGame: Run(MapCommand); break;
+            case PostSessionAction.TurnOnAutoFindings:
+                if (Ctx.GameId is { } gameId) await _lab.TurnOnAutoFindingsAsync(gameId);
+                break;
         }
 
         static void Run(ICommand command)

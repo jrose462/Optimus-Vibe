@@ -105,6 +105,11 @@ public sealed class GameLabViewModel : ObservableObject
     private bool _signedIn;
     private bool _isReady;
     private bool _autoRequest = true;
+    private bool _watchSessions = true;
+    private bool _autoFindings;
+    private bool _autoFindingsAsked;
+    private readonly AutoFindingBudget _findingsBudget = new(GameLab.AutoFindings.MaxPerStart);
+    private readonly SemaphoreSlim _findingsGate = new(1, 1);
     private bool _loading;
     private bool _isChecking;
     private bool _checked;
@@ -200,6 +205,7 @@ public sealed class GameLabViewModel : ObservableObject
         {
             if (!Set(ref _isReady, value)) return;
             OnPropertyChanged(nameof(RoutesToLab));
+            OnPropertyChanged(nameof(AsksAutoFindingsConsent));
             CommandManager.InvalidateRequerySuggested();
         }
     }
@@ -217,6 +223,40 @@ public sealed class GameLabViewModel : ObservableObject
             if (!_loading) _ = SaveAsync(s => s.GameLabAutoRequest = value);
         }
     }
+
+    /// <summary>"Let Optimus-Vibe check presets after each session": the post-session card and the findings that follow a session. Local only.</summary>
+    public bool WatchSessions
+    {
+        get => _watchSessions;
+        set
+        {
+            if (!Set(ref _watchSessions, value)) return;
+            OnPropertyChanged(nameof(AsksAutoFindingsConsent));
+            if (!_loading) _ = SaveAsync(s => s.GameLabWatchSessions = value);
+        }
+    }
+
+    /// <summary>"Send findings to the game lab automatically" (<see cref="GameLab.AutoFindings"/>). Off by default; the first finding asks once.</summary>
+    public bool AutoFindings
+    {
+        get => _autoFindings;
+        set
+        {
+            if (!Set(ref _autoFindings, value)) return;
+            OnPropertyChanged(nameof(AsksAutoFindingsConsent));
+            if (_loading) return;
+            _autoFindingsAsked = true; // answered in Settings: the card never asks
+            _ = SaveAsync(s => { s.GameLabAutoFindings = value; s.GameLabAutoFindingsAsked = true; });
+        }
+    }
+
+    public string WatchSessionsTitle => GameLab.AutoFindings.WatchSessionsTitle;
+    public string WatchSessionsText => GameLab.AutoFindings.WatchSessionsText;
+    public string AutoFindingsTitle => GameLab.AutoFindings.SettingTitle;
+    public string AutoFindingsText => GameLab.AutoFindings.SettingText(RepoName) + " This machine only.";
+
+    /// <summary>The post-session card may ask, once, whether to send findings automatically: the lab is set up and nobody answered yet.</summary>
+    public bool AsksAutoFindingsConsent => IsReady && WatchSessions && !AutoFindings && !_autoFindingsAsked;
 
     public int DailyMax { get => _dailyMax; set => Set(ref _dailyMax, Math.Clamp(value, 1, 50)); }
 
@@ -271,6 +311,7 @@ public sealed class GameLabViewModel : ObservableObject
             (_repo, _) = await Task.Run(() => _service.ResolveRepo(s, paths));
             if (_repo is null && IsReady) IsReady = false;
             OnPropertyChanged(nameof(RepoText));
+            OnPropertyChanged(nameof(AutoFindingsText));
         }
         catch (Exception ex)
         {
@@ -284,6 +325,10 @@ public sealed class GameLabViewModel : ObservableObject
         try
         {
             AutoRequest = s.GameLabAutoRequest;
+            WatchSessions = s.GameLabWatchSessions;
+            AutoFindings = s.GameLabAutoFindings;
+            _autoFindingsAsked = s.GameLabAutoFindingsAsked;
+            OnPropertyChanged(nameof(AsksAutoFindingsConsent));
             IsReady = s.GameLabReady || (GameLabService.IsDemo && GameLabService.Demo == "ready");
             DailyMax = s.GameLabDailyMax;
             foreach (var m in Models) m.IsOn = m.Value.Equals(s.GameLabModel, StringComparison.OrdinalIgnoreCase);
@@ -310,6 +355,7 @@ public sealed class GameLabViewModel : ObservableObject
             var session = _main.Session;
             (_repo, RepoProblem) = await Task.Run(() => _service.ResolveRepo(s, session?.Paths));
             OnPropertyChanged(nameof(RepoText));
+            OnPropertyChanged(nameof(AutoFindingsText));
             _signedIn = await Task.Run(_service.HasToken);
 
             if (_repo is null || !_signedIn)
@@ -573,6 +619,7 @@ public sealed class GameLabViewModel : ObservableObject
     /// <summary>The card was closed (B / Not now) or acted on. <paramref name="snooze"/>: keep that kind of card away for the game for a few days.</summary>
     public void DismissSession(string gameId, PostSessionKind? snooze = null)
     {
+        if (snooze == PostSessionKind.Consent) MarkConsentAsked(); // "Not now" on the consent card: it asked once
         if (snooze is { } kind && _main.Session is { } session)
             new LabStateStore(session.Paths.DataDir).Update(s =>
                 s.Snoozed[PostSession.SnoozeKey(gameId, kind)] = DateTime.UtcNow.AddDays(PostSession.SnoozeDays));
@@ -798,6 +845,109 @@ public sealed class GameLabViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Error("Automatic game-lab requests failed", ex);
+        }
+    }
+
+    // ---------------------------------------------------------------- automatic findings (consent-gated, GameLab.AutoFindings)
+
+    private void MarkConsentAsked()
+    {
+        if (_autoFindingsAsked) return;
+        _autoFindingsAsked = true;
+        OnPropertyChanged(nameof(AsksAutoFindingsConsent));
+        _ = SaveAsync(s => s.GameLabAutoFindingsAsked = true);
+    }
+
+    /// <summary>"Turn on" on the consent card: findings go to the lab by themselves from now on, and the game's finding at hand goes now.</summary>
+    public async Task TurnOnAutoFindingsAsync(string gameId)
+    {
+        AutoFindings = true;
+        await SaveAsync(s => { s.GameLabAutoFindings = true; s.GameLabAutoFindingsAsked = true; }); // saved before the pass reads the settings
+        _main.Notify("Findings now go to the game lab by themselves. You can turn this off in Settings, Game lab.");
+        await AutoFindingsAsync([gameId]);
+    }
+
+    /// <summary>After a library scan: look for findings in every managed, installed game (one may have updated since its presets worked).</summary>
+    public Task AutoFindingsAfterScanAsync(IReadOnlyList<LibraryEntry> entries) =>
+        AutoFindingsAsync(entries
+            .Where(e => e.Game is not null && e.Detected is not null && !e.OptedOut && e.SetInGame is null && e.Status != LibraryStatus.NeedsPresets)
+            .Select(e => e.Game!.Id).ToList());
+
+    /// <summary>
+    /// Sends what the evidence of these games warrants to the lab (<see cref="GameLab.AutoFindings.RunAsync"/>), only with the user's consent
+    /// (<see cref="AutoFindings"/>) and within its limits; offline, a request waits in the outbox. Says so in a toast, never a dialog. Runs one
+    /// pass at a time; never throws.
+    /// </summary>
+    public async Task AutoFindingsAsync(IReadOnlyList<string> gameIds)
+    {
+        var session = _main.Session;
+        if (session is null || !IsReady || !AutoFindings || gameIds.Count == 0 || _findingsBudget.Remaining == 0) return;
+        await _findingsGate.WaitAsync();
+        try
+        {
+            // what the app already holds (UI thread): the game's snapshot (run history, presets, flag, cloud sync), its install and lab request
+            var detected = _main.Library.Detected;
+            var issues = Issues;
+            var picked = new List<(AutoFindingCandidate Candidate, LabTarget Target, DetectedGame Install)>();
+            foreach (var id in gameIds.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var snap = _main.Games.FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase))?.Snapshot;
+                if (snap?.Context is not { } ctx || snap.Health is not { } inputs) continue;
+                if (LibraryService.FindInstall(ctx.Game, detected) is not { } install) continue;
+                var target = TargetFor(ctx.Game, install, snap.Name);
+                var candidate = new AutoFindingCandidate(target.Key, ctx.Game.Id, snap.Name,
+                    inputs with { LabReady = true, CanLaunch = true, LabRequest = LabStatusIndex.For(issues, target.Key, ctx.Game.Id) });
+                picked.Add((candidate, target, install));
+            }
+            if (picked.Count == 0) return;
+
+            var s = await SettingsStore.LoadAsync();
+            var store = _main.Outbox.Store;
+            var result = await Task.Run(async () =>
+            {
+                var conn = _service.Connect(s, session.Paths, out _);
+                if (conn is null) return AutoFindingsResult.None;
+                var targets = picked.ToDictionary(p => p.Candidate.GameId, p => p.Target, StringComparer.OrdinalIgnoreCase);
+                // the installed build and the mapping run are read here, off the UI thread
+                var candidates = picked.Select(p => p.Candidate with { Inputs = p.Candidate.Inputs.WithInstall(GameBuild.Of(p.Install), StoredMappingOrNull(session, p.Target)) })
+                    .ToList();
+                return await GameLab.AutoFindings.RunAsync(candidates, s.GameLabAutoFindings, labReady: true, _findingsBudget,
+                    (c, f, ct) => _service.FileOrQueueAsync(conn, session, store, f.Kind, targets[c.GameId], ct: ct),
+                    new LabStateStore(session.Paths.DataDir), GameLab.AutoFindings.QueuedKeys(store.List())).ConfigureAwait(false);
+            });
+
+            foreach (var f in result.Filed)
+            {
+                if (f.Queued)
+                {
+                    _main.Outbox.Service.NotifyQueued();
+                    _main.Notify($"Saved a request for {f.Name}: it goes to the game lab when you're back online.");
+                }
+                else if (!f.Reused && f.Url is { } url)
+                {
+                    var what = f.Finding.Kind == LabKind.SyncCheck ? $"re-check {f.Name}'s settings sync" : $"look at {f.Name} again";
+                    _main.NotifyWithAction($"Asked the game lab to {what} (#{f.Issue}): {f.Finding.Text}.", "Open issue", () => OpenUrl(url));
+                }
+            }
+            if (result.Filed.Any(f => !f.Queued)) TriggerCycle(force: true); // the chip shows the request
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Automatic game-lab findings failed", ex);
+        }
+        finally
+        {
+            _findingsGate.Release();
+        }
+    }
+
+    private static ProbeRecord? StoredMappingOrNull(AppSession session, LabTarget target)
+    {
+        try { return GameLabService.StoredMapping(session, target); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read the mapping run of {target.Name}: {ex.Message}");
+            return null;
         }
     }
 

@@ -899,7 +899,12 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 {
                     Log.Info($"{run.Game}: session finished ({run.Drift.Count} of {run.Applied} changed, {run.DurationSec?.ToString(CultureInfo.InvariantCulture) ?? "?"} s)");
                     if (Games.Any(g => string.Equals(g.Id, run.Game, StringComparison.OrdinalIgnoreCase))) await ReloadGameAsync(run.Game);
-                    Lab.AddSession(run, focus: true);
+                    // "check presets after each session" off: the session is only marked seen (no card, no findings)
+                    if (Lab.WatchSessions)
+                    {
+                        Lab.AddSession(run, focus: true);
+                        _ = Lab.AutoFindingsAsync([run.Game]); // consent-gated: does nothing unless findings go to the lab automatically
+                    }
                     SessionFinished?.Invoke(run.Game);
                 }
             } while (_checkSessionsAgain);
