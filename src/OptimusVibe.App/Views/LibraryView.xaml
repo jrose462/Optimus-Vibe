@@ -70,11 +70,16 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Orientation="Horizontal">
-                                    <Border Style="{StaticResource Dot.Attention}" Margin="0,1,6,0"
+                                <!-- dot, health chip ("Game updated" / "Changed by game"; part of the tile's automation name), status line -->
+                                <DockPanel LastChildFill="True">
+                                    <Border DockPanel.Dock="Left" Style="{StaticResource Dot.Attention}" Margin="0,1,6,0"
                                             Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
+                                    <Border DockPanel.Dock="Left" BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="7" Padding="5,0,5,1"
+                                            Margin="0,0,6,0" VerticalAlignment="Center" Visibility="{Binding HasAttentionChip, Converter={StaticResource VisibleWhen}}">
+                                        <TextBlock Text="{Binding AttentionChip}" FontSize="11.5" FontWeight="SemiBold" Foreground="#FFD3B8" TextWrapping="NoWrap" />
+                                    </Border>
                                     <TextBlock Text="{Binding StatusLine}" FontSize="{DynamicResource CaptionSize}" Foreground="#D6DBE3" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
+                                </DockPanel>
                                 <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="13" VerticalAlignment="Center" Margin="6,1,0,0"
                                            Foreground="#D6DBE3" />
                             </Grid>
@@ -139,11 +144,16 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal">
-                            <Border Style="{StaticResource Dot.Attention}" Margin="0,1,8,0"
+                        <DockPanel LastChildFill="True">
+                            <Border DockPanel.Dock="Left" Style="{StaticResource Dot.Attention}" Margin="0,1,8,0"
                                     Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
+                            <!-- health chip ("Game updated" / "Changed by game"); part of the tile's automation name, no focus stop of its own -->
+                            <Border DockPanel.Dock="Left" BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="8" Padding="6,0,6,1"
+                                    Margin="0,0,8,0" VerticalAlignment="Center" Visibility="{Binding HasAttentionChip, Converter={StaticResource VisibleWhen}}">
+                                <TextBlock Text="{Binding AttentionChip}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AttentionBrush}" TextWrapping="NoWrap" />
+                            </Border>
                             <TextBlock Text="{Binding StatusLine}" Style="{StaticResource Text.Caption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
+                        </DockPanel>
                         <!-- does this game's settings sync? cloud / device / question mark; the tooltip says why -->
                         <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="15" VerticalAlignment="Center" Margin="8,1,0,0"
                                    ToolTip="{Binding SyncTip}" AutomationProperties.Name="{Binding SyncTip}">

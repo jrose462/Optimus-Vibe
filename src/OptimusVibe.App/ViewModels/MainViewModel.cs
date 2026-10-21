@@ -10,6 +10,7 @@ using OptimusVibe.App.Services;
 using OptimusVibe.Config;
 using OptimusVibe.Devices;
 using OptimusVibe.Engine;
+using OptimusVibe.GameLab;
 using OptimusVibe.Launch;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
@@ -680,6 +681,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
         await Lab.InitializeAsync();
         StartAutoPull();
+        StartSessionWatch(Session);
         Outbox.Start();
         _ = Library.ScanAsync(rescanLaunchers: rescan || Library.Detected.Count == 0);
     }
@@ -842,7 +844,84 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     /// <summary>The window came back to the front: pull if the last pull is older than 5 minutes.</summary>
     public void OnWindowActivated()
     {
-        if (IsReady) _ = PullAsync(TimeSpan.FromMinutes(5));
+        if (!IsReady) return;
+        _ = PullAsync(TimeSpan.FromMinutes(5));
+        _ = CheckSessionsAsync(); // a session the watcher missed; then a card that waited for the window may take focus
+        Lab.RetrySessionFocus();
+    }
+
+    // ---------------------------------------------------------------- finished sessions (post-session card, tile chip)
+
+    private RunResultWatcher? _sessionWatch;
+    private bool _checkingSessions;
+    private bool _checkSessionsAgain;
+
+    /// <summary>A game's session finished (the wrapper stored its run): the game was reloaded and its card offered.</summary>
+    public event Action<string>? SessionFinished;
+
+    /// <summary>Watches this device's run-results.json for sessions the wrapper finishes (also ones started from Steam, not from the app).</summary>
+    private void StartSessionWatch(AppSession session)
+    {
+        var dataDir = session.Paths.DataDir;
+        if (_sessionWatch is { } w && string.Equals(w.DataDir, dataDir, StringComparison.OrdinalIgnoreCase)) return;
+        _sessionWatch?.Dispose();
+        _sessionWatch = new RunResultWatcher(dataDir, () => Application.Current?.Dispatcher.BeginInvoke(() => _ = CheckSessionsAsync()));
+        _ = CheckSessionsAsync(); // the first look marks every session already there as seen
+    }
+
+    /// <summary>
+    /// Looks for sessions finished since the last look (<see cref="PostSession.Detect"/>; the marks live in gamelab-state.json, so each session
+    /// is offered once). For each: reloads the game (its tile chip), offers its post-session card and raises <see cref="SessionFinished"/>.
+    /// Never throws.
+    /// </summary>
+    public async Task CheckSessionsAsync()
+    {
+        if (Session is not { } session || !IsReady) return;
+        if (_checkingSessions)
+        {
+            _checkSessionsAgain = true;
+            return;
+        }
+        _checkingSessions = true;
+        try
+        {
+            do
+            {
+                _checkSessionsAgain = false;
+                var dataDir = session.Paths.DataDir;
+                var device = session.Device.Name;
+                var fresh = await Task.Run(() =>
+                {
+                    var store = new LabStateStore(dataDir);
+                    var state = store.Load();
+                    var found = PostSession.Detect(RunResults.Entries(dataDir, device), state.SessionsSeen, state.SessionsBaselined);
+                    if (found.Changed || !state.SessionsBaselined)
+                        store.Update(s =>
+                        {
+                            foreach (var (gameId, utc) in found.Seen)
+                                if (!s.SessionsSeen.TryGetValue(gameId, out var seen) || utc > seen) s.SessionsSeen[gameId] = utc;
+                            s.SessionsBaselined = true;
+                        });
+                    return found.Fresh;
+                });
+                if (Session != session) return;
+                foreach (var run in fresh)
+                {
+                    Log.Info($"{run.Game}: session finished ({run.Drift.Count} of {run.Applied} changed, {run.DurationSec?.ToString(CultureInfo.InvariantCulture) ?? "?"} s)");
+                    if (Games.Any(g => string.Equals(g.Id, run.Game, StringComparison.OrdinalIgnoreCase))) await ReloadGameAsync(run.Game);
+                    Lab.AddSession(run, focus: true);
+                    SessionFinished?.Invoke(run.Game);
+                }
+            } while (_checkSessionsAgain);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not look for finished sessions: {ex.Message}");
+        }
+        finally
+        {
+            _checkingSessions = false;
+        }
     }
 
     /// <summary>

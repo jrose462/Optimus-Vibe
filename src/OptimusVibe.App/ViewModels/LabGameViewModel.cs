@@ -61,8 +61,13 @@ public sealed class LabGameViewModel : ObservableObject
     private int _researchFinishedFor;
     private bool _healthLoaded;
     private GameHealth? _health;
+    private HealthInputs? _inputs;
     private bool _moreOpen;
+    private bool _postLoaded;
+    private PostSessionCard? _post;
+    private DateTime? _postDetailsFor;
 #if DEBUG
+    private PostSessionCard? _demoPost;
     private bool _demo;
     private RunResult? _demoHint;
     private string? _demoStatus;
@@ -99,7 +104,20 @@ public sealed class LabGameViewModel : ObservableObject
         ConfirmFlagCommand = new AsyncRelayCommand(ConfirmFlagAsync, () => Idle() && _flagConfirming);
         ManageAgainCommand = new AsyncRelayCommand(ManageAgainAsync, () => Idle() && CanManageAgain);
         ToggleMoreCommand = new RelayCommand(() => IsMoreOpen = !IsMoreOpen);
+        PostPrimaryCommand = new AsyncRelayCommand(() => RunPostAsync(PostCard?.Primary ?? PostSessionAction.None), () => Idle() && CanRunPost(PostCard?.Primary));
+        PostSecondaryCommand = new AsyncRelayCommand(() => RunPostAsync(PostCard?.Secondary ?? PostSessionAction.None), () => Idle() && CanRunPost(PostCard?.Secondary));
+        PostDismissCommand = new RelayCommand(DismissPost, () => HasPostSession);
         lab.IssuesChanged += Refresh;
+        lab.SessionsChanged += id =>
+        {
+            if (!string.Equals(id, Ctx.GameId, StringComparison.OrdinalIgnoreCase)) return;
+            Refresh();
+            CommandManager.InvalidateRequerySuggested();
+        };
+        lab.SessionFocusRequested += id =>
+        {
+            if (string.Equals(id, Ctx.GameId, StringComparison.OrdinalIgnoreCase)) PostSessionFocusRequested?.Invoke();
+        };
         lab.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(GameLabViewModel.IsReady)) Refresh(); };
     }
 
@@ -125,6 +143,9 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand ConfirmFlagCommand { get; }
     public ICommand ManageAgainCommand { get; }
     public ICommand ToggleMoreCommand { get; }
+    public ICommand PostPrimaryCommand { get; }
+    public ICommand PostSecondaryCommand { get; }
+    public ICommand PostDismissCommand { get; }
 
     public void Refresh()
     {
@@ -132,6 +153,7 @@ public sealed class LabGameViewModel : ObservableObject
         _autoLoaded = false;
         _flagLoaded = false;
         _healthLoaded = false;
+        _postLoaded = false;
         OnPropertyChanged(string.Empty);
     }
 
@@ -370,9 +392,24 @@ public sealed class LabGameViewModel : ObservableObject
             return r;
         }
 
+        void Post(HealthInputs inputs, RunResult run)
+        {
+            _demoInputs = inputs;
+            _demoPost = PostSession.For(inputs, GameHealth.Evaluate(inputs), run, Ctx.Name);
+        }
+        RunResult Session(int drifted, CaptureAnswer capture, int sec = 1800)
+        {
+            var r = Played(0, drifted);
+            r.Capture = capture;
+            r.DurationSec = sec;
+            return r;
+        }
+
         ClearTransient();
         _result = null;
         _demoInputs = null;
+        _demoPost = null;
+        _postDetailsFor = null;
         _moreOpen = false;
         _healthLoaded = false;
         _demoHint = null;
@@ -457,6 +494,46 @@ public sealed class LabGameViewModel : ObservableObject
                 };
                 break;
             case "health-more": _moreOpen = true; break;
+            // the post-session card, one scene per kind
+            case "post-held":
+            {
+                var run = Session(0, CaptureAnswer.NotAsked);
+                Post(Inputs() with { Recent = [run] }, run);
+                break;
+            }
+            case "post-changed":
+            {
+                var run = Session(10, CaptureAnswer.Off);
+                Post(Inputs() with { Recent = [run] }, run);
+                break;
+            }
+            case "post-recurring":
+            {
+                var before = Session(10, CaptureAnswer.DontSave, sec: 120);
+                before.Utc = DateTime.UtcNow.AddDays(-1);
+                var run = Session(10, CaptureAnswer.DontSave, sec: 120);
+                Post(Inputs() with { Recent = [before, run] }, run);
+                break;
+            }
+            case "post-updated":
+            {
+                var run = Session(0, CaptureAnswer.NotAsked);
+                Post(Inputs() with
+                {
+                    Recent = [run], Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-30), BuildId = "steam:100" }, CurrentBuild = "steam:200",
+                }, run);
+                break;
+            }
+            case "post-map":
+            {
+                var run = Session(0, CaptureAnswer.NotAsked);
+                Post(Inputs() with
+                {
+                    HasPresets = false, Recent = [run],
+                    LabRequest = new LabIssue(12, "Demo", "https://github.com/", true, [], LabStatus.NeedsEvidence, null, null, null),
+                }, run);
+                break;
+            }
             case "auto": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; break;
             case "auto-first": _demoAuto = "First launch with this preset: set it up in-game; Optimus-Vibe keeps it for next time."; break;
             case "auto-forget": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; _forgetConfirming = true; break;
@@ -483,14 +560,15 @@ public sealed class LabGameViewModel : ObservableObject
         {
 #if DEBUG
             if (_demo)
-                return GameHealth.Evaluate(_demoInputs ?? new HealthInputs
+                return GameHealth.Evaluate(_inputs = _demoInputs ?? new HealthInputs
                 {
                     GameId = "demo", Device = "desktop", HasConfig = true, HasPresets = true, LabReady = true, CanLaunch = true,
                 });
 #endif
             if (_healthLoaded && _health is not null) return _health;
             _healthLoaded = true;
-            _health = GameHealth.Evaluate(LoadHealthInputs());
+            _inputs = LoadHealthInputs();
+            _health = GameHealth.Evaluate(_inputs);
             return _health;
         }
     }
@@ -592,8 +670,151 @@ public sealed class LabGameViewModel : ObservableObject
 
     public string SuggestedText => Suggested == HealthAction.RequestPresets ? RequestText : GameHealth.ActionText(Suggested);
 
-    /// <summary>The suggested button; "Flag as set in-game" steps aside while its confirm card or a test result (which has its own) is open.</summary>
-    public bool ShowSuggested => Suggested != HealthAction.None && !(Suggested == HealthAction.FlagSetInGame && (_flagConfirming || HasResult));
+    /// <summary>
+    /// The suggested button; "Flag as set in-game" steps aside while its confirm card or a test result (which has its own) is open, and any
+    /// suggestion steps aside while the post-session card offers the same action.
+    /// </summary>
+    public bool ShowSuggested => Suggested != HealthAction.None && !(Suggested == HealthAction.FlagSetInGame && (_flagConfirming || HasResult)) &&
+                                 !PostOffers(Suggested);
+
+    private bool PostOffers(HealthAction action) =>
+        PostCard is { } c && (PostSession.AsHealthAction(c.Primary) == action || PostSession.AsHealthAction(c.Secondary) == action);
+
+    // ---------------------------------------------------------------- post-session card: inline, once, B = Not now
+
+    /// <summary>
+    /// The card about the game's last session (<see cref="PostSession.For"/>), while it is pending (<see cref="GameLabViewModel.SessionFor"/>):
+    /// what the game kept or changed, or what would help next. Null when there is nothing to say or it was dismissed.
+    /// </summary>
+    public PostSessionCard? PostCard
+    {
+        get
+        {
+#if DEBUG
+            if (_demo) return _demoPost;
+#endif
+            if (_postLoaded) return _post;
+            _postLoaded = true;
+            _post = null;
+            if (Ctx.GameId is not { } id || _lab.SessionFor(id) is not { } run) return null;
+            try
+            {
+                var health = Health;
+                if (_inputs is { } inputs) _post = PostSession.For(inputs, health, run, Ctx.Name, _lab.SnoozedFor(id));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not work out the card for the last session: {ex.Message}");
+            }
+            return _post;
+        }
+    }
+
+    public bool HasPostSession => PostCard is not null;
+    public string PostSessionText => PostCard?.Text ?? "";
+    public string PostSessionWhy => PostCard?.Why ?? "";
+    public bool HasPostSessionWhy => PostSessionWhy.Length > 0;
+
+    /// <summary>"See which" was pressed: the card lists the settings the game changed.</summary>
+    public bool ShowPostLines => PostCard is { } c && _postDetailsFor == c.Run.Utc && c.Run.Drift.Count > 0;
+
+    public IReadOnlyList<string> PostLines => PostCard is { } c && ShowPostLines
+        ? c.Run.Drift.Take(MaxResultLines).Select(d => d.IsWholeFile ? $"{d.FileId} (whole file)" : $"{d.Key}: {d.Applied ?? "(not set)"} → {d.Now ?? "(missing)"}").ToList()
+        : [];
+
+    public string PostLinesMore => PostCard is { } c && ShowPostLines && c.Run.Drift.Count > MaxResultLines ? $"…and {c.Run.Drift.Count - MaxResultLines} more" : "";
+    public bool HasPostLinesMore => PostLinesMore.Length > 0;
+
+    private bool ShowPostAction(PostSessionAction? action) =>
+        action is { } a && a != PostSessionAction.None && !(a == PostSessionAction.SeeWhich && ShowPostLines);
+
+    public bool ShowPostPrimary => ShowPostAction(PostCard?.Primary);
+    public string PostPrimaryText => PostSession.ActionText(PostCard?.Primary ?? PostSessionAction.None);
+    public bool ShowPostSecondary => ShowPostAction(PostCard?.Secondary);
+    public string PostSecondaryText => PostSession.ActionText(PostCard?.Secondary ?? PostSessionAction.None);
+
+    /// <summary>B: "Not now" keeps this kind of card away for a few days; the one-off "kept all" card just closes.</summary>
+    public string PostDismissText => PostCard is { CanSnooze: false } ? "OK" : "Not now";
+
+    /// <summary>
+    /// The card should take focus now: it asks for something, it arrived after a session the player just came back from, and no panel has taken
+    /// it yet. The panel takes it only while it is on screen in the active window (the game's page is open).
+    /// </summary>
+    public bool PostSessionWantsFocus =>
+        Ctx.GameId is { } id && _lab.WantsSessionFocus(id) && PostCard is { TakesFocus: true };
+
+    /// <summary>The moment to try: the session just arrived, or the window just came to the front (never on an ordinary refresh).</summary>
+    public event Action? PostSessionFocusRequested;
+
+    public void PostSessionFocusTaken()
+    {
+        if (Ctx.GameId is { } id) _lab.SessionFocusTaken(id);
+    }
+
+    private bool CanRunPost(PostSessionAction? action) => action switch
+    {
+        PostSessionAction.KeepThese => _main.Session is not null && Ctx.GameId is not null,
+        PostSessionAction.SeeWhich => true,
+        PostSessionAction.FlagSetInGame => FlagCommand.CanExecute(null),
+        PostSessionAction.AskLab => RefreshPresetsCommand.CanExecute(null),
+        PostSessionAction.MapGame => MapCommand.CanExecute(null),
+        _ => false,
+    };
+
+    /// <summary>A card button: "See which" opens the list in place; every other one closes the card and runs the existing action (its confirm card opens).</summary>
+    private async Task RunPostAsync(PostSessionAction action)
+    {
+        if (PostCard is not { } card) return;
+        if (action == PostSessionAction.SeeWhich)
+        {
+            _postDetailsFor = card.Run.Utc;
+            RaisePost();
+            return;
+        }
+        ClosePost(snooze: false);
+        switch (action)
+        {
+            case PostSessionAction.KeepThese: await SaveResultAsync(); break;
+            case PostSessionAction.FlagSetInGame: Run(FlagCommand); break;
+            case PostSessionAction.AskLab: Run(RefreshPresetsCommand); break;
+            case PostSessionAction.MapGame: Run(MapCommand); break;
+        }
+
+        static void Run(ICommand command)
+        {
+            if (command.CanExecute(null)) command.Execute(null);
+        }
+    }
+
+    private void DismissPost() => ClosePost(snooze: true);
+
+    private void ClosePost(bool snooze)
+    {
+        var card = PostCard;
+        _postDetailsFor = null;
+#if DEBUG
+        if (_demo)
+        {
+            _demoPost = null;
+            RaisePost();
+            return;
+        }
+#endif
+        if (card is null || Ctx.GameId is not { } id) return;
+        _lab.DismissSession(id, snooze && card.CanSnooze ? card.Kind : null); // its panels refresh through SessionsChanged
+    }
+
+    private void RaisePost()
+    {
+        foreach (var n in new[]
+                 {
+                     nameof(PostCard), nameof(HasPostSession), nameof(PostSessionText), nameof(PostSessionWhy), nameof(HasPostSessionWhy), nameof(ShowPostLines),
+                     nameof(PostLines), nameof(PostLinesMore), nameof(HasPostLinesMore), nameof(ShowPostPrimary), nameof(PostPrimaryText), nameof(ShowPostSecondary),
+                     nameof(PostSecondaryText), nameof(PostDismissText), nameof(ShowSuggested),
+                 })
+            OnPropertyChanged(n);
+        CommandManager.InvalidateRequerySuggested();
+    }
 
     // ---------------------------------------------------------------- More: every other action, each once, with a caption
 
@@ -1015,7 +1236,7 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>
     /// B / Esc: closes the top card only. A confirmation (request, test or "send the test result") goes first; the test result
-    /// underneath closes on the next press, then an open "More" collapses. True when something was closed.
+    /// underneath closes on the next press, then the post-session card ("Not now"), then an open "More" collapses. True when something was closed.
     /// </summary>
     public bool CancelTransient()
     {
@@ -1024,6 +1245,11 @@ public sealed class LabGameViewModel : ObservableObject
         {
             _result = null;
             OnPropertyChanged(string.Empty);
+            return true;
+        }
+        if (HasPostSession)
+        {
+            DismissPost();
             return true;
         }
         if (_moreOpen)

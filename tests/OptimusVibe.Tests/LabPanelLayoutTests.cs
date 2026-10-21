@@ -51,6 +51,10 @@ public sealed class LabPanelLayoutTests
     [InlineData("DismissResultCommand", 1)]
     [InlineData("ConfirmCommand", 1)]
     [InlineData("MapFirstCommand", 1)]
+    // the post-session card's own buttons (they run the commands above through the view model, never a second bound copy)
+    [InlineData("PostPrimaryCommand", 1)]
+    [InlineData("PostSecondaryCommand", 1)]
+    [InlineData("PostDismissCommand", 1)]
     public void EveryCommand_IsBound_AsOftenAsBefore(string command, int times)
     {
         Assert.Equal(times, Bound(Panel(), command).Count);
@@ -92,6 +96,29 @@ public sealed class LabPanelLayoutTests
         Assert.True(status >= 0 && why > status && suggested > why && toggle > suggested, "focus order: status, why, suggested, More");
         Assert.Equal(Wpf + "TextBlock", all[status].Name);
         Assert.Equal(Wpf + "TextBlock", all[why].Name);
+    }
+
+    [Fact]
+    public void ThePostSessionCard_IsInline_Contained_WithItsActionsAndBForNotNow()
+    {
+        var doc = Panel();
+        var card = doc.Descendants(Wpf + "Border").Single(e => (string?)e.Attribute(X + "Name") == "PostCard");
+        Assert.Equal("{StaticResource Card.Inset}", (string?)card.Attribute("Style"));
+        Assert.Equal("Contained", (string?)card.Attribute("KeyboardNavigation.DirectionalNavigation"));
+        Assert.Contains("HasPostSession", (string?)card.Attribute("Visibility"));
+        Assert.Single(Bound(card, "PostSecondaryCommand"));
+        var primary = Assert.Single(Bound(card, "PostPrimaryCommand"));
+        Assert.Contains(primary.Descendants(), e => e.Name.LocalName == "ButtonGlyph" && (string?)e.Attribute("Kind") == "A");
+        var dismiss = Assert.Single(Bound(card, "PostDismissCommand"));
+        Assert.Contains(dismiss.Descendants(), e => e.Name.LocalName == "ButtonGlyph" && (string?)e.Attribute("Kind") == "B");
+        // no existing game-page command is bound in it a second time: its actions go through the view model to the existing commands
+        Assert.All(card.Descendants().Select(e => (string?)e.Attribute("Command")).OfType<string>(), c => Assert.StartsWith("{Binding Post", c));
+
+        // the card sits under the status and why lines, before the suggested action
+        var all = doc.Descendants().ToList();
+        var why = all.FindIndex(e => (string?)e.Attribute("Text") == "{Binding HealthWhy}");
+        var suggested = all.FindIndex(e => (string?)e.Attribute("Command") == "{Binding SuggestedCommand}");
+        Assert.True(all.IndexOf(card) > why && all.IndexOf(card) < suggested, "order: why line, post-session card, suggested action");
     }
 
     [Fact]

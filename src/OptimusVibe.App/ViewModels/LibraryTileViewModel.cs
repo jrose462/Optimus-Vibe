@@ -4,6 +4,7 @@ using OptimusVibe.App.Services;
 using OptimusVibe.CloudSync;
 using OptimusVibe.GameLab;
 using OptimusVibe.Library;
+using OptimusVibe.Logging;
 
 namespace OptimusVibe.App.ViewModels;
 
@@ -17,6 +18,8 @@ public sealed class LibraryTileViewModel : ObservableObject
     private GameItemViewModel? _gameItem;
     private ImageSource? _art;
     private ImageSource? _icon;
+    private bool _healthLoaded;
+    private GameHealth? _health;
 
     public LibraryTileViewModel(LibraryViewModel owner, LibraryEntry entry, GameItemViewModel? gameItem)
     {
@@ -80,8 +83,41 @@ public sealed class LibraryTileViewModel : ObservableObject
         _ => "Not installed",
     };
 
-    /// <summary>Small orange dot: this game needs attention (waiting for presets, or a config problem).</summary>
+    /// <summary>Small orange dot: this game needs attention (waiting for presets, or a config problem). A health state has its chip instead.</summary>
     public bool NeedsAttention => Status is TileStatus.NeedsPresets or TileStatus.Error;
+
+    // ---------------------------------------------------------------- health chip
+
+    /// <summary>
+    /// The game's health on this device for the tile (<see cref="GameHealth.Evaluate"/> over the inputs its snapshot read once per load, plus the
+    /// installed build), for managed games that are not flagged. Null otherwise. Worked out once per update.
+    /// </summary>
+    public GameHealth? Health
+    {
+        get
+        {
+            if (_healthLoaded) return _health;
+            _healthLoaded = true;
+            _health = null;
+            if (Status != TileStatus.Managed || IsSetInGame || _gameItem?.Snapshot.Health is not { } inputs) return null;
+            try
+            {
+                // the build is only worth reading when something recorded the build the presets worked on
+                var build = inputs.BaselineBuild is not null && _entry.Detected is { } detected ? GameBuild.Of(detected) : null;
+                _health = GameHealth.Evaluate(inputs with { CurrentBuild = build, CanLaunch = CanPlay, LabReady = _owner.Shell.Lab.IsReady });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"{Name}: could not work out its health: {ex.Message}");
+            }
+            return _health;
+        }
+    }
+
+    /// <summary>"Game updated" / "Changed by game" (<see cref="GameHealth.TileChip"/>); null when the game needs no attention.</summary>
+    public string? AttentionChip => Health?.TileChip;
+
+    public bool HasAttentionChip => AttentionChip is not null;
 
     public bool IsInstalled => _entry.Detected is not null;
     public bool HasConfig => _entry.Game is not null;
@@ -132,7 +168,7 @@ public sealed class LibraryTileViewModel : ObservableObject
 
     public string PlayHint => Status switch
     {
-        TileStatus.Managed when IsSetInGame => "Display and NVIDIA are applied; the game's own settings are left to the game",
+        TileStatus.Managed when IsSetInGame => "Display and graphics-driver settings are applied; the game's own settings are left to the game",
         TileStatus.Managed =>"Your preset is applied, then restored after you quit",
         TileStatus.NeedsPresets => "Starts normally — presets aren't ready yet",
         TileStatus.OptedOut => "Starts normally — Optimus-Vibe leaves its settings alone",
@@ -160,16 +196,21 @@ public sealed class LibraryTileViewModel : ObservableObject
     {
         _entry = entry;
         _gameItem = gameItem;
+        _healthLoaded = false;
         OnPropertyChanged(string.Empty);
         Lab.Refresh();
     }
 
-    /// <summary>Re-read the game list badge (after Use / Apply in the detail page).</summary>
+    /// <summary>Re-read the game list badge (after Use / Apply in the detail page, or a reload of the game after a session).</summary>
     public void RefreshBadge()
     {
+        _healthLoaded = false;
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusLine));
+        OnPropertyChanged(nameof(AttentionChip));
+        OnPropertyChanged(nameof(HasAttentionChip));
     }
 
-    public override string ToString() => $"{Name}, {StatusText}"; // automation name
+    // automation name: the chip is part of it, so it needs no focus stop of its own
+    public override string ToString() => AttentionChip is { } chip ? $"{Name}, {StatusText}, {chip}" : $"{Name}, {StatusText}";
 }

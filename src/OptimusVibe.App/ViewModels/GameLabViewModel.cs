@@ -6,6 +6,7 @@ using System.Windows.Input;
 using OptimusVibe.App.Services;
 using OptimusVibe.Config;
 using OptimusVibe.GameLab;
+using OptimusVibe.Launch;
 using OptimusVibe.Library;
 using OptimusVibe.Logging;
 using OptimusVibe.Outbox;
@@ -518,6 +519,77 @@ public sealed class GameLabViewModel : ObservableObject
     // ---------------------------------------------------------------- per-game support
 
     public LabGameViewModel ForGame(Func<LabGameContext> context) => new(this, _main, context);
+
+    // ---------------------------------------------------------------- post-session cards (shared by every panel of a game)
+
+    /// <summary>How long after a session its card may still take focus (the player coming back to the app from the game).</summary>
+    public static readonly TimeSpan SessionFocusWindow = TimeSpan.FromMinutes(5);
+
+    private sealed class PendingSession(RunResult run, bool focus)
+    {
+        public RunResult Run { get; } = run;
+        public DateTime ArrivedUtc { get; } = DateTime.UtcNow;
+        public bool WantsFocus { get; set; } = focus;
+    }
+
+    private readonly Dictionary<string, PendingSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A game's finished session arrived or was dismissed: its panels re-read their post-session card.</summary>
+    public event Action<string>? SessionsChanged;
+
+    /// <summary>
+    /// A game's card may take focus now: it just arrived, or the window just came to the front. Only these two moments try; an on-screen panel
+    /// of the game takes it once (a later refresh never moves focus).
+    /// </summary>
+    public event Action<string>? SessionFocusRequested;
+
+    /// <summary>The finished session a game's post-session card is about, until the card is dismissed or acted on; null when none.</summary>
+    public RunResult? SessionFor(string? gameId) => gameId is not null && _sessions.TryGetValue(gameId, out var s) ? s.Run : null;
+
+    /// <summary>A session of the game finished (<see cref="MainViewModel.CheckSessionsAsync"/>): its panels may show a card for it, once.</summary>
+    public void AddSession(RunResult run, bool focus)
+    {
+        _sessions[run.Game] = new PendingSession(run, focus);
+        SessionsChanged?.Invoke(run.Game);
+        if (focus) SessionFocusRequested?.Invoke(run.Game);
+    }
+
+    /// <summary>The game's card may still take focus (it arrived recently and no panel has taken it yet).</summary>
+    public bool WantsSessionFocus(string? gameId) =>
+        gameId is not null && _sessions.TryGetValue(gameId, out var s) && s.WantsFocus && DateTime.UtcNow - s.ArrivedUtc < SessionFocusWindow;
+
+    public void SessionFocusTaken(string gameId)
+    {
+        if (_sessions.TryGetValue(gameId, out var s)) s.WantsFocus = false;
+    }
+
+    /// <summary>The window came to the front: panels whose card still wants focus try again (the game was played while the app was away).</summary>
+    public void RetrySessionFocus()
+    {
+        foreach (var (gameId, s) in _sessions.ToList())
+            if (s.WantsFocus) SessionFocusRequested?.Invoke(gameId);
+    }
+
+    /// <summary>The card was closed (B / Not now) or acted on. <paramref name="snooze"/>: keep that kind of card away for the game for a few days.</summary>
+    public void DismissSession(string gameId, PostSessionKind? snooze = null)
+    {
+        if (snooze is { } kind && _main.Session is { } session)
+            new LabStateStore(session.Paths.DataDir).Update(s =>
+                s.Snoozed[PostSession.SnoozeKey(gameId, kind)] = DateTime.UtcNow.AddDays(PostSession.SnoozeDays));
+        if (_sessions.Remove(gameId)) SessionsChanged?.Invoke(gameId);
+    }
+
+    /// <summary>The post-session card kinds "Not now" keeps away for the game right now.</summary>
+    public IReadOnlySet<PostSessionKind> SnoozedFor(string gameId)
+    {
+        if (_main.Session is not { } session) return new HashSet<PostSessionKind>();
+        try { return new LabStateStore(session.Paths.DataDir).Load().SnoozedFor(gameId, DateTime.UtcNow); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read the snoozed cards of {gameId}: {ex.Message}");
+            return new HashSet<PostSessionKind>();
+        }
+    }
 
     /// <summary>The target the evidence is collected for (install folder from the latest launcher scan).</summary>
     public LabTarget TargetFor(GameDef? game, DetectedGame? detected, string name) => LabTarget.From(detected, game, name);

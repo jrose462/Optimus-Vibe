@@ -17,9 +17,17 @@ public partial class LabGamePanel : UserControl
         InitializeComponent();
         DataContextChanged += (_, _) =>
         {
-            if (_vm is not null) _vm.PropertyChanged -= OnVmChanged;
+            if (_vm is not null)
+            {
+                _vm.PropertyChanged -= OnVmChanged;
+                _vm.PostSessionFocusRequested -= FocusPostCardSoon;
+            }
             _vm = DataContext as LabGameViewModel;
-            if (_vm is not null) _vm.PropertyChanged += OnVmChanged;
+            if (_vm is not null)
+            {
+                _vm.PropertyChanged += OnVmChanged;
+                _vm.PostSessionFocusRequested += FocusPostCardSoon;
+            }
         };
     }
 
@@ -39,6 +47,22 @@ public partial class LabGamePanel : UserControl
             {
                 if (MoreButton.IsVisible) MoreButton.Focus();
             }
+        });
+    }
+
+    /// <summary>
+    /// The post-session card asks for focus (it just arrived, or the window just came back): its first action takes it when this panel is on
+    /// screen in the active window, i.e. the player came back from the game to this game's page. Otherwise nothing moves.
+    /// </summary>
+    private void FocusPostCardSoon()
+    {
+        if (_vm is not { PostSessionWantsFocus: true }) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            if (_vm is not { PostSessionWantsFocus: true } vm || !IsVisible || !PostCard.IsVisible || Window.GetWindow(this) is not { IsActive: true }) return;
+            if (FirstAction(PostCard) is not { } first) return;
+            first.Focus();
+            vm.PostSessionFocusTaken();
         });
     }
 

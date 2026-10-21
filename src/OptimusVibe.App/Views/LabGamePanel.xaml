@@ -66,6 +66,41 @@
             <TextBlock Text="{Binding HealthWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,2,0,0"
                        Visibility="{Binding HasHealthWhy, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding HealthWhy}" />
 
+            <!-- after a session: inline, once, no popup. One line, one dim line, at most two actions; B = Not now. It takes focus only when the
+                 player just came back from the game to this page (code-behind). -->
+            <Border x:Name="PostCard" Style="{StaticResource Card.Inset}" Margin="0,10,0,0" KeyboardNavigation.DirectionalNavigation="Contained"
+                    Visibility="{Binding HasPostSession, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="After your last session">
+                <StackPanel>
+                    <TextBlock Text="{Binding PostSessionText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding PostSessionWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Visibility="{Binding HasPostSessionWhy, Converter={StaticResource VisibleWhen}}" />
+                    <ScrollViewer MaxHeight="{DynamicResource LabListMaxHeight}" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,8,0,0"
+                                  Visibility="{Binding ShowPostLines, Converter={StaticResource VisibleWhen}}">
+                        <ItemsControl ItemsSource="{Binding PostLines}" Focusable="False" Margin="0,0,8,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding}" Margin="0,1" Foreground="{DynamicResource TextDimBrush}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock Text="{Binding PostLinesMore}" Style="{StaticResource Text.Caption}" Margin="0,2,0,0"
+                               Visibility="{Binding HasPostLinesMore, Converter={StaticResource VisibleWhen}}" />
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button Style="{StaticResource Button.Primary}" Command="{Binding PostPrimaryCommand}" Margin="0,0,8,6"
+                                Visibility="{Binding ShowPostPrimary, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding PostPrimaryText}">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding PostPrimaryText}" /></StackPanel>
+                        </Button>
+                        <Button Command="{Binding PostSecondaryCommand}" Content="{Binding PostSecondaryText}" Margin="0,0,8,6"
+                                Visibility="{Binding ShowPostSecondary, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding PostSecondaryText}" />
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding PostDismissCommand}" Margin="0,0,8,6" AutomationProperties.Name="{Binding PostDismissText}">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding PostDismissText}" /></StackPanel>
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
             <!-- the one suggested action (an existing command; A opens its usual confirm card), then More -->
             <WrapPanel Margin="0,10,0,0">
                 <Button Style="{StaticResource Button.Primary}" Command="{Binding SuggestedCommand}" Content="{Binding SuggestedText}" Margin="0,0,8,6"
