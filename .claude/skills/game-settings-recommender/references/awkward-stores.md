@@ -18,8 +18,7 @@ frame generation, ray tracing, motion blur, film grain and chromatic aberration 
 - **In-game steps instead of keys**: put the settings the user must change in-game into each preset's
   `description`, e.g. "In-game: Upscaler FSR 3 Performance, Frame Gen off, RT off; then save a manual save." Also
   list them per device in `notes:`. Rule 6 (other vendor's upscaler off) then becomes one of these steps.
-- Keep the rest of the presets on the text stores as normal. Mark keys that the binary store may override with
-  `# TODO verify (binary .sav may override)`.
+- Keep the rest of the presets on the text stores as normal. Keys that the binary store may override are a behaviour doubt: say so in a comment and settle it with `run --verify`.
 
 ## Composite / struct values in one key
 
@@ -46,7 +45,7 @@ properties in general look like `Key=(A=1,B=(C="x"))` or repeated `+Key=...` lin
   or the game's own files.
 - **Exe string table** (key names only, never values): UE games embed config property names as UTF-16 strings.
   `node <skill>/scripts/strings.js "<Proj>/Binaries/Win64/<Game>.exe" "upscal|framegen|dlss|fsr|xess|raytrac|motionblur"`
-  gives candidate names. A name found only here still gets `# TODO verify` until it has been seen in the config file.
+  gives candidate names. A name found only here is not written to a preset until it has been seen in the config file.
 - In `recommendation.sources`, record what you could not fetch and what you used instead, e.g.
   `"PCGamingWiki Jedi Survivor (403 to WebFetch; file paths taken from search snippet)"`. Repeat any material
   gap in `notes:`.
