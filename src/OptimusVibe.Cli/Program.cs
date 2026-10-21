@@ -425,7 +425,7 @@ public static class Program
                     Console.WriteLine(Encoding.UTF8.GetString(f.Handler.Snapshot(f.Path) ?? []));
                     continue;
                 }
-                var lines = TextFile.ReadAllText(f.Path).Split('\n');
+                var lines = (f.Handler.Describe(f.Path, pr.GetValue(full)) ?? TextFile.ReadAllText(f.Path)).Split('\n');
                 int max = pr.GetValue(full) ? int.MaxValue : 200;
                 foreach (var line in lines.Take(max)) Console.WriteLine("   " + line.TrimEnd('\r'));
                 if (lines.Length > max) Console.WriteLine($"   ... {lines.Length - max} more lines (use --full)");

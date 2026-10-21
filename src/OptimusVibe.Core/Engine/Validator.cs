@@ -203,8 +203,8 @@ public static class Validator
             report.Errors.Add($"{fw}: autoSnapshot must be one of {string.Join(", ", AutoSnapshots.Modes)} (leave it out for off)");
             return;
         }
-        if (!f.Handler.Equals("file", StringComparison.OrdinalIgnoreCase))
-            report.Warnings.Add($"{fw}: autoSnapshot on a '{f.Handler}' file keeps the whole file between sessions; it is meant for 'handler: file' (binary settings the presets can't edit)");
+        if (!f.Handler.Equals("file", StringComparison.OrdinalIgnoreCase) && !f.Handler.Equals("gvas", StringComparison.OrdinalIgnoreCase))
+            report.Warnings.Add($"{fw}: autoSnapshot on a '{f.Handler}' file keeps the whole file between sessions; it is meant for 'handler: file' or 'handler: gvas' (binary settings; with gvas the preset's keys are written on top of the restored copy)");
     }
 
     private static void CheckLaunchFields(GameDef game, string where, ValidationReport report)
@@ -259,6 +259,14 @@ public static class Validator
             if (handler is RawFileHandler && block.Count > 0)
                 report.Errors.Add($"{where}.{fileId}: handler 'file' takes no keys (use capture --snapshot)");
             var flat = handler.Flatten(block);
+            if (handler is GvasHandler)
+            {
+                foreach (var key in flat.Keys)
+                {
+                    try { GvasFile.SplitHint(key, out _); }
+                    catch (GvasException ex) { report.Errors.Add($"{where}.{fileId}: {ex.Message}"); }
+                }
+            }
             if (handler is JsonHandler)
             {
                 foreach (var key in flat.Keys)

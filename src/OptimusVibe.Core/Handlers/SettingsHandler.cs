@@ -43,6 +43,12 @@ public abstract class SettingsHandler
     /// </summary>
     public virtual IReadOnlyList<(string Key, string Value)>? ReadAll(string text) => null;
 
+    /// <summary>
+    /// Human-readable listing of a binary store (key syntax, type, value) for <c>inspect</c>; null when the file is plain text and inspect
+    /// prints it as is. <paramref name="full"/> lists every element of long arrays.
+    /// </summary>
+    public virtual string? Describe(string path, bool full) => null;
+
     public virtual bool Exists(string path) => File.Exists(path);
 
     /// <summary>Opaque copy of the whole store, or null if it does not exist.</summary>
@@ -74,11 +80,12 @@ public abstract class SettingsHandler
         "xml" => new XmlHandler(),
         "registry" => new RegistryHandler(),
         "keyvalue" => new KeyValueTextHandler(),
+        "gvas" => new GvasHandler(),
         "file" => new RawFileHandler(),
-        _ => throw new ConfigException($"Unknown handler '{name}' (ini, json, xml, registry, keyvalue, file)"),
+        _ => throw new ConfigException($"Unknown handler '{name}' (ini, json, xml, registry, keyvalue, gvas, file)"),
     };
 
-    public static readonly string[] Names = ["ini", "json", "xml", "registry", "keyvalue", "file"];
+    public static readonly string[] Names = ["ini", "json", "xml", "registry", "keyvalue", "gvas", "file"];
 }
 
 /// <summary>Line-oriented text file that keeps its encoding, BOM and newline style on save.</summary>
