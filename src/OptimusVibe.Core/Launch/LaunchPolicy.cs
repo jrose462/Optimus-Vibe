@@ -113,9 +113,11 @@ public static class LaunchPolicy
 
     /// <summary>
     /// One honest line for a game's preset from its archetype and the last verify run on this device: what applying does and whether it held.
+    /// A game flagged "set in-game" says that instead (and where its research task is).
     /// </summary>
-    public static string Describe(GameDef game, ResolvedProfile profile, RunResult? lastVerify)
+    public static string Describe(GameDef game, ResolvedProfile profile, RunResult? lastVerify, FlagDef? setInGame = null)
     {
+        if (setInGame is not null) return Library.GameFlags.StatusLine(setInGame);
         if (game.Mappable == false) return "In-game steps only: the game's settings can't be set from outside, so this preset is advice.";
         if (profile.FileBlocks.Count == 0 && profile.SnapshotsFrom is null) return "No settings are written for this preset.";
 

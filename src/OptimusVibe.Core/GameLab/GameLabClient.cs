@@ -154,6 +154,73 @@ public sealed class GameLabClient
         return new FiledRequest(number, url, false, comments, $"Filed #{number}: {GameLabContract.Title(info.Name, info.Kind)}");
     }
 
+    // ------------------------------------------------------------ research later
+
+    /// <summary>
+    /// Files a <c>research-later</c> issue for a game the user flagged "set in-game": the same sanitized evidence a lab request carries (including
+    /// the verify run and mapping run the collector was given), the reason and the open questions. Labelled <see cref="GameLabContract.LabelResearchLater"/>
+    /// only, so the lab workflow does not start. The label is created first when the repo lacks it (best effort).
+    /// </summary>
+    public async Task<FiledRequest> FileResearchLaterAsync(LabTarget target, string device, string reason, EvidenceCollector collector,
+        CancellationToken ct = default)
+    {
+        var info = InfoFor(LabKind.Refresh, target, device);
+        var bundle = collector.Collect(target);
+        var parts = bundle.Split();
+        var body = GameLabContract.ResearchLaterBody(info, reason, parts[0]);
+        var inBody = body.Length <= 65_000;
+        if (!inBody) body = GameLabContract.ResearchLaterBody(info, reason);
+
+        await EnsureResearchLaterLabelAsync(ct).ConfigureAwait(false);
+        var (number, url) = await _api.CreateIssueAsync(_repo, GameLabContract.ResearchLaterTitle(target.Name), body,
+            [GameLabContract.LabelResearchLater], ct).ConfigureAwait(false);
+        if (number == 0) throw new GitHubApiException(null, "GitHub did not return an issue number.");
+
+        var comments = 0;
+        foreach (var part in inBody ? parts.Skip(1) : parts)
+        {
+            await PostCommentAsync(number, part, ct).ConfigureAwait(false);
+            comments++;
+        }
+        Log.Info($"game lab: filed research-later #{number} for {info.Key}, {parts.Count} evidence part(s)");
+        return new FiledRequest(number, url, false, comments, $"Filed research task #{number}: {GameLabContract.ResearchLaterTitle(target.Name)}");
+    }
+
+    private async Task EnsureResearchLaterLabelAsync(CancellationToken ct)
+    {
+        try
+        {
+            // 201 created, 422 already exists: both fine. Anything else (no scope...) is ignored; GitHub still creates a missing label on issue creation.
+            await _api.RequestAsync(HttpMethod.Post, $"repos/{_repo}/labels", new JsonObject
+            {
+                ["name"] = GameLabContract.LabelResearchLater, ["color"] = GameLabContract.ResearchLaterColor, ["description"] = GameLabContract.ResearchLaterDescription,
+            }, _repo, false, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is GitHubException or HttpRequestException)
+        {
+            Log.Warn($"game lab: could not create the {GameLabContract.LabelResearchLater} label: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Whether an issue of the config repo is still open (one cheap GET, no polling): used for "Research finished - try managing settings
+    /// again?" on a flagged game's page. Null when it can't be read.
+    /// </summary>
+    public async Task<bool?> IsIssueOpenAsync(int issue, CancellationToken ct = default)
+    {
+        try
+        {
+            var r = await _api.RequestAsync(HttpMethod.Get, $"repos/{_repo}/issues/{issue}", null, _repo, false, ct).ConfigureAwait(false);
+            if (!r.Ok) return null;
+            return !string.Equals(r.Json?["state"]?.GetValue<string>(), "closed", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is GitHubException or HttpRequestException)
+        {
+            Log.Warn($"game lab: could not read #{issue}: {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>The open request with the same store:storeId and kind, if any (dedupe).</summary>
     public async Task<LabIssue?> FindOpenAsync(GameLabContract.RequestInfo info, CancellationToken ct = default)
     {

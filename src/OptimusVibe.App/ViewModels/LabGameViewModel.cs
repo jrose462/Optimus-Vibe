@@ -2,7 +2,9 @@ using System.Windows.Input;
 using OptimusVibe.App.Services;
 using OptimusVibe.Engine;
 using OptimusVibe.GameLab;
+using OptimusVibe.Config;
 using OptimusVibe.Launch;
+using OptimusVibe.Library;
 using OptimusVibe.Logging;
 
 namespace OptimusVibe.App.ViewModels;
@@ -43,12 +45,22 @@ public sealed class LabGameViewModel : ObservableObject
     private string? _autoLine;
     private bool _autoHasCopy;
     private bool _forgetConfirming;
+    private bool _flagLoaded;
+    private FlagDef? _flag;
+    private FlagDef? _userFlag;
+    private int _streak;
+    private bool _flagConfirming;
+    private string? _flagReason;
+    private string? _flagEvidence;
+    private int _researchFinishedFor;
 #if DEBUG
     private bool _demo;
     private RunResult? _demoHint;
     private string? _demoStatus;
     private string? _demoAuto;
     private bool _demoAutoCopy;
+    private string? _demoSuggest;
+    private bool _demoResearchDone;
 #endif
 
     public LabGameViewModel(GameLabViewModel lab, MainViewModel main, Func<LabGameContext> context)
@@ -64,8 +76,8 @@ public sealed class LabGameViewModel : ObservableObject
         CancelCommand = new RelayCommand(() => ClearTransient());
         OpenIssueCommand = new RelayCommand(() => { if (Issue is { } i) _lab.OpenUrl(i.Url); }, () => Issue is not null);
         OpenSettingsCommand = lab.OpenSettingsCommand;
-        TestCommand = new RelayCommand(BeginTest, () => Idle() && CanTest && !_testing);
-        StartTestCommand = new AsyncRelayCommand(StartTestAsync, () => Idle() && CanTest && !_testing);
+        TestCommand = new RelayCommand(BeginTest, () => Idle() && CanTest && !IsFlagged && !_testing);
+        StartTestCommand = new AsyncRelayCommand(StartTestAsync, () => Idle() && CanTest && !IsFlagged && !_testing);
         SendResultCommand = new AsyncRelayCommand(() => BeginAsync(LabKind.Refresh, _result), () => Idle() && CanSendResult);
         SaveResultCommand = new AsyncRelayCommand(SaveResultAsync, () => Idle() && _result is not null && Ctx.GameId is not null);
         DismissResultCommand = new RelayCommand(DismissResult);
@@ -73,6 +85,9 @@ public sealed class LabGameViewModel : ObservableObject
         MapFirstCommand = new RelayCommand(BeginMap, () => Idle() && CanMap);
         ForgetAutoCommand = new RelayCommand(BeginForget, () => Idle() && HasAutoCopy && !_forgetConfirming);
         ConfirmForgetCommand = new RelayCommand(ConfirmForget, () => Idle() && _forgetConfirming);
+        FlagCommand = new RelayCommand(BeginFlag, () => Idle() && SuggestionReason is not null && !_flagConfirming);
+        ConfirmFlagCommand = new AsyncRelayCommand(ConfirmFlagAsync, () => Idle() && _flagConfirming);
+        ManageAgainCommand = new AsyncRelayCommand(ManageAgainAsync, () => Idle() && CanManageAgain);
         lab.IssuesChanged += Refresh;
         lab.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(GameLabViewModel.IsReady)) Refresh(); };
     }
@@ -95,12 +110,16 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand MapFirstCommand { get; }
     public ICommand ForgetAutoCommand { get; }
     public ICommand ConfirmForgetCommand { get; }
+    public ICommand FlagCommand { get; }
+    public ICommand ConfirmFlagCommand { get; }
+    public ICommand ManageAgainCommand { get; }
 
     public void Refresh()
     {
         _lastRunLoaded = false;
         _applyStatusLoaded = false;
         _autoLoaded = false;
+        _flagLoaded = false;
         OnPropertyChanged(string.Empty);
     }
 
@@ -225,6 +244,7 @@ public sealed class LabGameViewModel : ObservableObject
             _resultSent = false;
             _result = result;
             _lastRunLoaded = false;
+            _flagLoaded = false; // the new result may complete a streak
         }
         catch (Exception ex)
         {
@@ -329,6 +349,11 @@ public sealed class LabGameViewModel : ObservableObject
         _demoStatus = null;
         _demoAuto = null;
         _demoAutoCopy = false;
+        _flag = null;
+        _userFlag = null;
+        _demoSuggest = null;
+        _demoResearchDone = false;
+        _flagConfirming = false;
         _resultSent = false;
         switch (kind)
         {
@@ -339,6 +364,27 @@ public sealed class LabGameViewModel : ObservableObject
             case "unknown": _result = Sample(0, seen: false); break;
             case "hint": _demoHint = Sample(10, verify: false); break;
             case "status": _demoStatus = "Applied by file edit - verified held on 2026-10-20."; break;
+            case "suggest": _demoSuggest = GameFlags.VerifySuggestionReason(2); break;
+            case "suggest-map": _demoSuggest = GameFlags.MappingSuggestionReason(["{LocalAppData}/Demo/Saved/system.save"]); break;
+            case "suggest-result": _result = Sample(10); _demoSuggest = GameFlags.VerifySuggestionReason(2); break;
+            case "flag-confirm":
+                _demoSuggest = GameFlags.VerifySuggestionReason(2);
+                _flagReason = _demoSuggest;
+                _flagConfirming = true;
+                break;
+            case "flagged":
+                _userFlag = _flag = GameFlags.Create(GameFlags.VerifySuggestionReason(2), issue: 12);
+                _demoStatus = GameFlags.StatusLine(_flag);
+                break;
+            case "flagged-done":
+                _userFlag = _flag = GameFlags.Create(GameFlags.VerifySuggestionReason(2), issue: 12);
+                _demoStatus = GameFlags.StatusLine(_flag);
+                _demoResearchDone = true;
+                break;
+            case "flagged-config":
+                _flag = new FlagDef { Reason = "the game rewrites its binary settings store on every boot", Since = "2026-10-20", Issue = 12 };
+                _demoStatus = GameFlags.StatusLine(_flag);
+                break;
             case "auto": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; break;
             case "auto-first": _demoAuto = "First launch with this preset: set it up in-game; Optimus-Vibe keeps it for next time."; break;
             case "auto-forget": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; _forgetConfirming = true; break;
@@ -382,7 +428,7 @@ public sealed class LabGameViewModel : ObservableObject
 #if DEBUG
             if (_demo) return _demoHint is { } demo ? RunResults.HintLine(demo) : null;
 #endif
-            return CanTest && !HasResult && !_testing && RunResults.NeedsHint(LastRun) ? RunResults.HintLine(LastRun!) : null;
+            return CanTest && !IsFlagged && !HasResult && !_testing && RunResults.NeedsHint(LastRun) ? RunResults.HintLine(LastRun!) : null;
         }
     }
 
@@ -407,7 +453,8 @@ public sealed class LabGameViewModel : ObservableObject
                 if (_main.Session is { } s && Ctx.GameId is { } id && Ctx.HasConfig)
                 {
                     var game = GameContext.Load(s.Store, id, s.Device);
-                    if (!game.Profile.IsEmpty)
+                    if (game.InGame is { } inGame) _applyStatus = LaunchPolicy.Describe(game.Game, game.Profile, null, inGame);
+                    else if (!game.Profile.IsEmpty)
                     {
                         var verify = RunResults.Get(s.Paths.DataDir, id, s.Device.Name, verifyOnly: true);
                         if (verify is not null && verify.Preset != game.Preset?.ToString()) verify = null; // another preset was tested
@@ -424,6 +471,224 @@ public sealed class LabGameViewModel : ObservableObject
     }
 
     public bool HasApplyStatus => ApplyStatusText is not null;
+
+    // ---------------------------------------------------------------- set in-game (settings off, rest on)
+
+    private void LoadFlag()
+    {
+#if DEBUG
+        if (_demo) return; // the demo scenes set the flag state themselves
+#endif
+        if (_flagLoaded) return;
+        _flagLoaded = true;
+        _flag = null;
+        _userFlag = null;
+        _streak = 0;
+        try
+        {
+            if (_main.Session is { } s && Ctx.GameId is { } id && Ctx.HasConfig)
+            {
+                var game = s.Store.LoadGame(id);
+                var lib = LibraryService.LoadLibrary(s.Store);
+                _userFlag = GameFlags.FromLibrary(lib, id);
+                _flag = GameFlags.Effective(game, lib);
+                _streak = RunResults.OverriddenStreak(s.Paths.DataDir, id, s.Device.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read the set-in-game flag: {ex.Message}");
+        }
+        if (_flag?.Issue is { } issue) _ = CheckResearchAsync(issue);
+    }
+
+    /// <summary>The game's settings are left to the game ("set in-game"): its game file or the user's library.yaml flags it.</summary>
+    public bool IsFlagged
+    {
+        get
+        {
+            LoadFlag();
+            return _flag is not null;
+        }
+    }
+
+    /// <summary>The flag in the user's own library.yaml can be lifted here; one that only comes from the game's config is the game lab's to lift.</summary>
+    public bool CanManageAgain
+    {
+        get
+        {
+            LoadFlag();
+            return _userFlag is not null;
+        }
+    }
+
+    public bool ShowManageAgain => CanManageAgain;
+    public bool ShowConfigOnlyNote => IsFlagged && !CanManageAgain;
+
+    public string ConfigOnlyNote => "The game lab set this flag, so only it can lift it. It does that when its research finds a way to set this game's settings.";
+
+    /// <summary>Test preset stays visible but is off for a flagged game, and says why.</summary>
+    public string? TestDisabledText => IsFlagged ? "Test preset is off: this game's settings are left to the game, so there is nothing to test." : null;
+
+    public bool HasTestDisabledText => TestDisabledText is not null;
+
+    /// <summary>
+    /// Why the flag is worth suggesting (never applied on its own): two overridden Test preset results in a row, or a mapping run whose
+    /// changes were all in binary files. Null when the game is flagged already or nothing suggests it.
+    /// </summary>
+    public string? SuggestionReason
+    {
+        get
+        {
+            LoadFlag();
+            if (_flag is not null || !Ctx.HasConfig) return null;
+#if DEBUG
+            if (_demo) return _demoSuggest;
+#endif
+            if (GameFlags.SuggestsFromVerify(_streak)) return GameFlags.VerifySuggestionReason(_streak);
+            if (_main.Session is { } s && Ctx.Target is { } t && GameLabService.StoredMapping(s, t) is { SuggestSetInGame: true } m)
+                return m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit";
+            return null;
+        }
+    }
+
+    public string SuggestLine => SuggestionReason is { } r ? $"This game seems to ignore Optimus-Vibe's settings: {r}." : "";
+
+    /// <summary>The quiet suggestion on the game page; while a Test preset result is open the card shows it instead.</summary>
+    public bool ShowSuggest => SuggestionReason is not null && !_flagConfirming && !HasResult;
+
+    public bool ShowResultSuggest => ResultOverridden && SuggestionReason is not null && !_flagConfirming;
+
+    public bool IsFlagConfirming => _flagConfirming;
+    public string FlagTitle => $"Flag {Ctx.Name} as set in-game?";
+
+    public string FlagLead =>
+        "Optimus-Vibe will stop writing this game's settings (display and graphics-driver settings still apply). A research task is filed so the game lab can look deeper later.";
+
+    public string FlagWhy => _flagReason is { } r ? $"Why: {r}." : "";
+    public string FlagConfirmText => "Flag it";
+
+    /// <summary>"Research finished" when the flag's research task is closed (read once per page and ten minutes, no polling).</summary>
+    public bool ShowResearchFinished =>
+#if DEBUG
+        _demo ? _demoResearchDone :
+#endif
+        IsFlagged && _flag?.Issue is { } n && n == _researchFinishedFor;
+
+    public string ResearchFinishedText => "Research finished - try managing settings again?";
+
+    private async Task CheckResearchAsync(int issue)
+    {
+        if (await _lab.IsIssueOpenAsync(issue) != false || _researchFinishedFor == issue) return;
+        _researchFinishedFor = issue;
+        OnPropertyChanged(nameof(ShowResearchFinished));
+        OnPropertyChanged(nameof(ResearchFinishedText));
+    }
+
+    private void BeginFlag()
+    {
+        var reason = SuggestionReason;
+        if (reason is null) return;
+        ClearTransient();
+        _flagReason = reason;
+        _flagEvidence = EvidenceFor(reason);
+        _flagConfirming = true;
+        OnPropertyChanged(nameof(IsFlagConfirming));
+        OnPropertyChanged(nameof(FlagTitle));
+        OnPropertyChanged(nameof(FlagWhy));
+        OnPropertyChanged(nameof(ShowSuggest));
+        OnPropertyChanged(nameof(ShowResultSuggest));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>The short evidence the flag keeps: the last overridden settings, or the mapping run's reason.</summary>
+    private string EvidenceFor(string reason)
+    {
+        try
+        {
+            if (_main.Session is { } s && Ctx.GameId is { } id && GameFlags.SuggestsFromVerify(_streak) && LastOverriddenTest(s, id) is { } last)
+                return $"Test preset: the game changed {last.Drift.Count} of {last.Applied} setting(s) in the last test ({RunResults.Names(last, 3)})";
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not describe the last test: {ex.Message}");
+        }
+        return reason;
+    }
+
+    private async Task ConfirmFlagAsync()
+    {
+        var ctx = Ctx;
+        var reason = _flagReason;
+        if (_main.Session is not { } s || ctx.GameId is not { } id || reason is null) return;
+        var evidence = _flagEvidence;
+        var target = ctx.Target;
+        var verifyText = LastOverriddenTest(s, id) is { } last ? RunResults.EvidenceText(last) : null;
+        ClearTransient();
+
+        // 1. the flag first: it must hold even when nothing can be filed
+        var flag = GameFlags.Create(reason, evidence: evidence);
+        if (!await _main.RunAsync($"Flagging {ctx.Name} as set in-game", () => Task.Run(() => LibraryService.SetInGame(s.Store, id, flag)))) return;
+        Log.Info($"{id}: flagged as set in-game ({reason})");
+
+        // 2. the research task; a failure leaves the flag in place and says so
+        FiledRequest? filed = null;
+        string? problem = target is null ? "the game isn't installed here" : null;
+        if (target is not null) (filed, problem) = await _lab.FileResearchLaterAsync(target, reason, verifyText);
+        if (filed is not null)
+        {
+            flag.Issue = filed.Number;
+            await _main.RunAsync("Saving the research task number", () => Task.Run(() => LibraryService.SetInGame(s.Store, id, flag)));
+        }
+
+        await FinishFlagChangeAsync(s, id, $"chore(library): flag {id} as set in-game");
+        if (filed is not null)
+            _main.NotifyWithAction($"{ctx.Name} is set in-game now: Optimus-Vibe leaves its settings alone. Research task #{filed.Number} is filed.", "Open task", () => _lab.OpenUrl(filed.Url));
+        else
+            _main.Notify($"{ctx.Name} is set in-game now: Optimus-Vibe leaves its settings alone. The research task wasn't filed ({problem}).", error: true);
+    }
+
+    private static RunResult? LastOverriddenTest(AppSession s, string gameId)
+    {
+        try
+        {
+            var last = RunResults.Get(s.Paths.DataDir, gameId, s.Device.Name, verifyOnly: true);
+            return last is not null && RunResults.Verdict(last) == RunVerdict.Overridden ? last : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read the last test: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task ManageAgainAsync()
+    {
+        var ctx = Ctx;
+        if (_main.Session is not { } s || ctx.GameId is not { } id) return;
+        var ok = await _main.RunAsync($"Managing {ctx.Name}'s settings again", () => Task.Run(() =>
+        {
+            LibraryService.SetInGame(s.Store, id, null);
+            RunResults.ResetStreak(s.Paths.DataDir, id, s.Device.Name); // test it again before the flag is suggested again
+            Log.Info($"{id}: manages its settings again");
+        }));
+        if (!ok) return;
+        await FinishFlagChangeAsync(s, id, $"chore(library): manage {id} settings again");
+        _main.Notify(IsFlagged
+            ? $"{ctx.Name} is still flagged by its game config, so its settings stay with the game."
+            : $"Optimus-Vibe manages {ctx.Name}'s settings again. Test the preset to check the game keeps it.");
+    }
+
+    /// <summary>After the flag changed: re-read the game and the library (the tile says "Set in-game"), publish library.yaml when auto-sync is on.</summary>
+    private async Task FinishFlagChangeAsync(AppSession s, string gameId, string commitMessage)
+    {
+        await _main.ReloadGameAsync(gameId);
+        await _main.Library.ScanAsync(rescanLaunchers: false);
+        var settings = await SettingsStore.LoadAsync();
+        if (settings.AutoSync) await _main.SyncFilesQuietlyAsync(commitMessage, s.Paths.LibraryFile);
+        Refresh();
+        CommandManager.InvalidateRequerySuggested();
+    }
 
     // ---------------------------------------------------------------- auto snapshot (this device's kept copy of a cloud-synced file)
 
@@ -567,7 +832,7 @@ public sealed class LabGameViewModel : ObservableObject
 
     private bool ClearTransient()
     {
-        var any = IsConfirming || _testConfirming || _forgetConfirming;
+        var any = IsConfirming || _testConfirming || _forgetConfirming || _flagConfirming;
         _generation++;
         _confirming = null;
         _verifyText = null;
@@ -580,6 +845,13 @@ public sealed class LabGameViewModel : ObservableObject
         {
             _testConfirming = false;
             OnPropertyChanged(nameof(IsTestConfirming));
+        }
+        if (_flagConfirming)
+        {
+            _flagConfirming = false;
+            OnPropertyChanged(nameof(IsFlagConfirming));
+            OnPropertyChanged(nameof(ShowSuggest));
+            OnPropertyChanged(nameof(ShowResultSuggest));
         }
         Preview = null;
         PreviewError = null;

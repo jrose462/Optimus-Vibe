@@ -55,6 +55,39 @@ A game can be several (BL4 is `plain-honoured` + `composite`; Jedi Survivor `bin
 `plain-honoured` + `launcher-gated` + `server-held`). The `archetype` field takes the one that decides how the preset
 reaches the game; the rest go in `notes:`.
 
+## When nothing works: `flagged:` (set in-game)
+
+Some games ignore every file and registry key Optimus-Vibe can write: an opaque store rewritten each boot, a binary save that
+is the only truth, a server-held setting. Classify them `mappable: false` and, once real launches prove it, add a top-level
+`flagged:` block to the game file:
+
+```yaml
+mappable: false
+flagged:
+  reason: the game rewrites its binary settings store on every boot   # required, one line, shown in the app
+  since: "2026-10-20"
+  evidence: Test preset overridden twice; mapping run changed only system.save   # no personal data
+  issue: 12                  # the research-later issue in the config repo, when there is one
+```
+
+What "flagged" does ("settings off, rest on"): no preset file/registry writes, no manual-save restore, no `snapshotsFrom`, no
+autoSnapshot restore or capture, no after-start re-apply, no post-session drift/capture prompt, no sync-check prompt, Test preset
+off. Still applied: the display resolution switch, the NVIDIA driver profile, `launch.args`, the launch watchdog, Map this
+game (it is how research gathers evidence) and the preset's in-game steps and notes. So keep writing a useful preset
+`description` / `notes:` with the in-game steps, and keep `display:`, `nvidia:` and `launch:` in the presets.
+
+Evidence that justifies it (all from real launches): (1) `run --verify` overridden in two Test preset results in a row (the app
+counts the streak), (2) a mapping run whose pass B changed only binary files (no text key, no registry value), (3) no text mirror
+or launch argument that makes the game read a file back. The app only *suggests* the flag (game page: "Flag as set in-game") and
+files a `research-later` issue; the user decides. A user-made flag lives in `config/library.yaml` `setInGame:` (by game id) and
+counts as much as this block; a lab-written `flagged:` can only be lifted by changing the game file.
+
+`research-later` issues (no `game-lab` label, so the workflow does not start by itself) ask for deeper research later: see
+`seed/config-repo/.github/game-lab/research-prompt.md`. Outcome (a): a writable store is found, so fix the mappings, remove
+`flagged:` (set `mappable: true`) and say in the PR that the user should press **Manage settings again** if they flagged it
+themselves. Outcome (b): still impossible, so keep `mappable: false` + `flagged:` with the reason, evidence and issue number and
+close the issue with the findings.
+
 ## Trends across the mapped games
 
 - The wiki's config path is not the file the game obeys in a sizeable share of cases (`binary-truth`,

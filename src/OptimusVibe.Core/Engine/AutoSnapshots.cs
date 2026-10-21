@@ -184,7 +184,7 @@ public static class AutoSnapshots
     public static List<string> CaptureAfterSession(GameContext ctx, bool processSeen, bool cancelled = false)
     {
         var kept = new List<string>();
-        if (!processSeen || cancelled) return kept;
+        if (!processSeen || cancelled || ctx.InGame is not null) return kept; // set in-game: the game's own store is not ours to keep
         var store = StoreFor(ctx.Paths);
         foreach (var f in ctx.Files)
         {

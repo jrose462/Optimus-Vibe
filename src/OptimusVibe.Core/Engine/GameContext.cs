@@ -67,6 +67,12 @@ public sealed class GameContext
     /// <summary>Display device to change for this run: the TV when it was detected as a display, else null (the primary).</summary>
     public string? DisplayTarget => BigPictureUsed ? BigPicture?.TargetDisplay : null;
 
+    /// <summary>
+    /// The "set in-game" flag in effect (the game file's <c>flagged:</c> or the user's library.yaml entry), or null. A flagged game gets no settings
+    /// writes, restores, re-applies, captures or prompts; display, driver, launch args and the watchdog still apply (see <see cref="Launch.Runner"/>).
+    /// </summary>
+    public FlagDef? InGame { get; init; }
+
     public SelectionStore Selections => new(Paths.SelectionsFile);
 
     /// <summary>Driver settings for this machine's vendor (nvidia: or amd: block).</summary>
@@ -227,6 +233,7 @@ public sealed class GameContext
             BigPictureUsed = bpWanted && isSelected,
             BigPictureOptedOut = optedOut,
             BigPictureNote = bpNote,
+            InGame = Library.GameFlags.Effective(game, store),
         };
     }
 

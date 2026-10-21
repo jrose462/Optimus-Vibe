@@ -45,6 +45,17 @@ public static class GameLabContract
     public const string LabelDone = "lab:done";
     public const string LabelFailed = "lab:failed";
 
+    /// <summary>
+    /// "Flag as set in-game" files one of these in the config repo: a task for the game lab to look deeper later. It deliberately does NOT carry
+    /// <see cref="LabelGameLab"/> (and its body has no <see cref="RequestMarker"/>), so the lab workflow does not start on it. It is not in
+    /// <see cref="Labels"/> either, so the lab setup check is unchanged for existing users; the client creates it when it is first needed.
+    /// </summary>
+    public const string LabelResearchLater = "research-later";
+    public const string ResearchLaterColor = "5319e7";
+    public const string ResearchLaterDescription = "Settings the game ignores: deeper research wanted later";
+
+    public const string ResearchLaterMarker = "<!-- optimus-vibe:research-later v1 -->";
+
     public static readonly IReadOnlyList<(string Name, string Color, string Description)> Labels =
     [
         (LabelGameLab, "1f6feb", "Optimus-Vibe game lab request"),
@@ -118,6 +129,47 @@ public static class GameLabContract
         sb.Append(RequestMarker).Append('\n');
         sb.Append("<!-- lab-request ").Append(RequestJson(r)).Append(" -->\n\n");
         sb.Append(HumanText(r)).Append("\n\n");
+        if (!string.IsNullOrEmpty(firstEvidence)) sb.Append(firstEvidence);
+        return sb.ToString();
+    }
+
+    // ------------------------------------------------------------ research-later issue
+
+    public static string ResearchLaterTitle(string name) =>
+        $"[research-later] {Regex.Replace(name ?? "", @"\s+", " ").Trim()} - set in-game";
+
+    /// <summary>The questions every research-later issue carries; the game lab answers them in its pull request or when closing the issue.</summary>
+    public static readonly IReadOnlyList<string> ResearchLaterQuestions =
+    [
+        "Is there a settings file, registry key or launch argument the game really reads (PCGamingWiki, the game's own docs, community mirrors)?",
+        "Does a launch argument make the game write a readable settings file (a text mirror), and does the game read it back?",
+        "If the settings only live in a binary store: is a cloud-synced copy or a per-device copy the only workable approach?",
+        "Can the display, NVIDIA or launch-argument settings Optimus-Vibe still applies give most of the benefit for this game?",
+    ];
+
+    /// <summary>
+    /// The research-later issue body up to (and excluding) the first evidence block: marker, a <c>research-later</c> JSON comment, the game, why it was
+    /// flagged and the open questions. <paramref name="firstEvidence"/> follows when given. The evidence is the same sanitized bundle a lab request carries.
+    /// </summary>
+    public static string ResearchLaterBody(RequestInfo r, string reason, string? firstEvidence = null)
+    {
+        var sb = new StringBuilder();
+        sb.Append(ResearchLaterMarker).Append('\n');
+        sb.Append("<!-- research-later ").Append(new JsonObject
+        {
+            ["gameId"] = r.GameId ?? "", ["name"] = r.Name ?? "", ["store"] = r.Store ?? "", ["storeId"] = r.StoreId ?? "",
+            ["device"] = r.Device ?? "", ["appVersion"] = r.AppVersion ?? "",
+        }.ToJsonString()).Append(" -->\n\n");
+        sb.Append("**Game:** ").Append(Cell(r.Name)).Append(" (`").Append(r.Store).Append(':').Append(r.StoreId).Append("`)\n");
+        if (!string.IsNullOrWhiteSpace(r.GameId)) sb.Append("**Game id:** `").Append(Cell(r.GameId)).Append("`\n");
+        sb.Append("**Device:** ").Append(Cell(r.Device)).Append("  \n");
+        sb.Append("**App:** Optimus-Vibe ").Append(Cell(r.AppVersion)).Append("\n\n");
+        sb.Append("**Flagged as set in-game because:** ").Append(Cell(reason)).Append("\n\n");
+        sb.Append("Optimus-Vibe stopped writing this game's settings (display, NVIDIA and launch arguments still apply). ")
+          .Append("The game lab can look deeper later: this issue is not started automatically.\n\n");
+        sb.Append("### Open questions\n");
+        foreach (var q in ResearchLaterQuestions) sb.Append("- ").Append(q).Append('\n');
+        sb.Append("\nFiled by the Optimus-Vibe app. The evidence below was collected from the owner's PC and had personal data redacted.\n\n");
         if (!string.IsNullOrEmpty(firstEvidence)) sb.Append(firstEvidence);
         return sb.ToString();
     }

@@ -8,6 +8,7 @@ using OptimusVibe.Driver;
 using OptimusVibe.Engine;
 using OptimusVibe.Handlers;
 using OptimusVibe.Launch;
+using OptimusVibe.Library;
 using OptimusVibe.Logging;
 using OptimusVibe.Sync;
 using OptimusVibe.Ui;
@@ -57,7 +58,7 @@ public static class Program
             GitHubCommand(), SyncProviderCommand(),
             AppCommands.VersionCommand(), AppCommands.UpdateAppCommand(), AppCommands.ReportBugCommand(),
             SteamCommands.SteamOptionsCommand(),
-            LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(),
+            LibraryCommands.LibraryCommand(), LibraryCommands.OptOutCommand(), LibraryCommands.OptInCommand(), LibraryCommands.SetInGameCommand(), LibraryCommands.ManageSettingsCommand(),
             CloudCheckCommands.CloudCheckCommand(), AutoSnapshotCommands.AutoSnapshotCommand(), DeviceCommands.DevicesCommand(),
             GameLabCommands.LabCommand(), GameLabCommands.ProbeCommand(), OutboxCommands.OutboxCommand(),
         };
@@ -148,10 +149,14 @@ public static class Program
         {
             var paths = Paths(pr);
             var game = pr.GetValue(GameArg)!;
-            var device = Context(pr).Device.Name;
+            var ctx = Context(pr);
+            var device = ctx.Device.Name;
+            var streak = RunResults.OverriddenStreak(paths.DataDir, game, device);
+            if (ctx.InGame is { } flag) Console.WriteLine($"{game}: {GameFlags.StatusLine(flag)} (no preset test applies)");
             var result = RunResults.Get(paths.DataDir, game, device, verifyOnly: true) ?? RunResults.Get(paths.DataDir, game, device);
             if (result is null)
             {
+                if (ctx.InGame is not null) return 0;
                 Console.WriteLine($"No run recorded for {game} on {device}. Test it with: optimus-vibe run {game} --verify");
                 return 1;
             }
@@ -161,6 +166,9 @@ public static class Program
             Console.WriteLine($"  {RunResults.Describe(result, int.MaxValue)}");
             foreach (var d in result.Drift)
                 Console.WriteLine(d.IsWholeFile ? $"    {d.FileId}: (whole file) changed" : $"    {d.FileId} {d.Key}: {d.Applied ?? "(not set)"} -> {d.Now ?? "(missing)"}");
+            Console.WriteLine($"  overridden tests in a row: {streak}");
+            if (ctx.InGame is null && GameFlags.SuggestsFromVerify(streak))
+                Console.WriteLine($"  The game keeps overriding this preset. Stop writing its settings with: optimus-vibe set-in-game {game} --reason \"{GameFlags.VerifySuggestionReason(streak)}\"");
             return RunResults.Verdict(result) == RunVerdict.Overridden ? 3 : 0;
         }));
         return cmd;
@@ -772,6 +780,7 @@ public static class Program
         else
             Console.WriteLine($"  preset: {ctx.Preset} — {ctx.Profile.Label}" +
                               $"{(ctx.Profile.TargetFps is { } f ? $" ({f} fps target)" : "")}{(ctx.IsSelected ? "" : " [device default]")}");
+        if (ctx.InGame is { } inGame) Console.WriteLine($"  {GameFlags.RunLine(inGame)}");
         if (ctx.BigPictureUsed) Console.WriteLine($"  Big Picture (TV): {ctx.BigPicture!.Reason}{(ctx.DisplayTarget is { } t ? $" -> display {t}" : "")}");
         else if (ctx.BigPictureNote is { } note) Console.WriteLine($"  {note}");
     }

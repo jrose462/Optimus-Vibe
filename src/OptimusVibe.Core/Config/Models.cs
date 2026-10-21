@@ -116,6 +116,13 @@ public sealed class GameDef
     /// <summary>false = the settings cannot be set from outside the game (opaque or server-held); presets are advice only. Null = mappable.</summary>
     public bool? Mappable { get; set; }
 
+    /// <summary>
+    /// Set when the game ignores the settings Optimus-Vibe writes (an opaque store the game rewrites each boot...): the game is launched with
+    /// its display and driver settings but no settings files are touched ("set in-game"). Decided by the game lab / the skill; the user can also
+    /// flag a game from the app (library.yaml <c>setInGame</c>), and either one counts. See <c>Library.GameFlags</c>.
+    /// </summary>
+    public FlagDef? Flagged { get; set; }
+
     /// <summary>Process names (e.g. Game.exe) the wrapper waits on; launcher stubs often exit early.</summary>
     public List<string> Processes { get; set; } = new();
 
@@ -137,6 +144,25 @@ public sealed class GameDef
     public RecommendationInfo? Recommendation { get; set; }
 
     public string? Notes { get; set; }
+}
+
+/// <summary>
+/// "Set in-game": why Optimus-Vibe leaves a game's settings alone. Used in a game file (<c>flagged:</c>) and per game in library.yaml
+/// (<c>setInGame:</c>).
+/// </summary>
+public sealed class FlagDef
+{
+    /// <summary>One line the app shows: "the game rewrites its binary settings store on every boot". Required.</summary>
+    public string Reason { get; set; } = "";
+
+    /// <summary>When it was flagged (yyyy-MM-dd).</summary>
+    public string? Since { get; set; }
+
+    /// <summary>What showed it: the verify drift, the mapping run, the lab's findings. Free text, no personal data.</summary>
+    public string? Evidence { get; set; }
+
+    /// <summary>The <c>research-later</c> issue (in the config repo) asking the game lab to look deeper later.</summary>
+    public int? Issue { get; set; }
 }
 
 public sealed class RecommendationInfo
@@ -271,6 +297,12 @@ public sealed class LibraryFile
 
     /// <summary>Steam games ("steam:appid") whose Steam launch option Optimus-Vibe never touches (neither adds nor removes the wrapper).</summary>
     public List<string> SteamLaunchOptionsSkip { get; set; } = new();
+
+    /// <summary>
+    /// Games the user flagged as "set in-game" (game id → why): Optimus-Vibe stops writing their settings but still applies display and
+    /// NVIDIA. Keyed by game id (the config file name) so every device and code path finds it. Synced like optOut.
+    /// </summary>
+    public Dictionary<string, FlagDef> SetInGame { get; set; } = new();
 }
 
 /// <summary>config/requests.yaml — detected games without presets, queued for Claude's game-settings-recommender skill.</summary>

@@ -18,3 +18,8 @@ when it answers with evidence comments collected from your PC. Claude researches
 
 Labels: `game-lab` (every request), `lab:queued`, `lab:researching`, `lab:needs-evidence`, `lab:review` (a human is
 needed), `lab:done`, `lab:failed`. Only the repo owner's issues and evidence comments are acted on.
+
+A separate label, `research-later`, marks tasks the app files when you flag a game "set in-game" (its settings can't be
+written from outside). Those issues do NOT carry `game-lab`, so the workflow never starts on them: they wait for a deeper
+research pass (see "`research-later` issues" in `research-prompt.md`), which either finds a writable store (a PR that fixes the
+mappings and removes `flagged:`) or confirms the game stays set in-game (a PR that sets `mappable: false` plus `flagged:`).

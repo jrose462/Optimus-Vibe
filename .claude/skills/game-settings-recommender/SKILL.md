@@ -130,6 +130,16 @@ Run commands from the config repo root. `gp` below means the CLI: use `optimus-v
    `steam.exe -applaunch <id> <args>` (the `steam://rungameid/<id>//args` URI drops the args: tested) and appends
    `launch.args` after `%command%` for wrapped launches. Launcher slowness: `launch.waitSeconds`,
    `launch.launcherProcesses`; launcher sync overwriting the preset: `applyTiming` / `settleSeconds`.
+8. **When to write `flagged:`** (the game ignores everything Optimus-Vibe writes): only when real launches show it, never from
+   the wiki alone. Typical evidence: `run --verify` says `overridden` on the same keys at least twice in a row, and the
+   mapping run's pass B changed only an opaque (binary) store, and the 3-way text-mirror experiment (if any) found no store
+   the game reads back. Then set `mappable: false` AND a top-level `flagged:` block
+   (`reason` required, one line; `since: yyyy-MM-dd`; `evidence` with no personal data; `issue` when a `research-later`
+   issue exists) so the app stops writing presets and asking about them (display, NVIDIA, `launch.args` and the in-game
+   steps/notes you keep in the presets still apply). `mappable: false` without `flagged:` makes the validator warn that presets
+   are still written. Never write the flag into `config/library.yaml` (that is the user's `setInGame`); if the user flagged
+   the game themselves and your research finds a writable store, fix the mappings and say in the PR/summary that they should
+   press **Manage settings again**. When a later refresh finds a writable store, remove `flagged:` and set `mappable: true`.
 
 ### (a) Identify the game
 

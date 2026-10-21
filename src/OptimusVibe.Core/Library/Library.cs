@@ -66,6 +66,9 @@ public sealed class LibraryEntry
     /// <summary>In library.yaml steamLaunchOptionsSkip: Optimus-Vibe never touches this game's Steam launch option.</summary>
     public bool SteamLaunchOptionSkipped { get; init; }
 
+    /// <summary>The game is flagged "set in-game" (its game file or the user's library.yaml says so): launched with display and driver settings only. See <see cref="GameFlags"/>.</summary>
+    public FlagDef? SetInGame { get; init; }
+
     /// <summary>The cloud-sync check for this game on this device (null when not computed, e.g. no game config).</summary>
     public CloudSyncReport? CloudSync { get; init; }
 

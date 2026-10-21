@@ -186,7 +186,35 @@
     },
     "mappable": {
       "type": "boolean",
-      "description": "false = the game's settings cannot be set from outside the game (opaque or server-held), so its presets are advice. Omitted = mappable."
+      "description": "false = the game's settings cannot be set from outside the game (opaque or server-held), so its presets are advice. Omitted = mappable. Add flagged: as well, or the presets are still written."
+    },
+    "flagged": {
+      "type": "object",
+      "description": "\"Set in-game\": the game ignores the settings Optimus-Vibe writes (an opaque store it rewrites every boot...). The app stops writing presets, saved settings, snapshots and auto copies, stops re-applying them and asking about them, and turns Test preset off; display, NVIDIA, launch.args and the launch watchdog still apply, and the preset's in-game steps/notes are still shown. Set by the game lab or the skill; the user can also flag a game from the app (library.yaml setInGame).",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One line the app shows: why the game ignores the settings."
+        },
+        "since": {
+          "type": "string",
+          "description": "yyyy-MM-dd the flag was set."
+        },
+        "evidence": {
+          "type": "string",
+          "description": "What showed it (verify drift, mapping run, the lab's findings). No personal data."
+        },
+        "issue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The research-later issue number in the config repo."
+        }
+      }
     }
   },
   "$defs": {

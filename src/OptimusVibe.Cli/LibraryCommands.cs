@@ -113,7 +113,7 @@ internal static class LibraryCommands
                 Console.WriteLine($"  {"STATUS",-13} {"KEY".PadRight(kw)} {"NAME",-40} GAME");
                 foreach (var e in entries)
                 {
-                    var note = e.SuggestOptOut ? "  (settings don't sync: consider opt-out)" : "";
+                    var note = e.SetInGame is not null ? "  (set in-game: settings left to the game)" : e.SuggestOptOut ? "  (settings don't sync: consider opt-out)" : "";
                     Console.WriteLine($"  {e.Status,-13} {e.Key.PadRight(kw)} {Trunc(e.Name, 40),-40} {e.Game?.Id ?? "-"}{note}");
                 }
                 Console.WriteLine();
@@ -161,6 +161,58 @@ internal static class LibraryCommands
             Console.WriteLine(before == optOut
                 ? $"{key} was already {(optOut ? "opted out" : "managed")}."
                 : $"{key}: {(optOut ? "opted out — Optimus-Vibe leaves it alone" : "opted in — managed again")} ({store.Paths.LibraryFile}).");
+            return 0;
+        }));
+        return cmd;
+    }
+
+
+    public static Command SetInGameCommand()
+    {
+        var gameArg = new Argument<string>("game") { Description = "Game id (file name in config/games without .yaml)." };
+        var reason = new Option<string>("--reason") { Description = "One line: why the game ignores the settings Optimus-Vibe writes.", Required = true };
+        var issue = new Option<int?>("--issue") { Description = "The research-later issue number in the config repo, when one was filed." };
+        var cmd = new Command("set-in-game",
+            "Flag a game as set in-game: Optimus-Vibe stops writing its settings (display, NVIDIA and launch arguments still apply). Writes config/library.yaml.")
+        { gameArg, reason, issue };
+        cmd.SetAction(Guard(pr =>
+        {
+            var store = new ConfigStore(Paths(pr));
+            var game = store.LoadGame(pr.GetValue(gameArg)!.Trim());
+            var text = pr.GetValue(reason)?.Trim() ?? "";
+            if (text.Length == 0) throw new ConfigException("--reason must say why (one line).");
+            if (pr.GetValue(issue) is <= 0) throw new ConfigException("--issue must be a positive issue number.");
+            var flag = GameFlags.Create(text, pr.GetValue(issue));
+            var changed = LibraryService.SetInGame(store, game.Id, flag);
+            Console.WriteLine(changed
+                ? $"{game.Id}: flagged as set in-game ({store.Paths.LibraryFile}). Optimus-Vibe no longer writes its settings; display and NVIDIA still apply."
+                : $"{game.Id} was already flagged exactly like this.");
+            if (game.Flagged is not null) Console.WriteLine("  (the game's own config also flags it: " + GameFlags.StatusLine(game.Flagged) + ")");
+            return 0;
+        }));
+        return cmd;
+    }
+
+    public static Command ManageSettingsCommand()
+    {
+        var gameArg = new Argument<string>("game") { Description = "Game id (file name in config/games without .yaml)." };
+        var cmd = new Command("manage-settings",
+            "Clear a game's set-in-game flag (the one made with `set-in-game` or the app): Optimus-Vibe writes its settings again. Writes config/library.yaml.")
+        { gameArg };
+        cmd.SetAction(Guard(pr =>
+        {
+            var store = new ConfigStore(Paths(pr));
+            var game = store.LoadGame(pr.GetValue(gameArg)!.Trim());
+            var changed = LibraryService.SetInGame(store, game.Id, null);
+            if (changed)
+            {
+                var device = GameContext.SelectDevice(store, pr.GetValue<string?>("--profile")).Name;
+                OptimusVibe.Launch.RunResults.ResetStreak(store.Paths.DataDir, game.Id, device); // test it again before the flag is suggested again
+                Console.WriteLine($"{game.Id}: Optimus-Vibe manages its settings again ({store.Paths.LibraryFile}).");
+            }
+            else Console.WriteLine($"{game.Id} has no flag of yours to clear.");
+            if (game.Flagged is { } fromConfig)
+                Console.WriteLine($"  Still flagged by the game's own config ({GameFlags.ReasonText(fromConfig)}): the game lab sets and clears that one, not this command.");
             return 0;
         }));
         return cmd;

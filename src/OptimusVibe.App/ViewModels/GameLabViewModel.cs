@@ -551,6 +551,59 @@ public sealed class GameLabViewModel : ObservableObject
         return outcome;
     }
 
+    /// <summary>
+    /// Files the research-later issue for a game just flagged "set in-game". Never throws and never asks anything: with no sign-in, no config repo or no
+    /// network the answer is (null, why), and the caller says the research task wasn't filed.
+    /// </summary>
+    public async Task<(FiledRequest? Filed, string? Problem)> FileResearchLaterAsync(LabTarget target, string reason, string? verifyRun = null)
+    {
+        var session = _main.Session;
+        if (session is null) return (null, "no config is loaded");
+        try
+        {
+            var s = await SettingsStore.LoadAsync();
+            var conn = await Task.Run(() => _service.Connect(s, session.Paths, out _));
+            if (conn is null) return (null, "you aren't signed in to GitHub");
+            FiledRequest? filed = null;
+            var ok = await _main.RunAsync($"Filing a research task for {target.Name}", async () =>
+                filed = await Task.Run(() => _service.FileResearchLaterAsync(conn, session, target, reason, verifyRun)));
+            return ok && filed is not null ? (filed, null) : (null, "GitHub couldn't be reached");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Game lab: filing the research task failed: {ex.Message}");
+            return (null, ex.Message);
+        }
+    }
+
+    private readonly Dictionary<int, (bool? Open, DateTime At)> _issueState = [];
+
+    /// <summary>
+    /// Whether a config-repo issue is still open: one GET per issue and ten minutes (no polling), null when it can't be read (no sign-in, offline).
+    /// Used for "Research finished" on a flagged game's page.
+    /// </summary>
+    public async Task<bool?> IsIssueOpenAsync(int issue)
+    {
+        if (_issueState.TryGetValue(issue, out var known) && DateTime.UtcNow - known.At < TimeSpan.FromMinutes(10)) return known.Open;
+        bool? open = null;
+        try
+        {
+            var session = _main.Session;
+            if (session is not null)
+            {
+                var s = await SettingsStore.LoadAsync();
+                var conn = await Task.Run(() => _service.Connect(s, session.Paths, out _));
+                if (conn is not null) open = await Task.Run(() => _service.IsIssueOpenAsync(conn, issue));
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Game lab: could not read #{issue}: {ex.Message}");
+        }
+        _issueState[issue] = (open, DateTime.UtcNow);
+        return open;
+    }
+
     private async Task RefreshIssuesAsync(GameLabService.Connection conn)
     {
         try { Issues = await Task.Run(() => _service.ListIssuesAsync(conn)); }
