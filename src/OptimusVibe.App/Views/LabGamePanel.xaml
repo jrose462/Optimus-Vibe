@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:OptimusVibe.App.Views"
              xmlns:svc="clr-namespace:OptimusVibe.App.Services"
-             xmlns:input="clr-namespace:OptimusVibe.App.Input">
+             xmlns:input="clr-namespace:OptimusVibe.App.Input"
+             HorizontalContentAlignment="Left">
     <!-- DataContext: LabGameViewModel. Request / refresh presets, re-check settings sync, the evidence preview, the request's status.
          Compact: the title, the buttons and "Open issue" share one row. -->
     <UserControl.Resources>
@@ -22,7 +23,9 @@
             </Style.Triggers>
         </Style>
     </UserControl.Resources>
-    <Border Style="{StaticResource Card}" HorizontalAlignment="Left" MaxWidth="{DynamicResource LabMaxWidth}">
+    <!-- Left on its own; stretched to its column when the game page puts it beside settings sync (HorizontalContentAlignment). -->
+    <Border Style="{StaticResource Card}" MaxWidth="{DynamicResource LabMaxWidth}"
+            HorizontalAlignment="{Binding HorizontalContentAlignment, RelativeSource={RelativeSource AncestorType=UserControl}}">
         <StackPanel>
             <!-- ============================================================ comfortable: title, chip, Open issue -->
             <Grid Style="{StaticResource Only.Comfortable}">

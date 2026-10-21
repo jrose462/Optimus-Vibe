@@ -749,7 +749,8 @@ public sealed class LabGameViewModel : ObservableObject
     /// <summary>The one dim line under it saying why; empty when there is nothing to add.</summary>
     public string HealthWhy => Health.Why ?? "";
 
-    public bool HasHealthWhy => HealthWhy.Length > 0;
+    // The post-session card says the same thing in more detail, so the why line steps aside while it shows.
+    public bool HasHealthWhy => HealthWhy.Length > 0 && !HasPostSession;
 
     /// <summary>Which lab actions are on offer for this game right now (<see cref="LabPanelPlan"/> places each once).</summary>
     public PanelOffers Offers => new()
@@ -1168,7 +1169,7 @@ public sealed class LabGameViewModel : ObservableObject
     {
         foreach (var n in new[]
                  {
-                     nameof(PostCard), nameof(HasPostSession), nameof(PostSessionText), nameof(PostSessionWhy), nameof(HasPostSessionWhy), nameof(ShowPostLines),
+                     nameof(PostCard), nameof(HasPostSession), nameof(HasHealthWhy), nameof(PostSessionText), nameof(PostSessionWhy), nameof(HasPostSessionWhy), nameof(ShowPostLines),
                      nameof(PostLines), nameof(PostLinesMore), nameof(HasPostLinesMore), nameof(ShowPostPrimary), nameof(PostPrimaryText), nameof(ShowPostSecondary),
                      nameof(PostSecondaryText), nameof(PostDismissText), nameof(IsKeepConfirming), nameof(ShowSuggested), nameof(ShowPostMute),
                      nameof(ShowRequestInMore), nameof(ShowRefreshInMore), nameof(ShowTestInMore), nameof(ShowMapInMore), nameof(ShowManageAgainInMore),

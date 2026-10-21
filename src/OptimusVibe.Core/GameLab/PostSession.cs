@@ -266,7 +266,7 @@ public static class PostSession
             return new PostSessionCard
             {
                 Kind = PostSessionKind.Changed, Run = run,
-                Text = $"Last session the game changed {run.Drift.Count} of {run.Applied} settings ({RunResults.Names(run, 2).TrimEnd('.')}).",
+                Text = $"Last session the game changed {run.Drift.Count} of {run.Applied} settings ({RunResults.Names(run, 3).TrimEnd('.')}).",
                 Why = keep ? "Keep them as a manual save if you set them yourself." : null,
                 Primary = keep ? PostSessionAction.KeepThese : PostSessionAction.SeeWhich,
                 Secondary = keep ? PostSessionAction.SeeWhich : PostSessionAction.None,

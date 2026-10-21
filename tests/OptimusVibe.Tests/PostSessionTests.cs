@@ -265,7 +265,7 @@ public sealed class PostSessionTests
         var run = Run(0, drifted: 10, capture: CaptureAnswer.NotAsked); // the wrapper ran with --no-prompt
         var card = Card(In(run), run)!;
         Assert.Equal(PostSessionKind.Changed, card.Kind);
-        Assert.StartsWith("Last session the game changed 10 of 14 settings (Quality0, Quality1 and 8 more)", card.Text);
+        Assert.StartsWith("Last session the game changed 10 of 14 settings (Quality0, Quality1, Quality2 and 7 more)", card.Text);
         Assert.Equal(PostSessionAction.KeepThese, card.Primary);
         Assert.Equal(PostSessionAction.SeeWhich, card.Secondary);
         Assert.True(card.CanSnooze);
