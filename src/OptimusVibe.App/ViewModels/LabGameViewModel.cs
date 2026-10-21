@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using OptimusVibe.App.Services;
+using OptimusVibe.CloudSync;
 using OptimusVibe.Engine;
 using OptimusVibe.GameLab;
 using OptimusVibe.Config;
@@ -14,13 +15,16 @@ namespace OptimusVibe.App.ViewModels;
 /// <param name="HasConfig">The game has a config file here.</param>
 /// <param name="NeedsPresets">No presets for this device (no config, or a config without this device).</param>
 /// <param name="PresetLabel">The preset that would be applied now ("Performance", "Manual: Steady 40"); null when unknown.</param>
+/// <param name="CloudSync">The local cloud-sync check of the game on this device (from its snapshot); null when not known.</param>
 public sealed record LabGameContext(string Name, string? Key, string? GameId, LabTarget? Target, bool HasConfig, bool NeedsPresets,
-    string? PresetLabel = null);
+    string? PresetLabel = null, CloudSyncReport? CloudSync = null);
 
 /// <summary>
 /// The game-lab actions on one game's page: Request / Refresh presets, Re-check settings sync, the confirmation with the evidence
 /// preview (counts and tokenized paths, no contents), and the request's status chip with a link to its issue. Also Test preset: launch
 /// the game once with nothing changed, then say whether it kept the preset's values (and offer to send that to the lab).
+/// The panel leads with the game's health on this device (<see cref="GameHealth"/>): one status line, one "why" line and at most one
+/// suggested action; every other action sits under "More" with a one-line caption.
 /// </summary>
 public sealed class LabGameViewModel : ObservableObject
 {
@@ -37,8 +41,6 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _resultSent;
     private RunResult? _result;
     private string? _verifyText;
-    private RunResult? _lastRun;
-    private bool _lastRunLoaded;
     private string? _applyStatus;
     private bool _applyStatusLoaded;
     private bool _autoLoaded;
@@ -53,6 +55,9 @@ public sealed class LabGameViewModel : ObservableObject
     private string? _flagReason;
     private string? _flagEvidence;
     private int _researchFinishedFor;
+    private bool _healthLoaded;
+    private GameHealth? _health;
+    private bool _moreOpen;
 #if DEBUG
     private bool _demo;
     private RunResult? _demoHint;
@@ -61,6 +66,7 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _demoAutoCopy;
     private string? _demoSuggest;
     private bool _demoResearchDone;
+    private HealthInputs? _demoInputs;
 #endif
 
     public LabGameViewModel(GameLabViewModel lab, MainViewModel main, Func<LabGameContext> context)
@@ -88,6 +94,7 @@ public sealed class LabGameViewModel : ObservableObject
         FlagCommand = new RelayCommand(BeginFlag, () => Idle() && SuggestionReason is not null && !_flagConfirming);
         ConfirmFlagCommand = new AsyncRelayCommand(ConfirmFlagAsync, () => Idle() && _flagConfirming);
         ManageAgainCommand = new AsyncRelayCommand(ManageAgainAsync, () => Idle() && CanManageAgain);
+        ToggleMoreCommand = new RelayCommand(() => IsMoreOpen = !IsMoreOpen);
         lab.IssuesChanged += Refresh;
         lab.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(GameLabViewModel.IsReady)) Refresh(); };
     }
@@ -113,13 +120,14 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand FlagCommand { get; }
     public ICommand ConfirmFlagCommand { get; }
     public ICommand ManageAgainCommand { get; }
+    public ICommand ToggleMoreCommand { get; }
 
     public void Refresh()
     {
-        _lastRunLoaded = false;
         _applyStatusLoaded = false;
         _autoLoaded = false;
         _flagLoaded = false;
+        _healthLoaded = false;
         OnPropertyChanged(string.Empty);
     }
 
@@ -243,8 +251,9 @@ public sealed class LabGameViewModel : ObservableObject
             }
             _resultSent = false;
             _result = result;
-            _lastRunLoaded = false;
+            _applyStatusLoaded = false;
             _flagLoaded = false; // the new result may complete a streak
+            _healthLoaded = false;
         }
         catch (Exception ex)
         {
@@ -343,8 +352,25 @@ public sealed class LabGameViewModel : ObservableObject
             return r;
         }
 
+        HealthInputs Inputs() => new()
+        {
+            GameId = "demo", Device = "desktop", HasConfig = true, HasPresets = true, LabReady = true, CanLaunch = true,
+            CurrentPreset = "recommended:performance",
+        };
+        RunResult Played(int daysAgo, int drifted = 0)
+        {
+            var r = Sample(drifted, verify: false);
+            r.Utc = DateTime.UtcNow.AddDays(-daysAgo);
+            r.DurationSec = 1800;
+            r.Capture = drifted > 0 ? CaptureAnswer.DontSave : CaptureAnswer.NotAsked;
+            return r;
+        }
+
         ClearTransient();
         _result = null;
+        _demoInputs = null;
+        _moreOpen = false;
+        _healthLoaded = false;
         _demoHint = null;
         _demoStatus = null;
         _demoAuto = null;
@@ -358,33 +384,75 @@ public sealed class LabGameViewModel : ObservableObject
         switch (kind)
         {
             case "confirm": BeginTest(); break;
-            case "held": _result = Sample(0); break;
-            case "overridden": _result = Sample(10); break;
-            case "sent": _result = Sample(10); _resultSent = true; break;
+            case "held": _result = Sample(0); _demoInputs = Inputs() with { LastVerify = _result }; break;
+            case "overridden": _result = Sample(10); _demoInputs = Inputs() with { LastVerify = _result }; break;
+            case "sent": _result = Sample(10); _resultSent = true; _demoInputs = Inputs() with { LastVerify = _result }; break;
             case "unknown": _result = Sample(0, seen: false); break;
-            case "hint": _demoHint = Sample(10, verify: false); break;
+            case "hint": _demoHint = Sample(10, verify: false); _demoInputs = Inputs() with { Recent = [_demoHint] }; break;
             case "status": _demoStatus = "Applied by file edit - verified held on 2026-10-20."; break;
-            case "suggest": _demoSuggest = GameFlags.VerifySuggestionReason(2); break;
-            case "suggest-map": _demoSuggest = GameFlags.MappingSuggestionReason(["{LocalAppData}/Demo/Saved/system.save"]); break;
-            case "suggest-result": _result = Sample(10); _demoSuggest = GameFlags.VerifySuggestionReason(2); break;
+            case "suggest":
+                _demoSuggest = GameFlags.VerifySuggestionReason(2);
+                _demoInputs = Inputs() with { OverriddenStreak = 2 };
+                break;
+            case "suggest-map":
+                _demoSuggest = GameFlags.MappingSuggestionReason(["{LocalAppData}/Demo/Saved/system.save"]);
+                _demoInputs = Inputs() with
+                {
+                    Mapping = new ProbeRecord { SuggestSetInGame = true, SuggestReason = _demoSuggest, OpaqueFiles = ["{LocalAppData}/Demo/Saved/system.save"] },
+                };
+                break;
+            case "suggest-result":
+                _result = Sample(10);
+                _demoSuggest = GameFlags.VerifySuggestionReason(2);
+                _demoInputs = Inputs() with { OverriddenStreak = 2, LastVerify = _result };
+                break;
             case "flag-confirm":
                 _demoSuggest = GameFlags.VerifySuggestionReason(2);
+                _demoInputs = Inputs() with { OverriddenStreak = 2 };
                 _flagReason = _demoSuggest;
                 _flagConfirming = true;
                 break;
             case "flagged":
                 _userFlag = _flag = GameFlags.Create(GameFlags.VerifySuggestionReason(2), issue: 12);
                 _demoStatus = GameFlags.StatusLine(_flag);
+                _demoInputs = Inputs() with { Flag = _flag, HasUserFlag = true };
                 break;
             case "flagged-done":
                 _userFlag = _flag = GameFlags.Create(GameFlags.VerifySuggestionReason(2), issue: 12);
                 _demoStatus = GameFlags.StatusLine(_flag);
                 _demoResearchDone = true;
+                _demoInputs = Inputs() with { Flag = _flag, HasUserFlag = true, ResearchFinished = true };
                 break;
             case "flagged-config":
                 _flag = new FlagDef { Reason = "the game rewrites its binary settings store on every boot", Since = "2026-10-20", Issue = 12 };
                 _demoStatus = GameFlags.StatusLine(_flag);
+                _demoInputs = Inputs() with { Flag = _flag, FlagFromConfig = true };
                 break;
+            // one scene per health state (the "suggest" scenes above cover CantBeSetFromOutside)
+            case "health-working": _demoInputs = Inputs() with { Recent = [Played(5), Played(3), Played(1)] }; break;
+            case "health-unchecked": _demoInputs = Inputs() with { Recent = [Played(1)] }; break;
+            case "health-changed": _demoInputs = Inputs() with { Recent = [Played(2, drifted: 4), Played(1, drifted: 4)] }; break;
+            case "health-updated":
+                _demoInputs = Inputs() with
+                {
+                    Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-30), BuildId = "steam:100" }, CurrentBuild = "steam:200",
+                };
+                break;
+            case "health-sync":
+                _demoInputs = Inputs() with
+                {
+                    CloudSync = new CloudSyncReport { GameId = "demo", Device = "desktop", HasExternalChanges = true, Confidence = SyncConfidence.Low },
+                };
+                break;
+            case "health-nopresets": _demoInputs = Inputs() with { HasPresets = false }; break;
+            case "health-labworking":
+                _demoInputs = Inputs() with
+                {
+                    HasPresets = false,
+                    LabRequest = new LabIssue(12, "Demo", "https://github.com/", true, [], LabStatus.NeedsEvidence, null, null, null),
+                };
+                break;
+            case "health-more": _moreOpen = true; break;
             case "auto": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; break;
             case "auto-first": _demoAuto = "First launch with this preset: set it up in-game; Optimus-Vibe keeps it for next time."; break;
             case "auto-forget": _demoAuto = "Settings file kept per device: Performance copy from Oct 20, 2026"; _demoAutoCopy = true; _forgetConfirming = true; break;
@@ -399,40 +467,151 @@ public sealed class LabGameViewModel : ObservableObject
     }
 #endif
 
-    // ---------------------------------------------------------------- passive hint
+    // ---------------------------------------------------------------- health: status line, why line, one suggested action
 
-    private RunResult? LastRun
-    {
-        get
-        {
-            if (_lastRunLoaded) return _lastRun;
-            _lastRunLoaded = true;
-            _lastRun = null;
-            try
-            {
-                if (_main.Session is { } s && Ctx.GameId is { } id) _lastRun = RunResults.Get(s.Paths.DataDir, id, s.Device.Name);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Could not read the last run result: {ex.Message}");
-            }
-            return _lastRun;
-        }
-    }
-
-    /// <summary>After a normal launch in which the game changed most of the preset: a quiet line on the game page. No popup.</summary>
-    public string? HintText
+    /// <summary>
+    /// The game's health on this device (<see cref="GameHealth.Evaluate"/>), read once per refresh from what is already stored: the run
+    /// history, the flag, the stored mapping run, the lab request, the cloud-sync check and the build the presets were made against.
+    /// </summary>
+    public GameHealth Health
     {
         get
         {
 #if DEBUG
-            if (_demo) return _demoHint is { } demo ? RunResults.HintLine(demo) : null;
+            if (_demo)
+                return GameHealth.Evaluate(_demoInputs ?? new HealthInputs
+                {
+                    GameId = "demo", Device = "desktop", HasConfig = true, HasPresets = true, LabReady = true, CanLaunch = true,
+                });
 #endif
-            return CanTest && !IsFlagged && !HasResult && !_testing && RunResults.NeedsHint(LastRun) ? RunResults.HintLine(LastRun!) : null;
+            if (_healthLoaded && _health is not null) return _health;
+            _healthLoaded = true;
+            _health = GameHealth.Evaluate(LoadHealthInputs());
+            return _health;
         }
     }
 
-    public bool HasHint => HintText is not null;
+    private HealthInputs LoadHealthInputs()
+    {
+        LoadFlag();
+        var ctx = Ctx;
+        var session = _main.Session;
+        var inputs = new HealthInputs { GameId = ctx.GameId ?? ctx.Key ?? ctx.Name, Device = session?.Device.Name ?? "" };
+        try
+        {
+            if (session is not null && ctx.GameId is { } id) inputs = HealthInputs.FromRuns(session.Paths.DataDir, id, session.Device.Name);
+            string? preset = null;
+            IReadOnlyList<string> files = [];
+            if (session is not null && ctx.GameId is { } gameId && ctx.HasConfig && !IsFlagged)
+            {
+                var game = GameContext.Load(session.Store, gameId, session.Device);
+                preset = game.Profile.IsEmpty ? null : game.Preset?.ToString();
+                files = game.Game.Files.Select(f => f.Path).Where(p => p.Length > 0).ToList();
+            }
+            inputs = inputs with
+            {
+                HasConfig = ctx.HasConfig, HasPresets = ctx.HasConfig && !ctx.NeedsPresets,
+                Flag = _flag, FlagFromConfig = _flag is not null && _userFlag is null, HasUserFlag = _userFlag is not null,
+                ResearchFinished = _flag?.Issue is { } n && n == _researchFinishedFor,
+                LabRequest = Issue, LabReady = LabReady, CloudSync = ctx.CloudSync,
+                Mapping = session is not null && ctx.Target is { } t ? GameLabService.StoredMapping(session, t) : null,
+                Presets = session is not null && ctx.GameId is { } markId ? new LabStateStore(session.Paths.DataDir).Load().PresetsFor(markId) : null,
+                CurrentBuild = ctx.Target?.Detected is { } detected ? GameBuild.Of(detected) : null,
+                CurrentPreset = preset, ConfiguredFiles = files, CanLaunch = CanMap,
+            };
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read the game's health: {ex.Message}");
+        }
+        return inputs;
+    }
+
+    /// <summary>The status line: "Working. Presets held on your last 3 launches.", "Not checked on this device yet"...</summary>
+    public string HealthText => Health.Headline;
+
+    /// <summary>The one dim line under it saying why; empty when there is nothing to add.</summary>
+    public string HealthWhy => Health.Why ?? "";
+
+    public bool HasHealthWhy => HealthWhy.Length > 0;
+
+    /// <summary>The state's suggested action, when its command is on offer here; otherwise none.</summary>
+    public HealthAction Suggested
+    {
+        get
+        {
+            var action = Health.Suggested;
+#if DEBUG
+            if (_demo) return action;
+#endif
+            var offered = action switch
+            {
+                HealthAction.RequestPresets => ShowRequest,
+                HealthAction.RefreshPresets => ShowRefresh,
+                HealthAction.TestPreset => ShowTest && !IsFlagged,
+                HealthAction.MapGame => ShowMap,
+                HealthAction.FlagSetInGame => SuggestionReason is not null,
+                HealthAction.ManageAgain => ShowManageAgain,
+                _ => false,
+            };
+            return offered ? action : HealthAction.None;
+        }
+    }
+
+    /// <summary>The existing command behind the suggested action (its confirm card opens as from "More").</summary>
+    public ICommand? SuggestedCommand => Suggested switch
+    {
+        HealthAction.RequestPresets => RequestCommand,
+        HealthAction.RefreshPresets => RefreshPresetsCommand,
+        HealthAction.TestPreset => TestCommand,
+        HealthAction.MapGame => MapCommand,
+        HealthAction.FlagSetInGame => FlagCommand,
+        HealthAction.ManageAgain => ManageAgainCommand,
+        _ => null,
+    };
+
+    public string SuggestedText => Suggested == HealthAction.RequestPresets ? RequestText : GameHealth.ActionText(Suggested);
+
+    /// <summary>The suggested button; "Flag as set in-game" steps aside while its confirm card or a test result (which has its own) is open.</summary>
+    public bool ShowSuggested => Suggested != HealthAction.None && !(Suggested == HealthAction.FlagSetInGame && (_flagConfirming || HasResult));
+
+    // ---------------------------------------------------------------- More: every other action, each once, with a caption
+
+    public bool IsMoreOpen
+    {
+        get => _moreOpen;
+        set
+        {
+            if (!Set(ref _moreOpen, value)) return;
+            OnPropertyChanged(nameof(MoreText));
+        }
+    }
+
+    public string MoreText => _moreOpen ? "Less" : "More";
+
+    public bool ShowRequestInMore => ShowRequest && Suggested != HealthAction.RequestPresets;
+    public bool ShowRefreshInMore => ShowRefresh && Suggested != HealthAction.RefreshPresets;
+    public bool ShowSyncCheckInMore => ShowSyncCheck;
+    public bool ShowTestInMore => ShowTest && Suggested != HealthAction.TestPreset;
+    public bool ShowMapInMore => ShowMap && Suggested != HealthAction.MapGame;
+    public bool ShowManageAgainInMore => ShowManageAgain && Suggested != HealthAction.ManageAgain;
+
+    /// <summary>"Flag as set in-game" while it is suggested by the evidence but not the state's own suggestion (the state shows a stronger one).</summary>
+    public bool ShowFlagInMore => ShowSuggest && Suggested != HealthAction.FlagSetInGame;
+
+    public bool HasMore => ShowRequestInMore || ShowRefreshInMore || ShowSyncCheckInMore || ShowTestInMore || ShowMapInMore || ShowManageAgainInMore || ShowFlagInMore;
+
+    public string RequestCaption => "Claude researches the game's settings and writes presets for this device. Takes a few minutes.";
+    public string RefreshCaption => "Asks the game lab to research this game again. Use after a big update or if the presets look wrong.";
+    public string SyncCheckCaption => "Asks the game lab whether this game's settings follow you between devices. Your presets don't change.";
+
+    /// <summary>Test preset's caption, or why it is off for a flagged game.</summary>
+    public string TestCaption => TestDisabledText ??
+        "Plays the game once with the preset and tells you which settings it changed. Use after a patch, or when settings keep resetting.";
+
+    public string MapCaption => "Quick launches that show where this game stores its settings. Use when the lab says it needs evidence.";
+    public string ManageAgainCaption => "Optimus-Vibe writes this game's settings again. Test the preset afterwards.";
+    public string FlagCaption => "Optimus-Vibe stops writing this game's settings. It still sets the display, graphics-driver settings and launch options.";
 
     /// <summary>
     /// One honest line about how the active preset reaches the game and whether it was verified on this device ("Applied by file edit -
@@ -470,7 +649,8 @@ public sealed class LabGameViewModel : ObservableObject
         }
     }
 
-    public bool HasApplyStatus => ApplyStatusText is not null;
+    /// <summary>For a flagged game the status line already says it (<see cref="GameFlags.StatusLine"/>); the two are never shown together.</summary>
+    public bool HasApplyStatus => ApplyStatusText is not null && !IsFlagged;
 
     // ---------------------------------------------------------------- set in-game (settings off, rest on)
 
@@ -525,7 +705,7 @@ public sealed class LabGameViewModel : ObservableObject
     public bool ShowManageAgain => CanManageAgain;
     public bool ShowConfigOnlyNote => IsFlagged && !CanManageAgain;
 
-    public string ConfigOnlyNote => "The game lab set this flag, so only it can lift it. It does that when its research finds a way to set this game's settings.";
+    public string ConfigOnlyNote => GameHealth.ConfigFlagLine;
 
     /// <summary>Test preset stays visible but is off for a flagged game, and says why.</summary>
     public string? TestDisabledText => IsFlagged ? "Test preset is off: this game's settings are left to the game, so there is nothing to test." : null;
@@ -533,8 +713,9 @@ public sealed class LabGameViewModel : ObservableObject
     public bool HasTestDisabledText => TestDisabledText is not null;
 
     /// <summary>
-    /// Why the flag is worth suggesting (never applied on its own): two overridden Test preset results in a row, or a mapping run whose
-    /// changes were all in binary files. Null when the game is flagged already or nothing suggests it.
+    /// Why the flag is worth suggesting (never applied on its own): two overridden Test preset results in a row, two passively overridden
+    /// launches, or a mapping run whose changes were all in binary files Optimus-Vibe can't edit (<see cref="GameHealth.FlagSuggestion"/>).
+    /// Null when the game is flagged already or nothing suggests it.
     /// </summary>
     public string? SuggestionReason
     {
@@ -545,10 +726,7 @@ public sealed class LabGameViewModel : ObservableObject
 #if DEBUG
             if (_demo) return _demoSuggest;
 #endif
-            if (GameFlags.SuggestsFromVerify(_streak)) return GameFlags.VerifySuggestionReason(_streak);
-            if (_main.Session is { } s && Ctx.Target is { } t && GameLabService.StoredMapping(s, t) is { SuggestSetInGame: true } m)
-                return m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit";
-            return null;
+            return Health.FlagReason;
         }
     }
 
@@ -575,14 +753,16 @@ public sealed class LabGameViewModel : ObservableObject
 #endif
         IsFlagged && _flag?.Issue is { } n && n == _researchFinishedFor;
 
-    public string ResearchFinishedText => "Research finished - try managing settings again?";
+    public string ResearchFinishedText => GameHealth.ResearchFinishedLine;
 
     private async Task CheckResearchAsync(int issue)
     {
+        await Task.Yield(); // called while the panel reads the flag: never notify from inside that read
         if (await _lab.IsIssueOpenAsync(issue) != false || _researchFinishedFor == issue) return;
         _researchFinishedFor = issue;
-        OnPropertyChanged(nameof(ShowResearchFinished));
-        OnPropertyChanged(nameof(ResearchFinishedText));
+        _healthLoaded = false; // "Manage settings again" becomes the suggestion
+        OnPropertyChanged(string.Empty);
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private void BeginFlag()
@@ -598,6 +778,9 @@ public sealed class LabGameViewModel : ObservableObject
         OnPropertyChanged(nameof(FlagWhy));
         OnPropertyChanged(nameof(ShowSuggest));
         OnPropertyChanged(nameof(ShowResultSuggest));
+        OnPropertyChanged(nameof(ShowSuggested));
+        OnPropertyChanged(nameof(ShowFlagInMore));
+        OnPropertyChanged(nameof(HasMore));
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -812,19 +995,23 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>
     /// B / Esc: closes the top card only. A confirmation (request, test or "send the test result") goes first; the test result
-    /// underneath closes on the next press. True when something was closed.
+    /// underneath closes on the next press, then an open "More" collapses. True when something was closed.
     /// </summary>
     public bool CancelTransient()
     {
         if (ClearTransient()) return true;
-        var any = false;
         if (_result is not null && !_testing)
         {
             _result = null;
             OnPropertyChanged(string.Empty);
-            any = true;
+            return true;
         }
-        return any;
+        if (_moreOpen)
+        {
+            IsMoreOpen = false;
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Closes confirmation cards but keeps a test result on screen (another panel on the game page is opening).</summary>
@@ -852,6 +1039,9 @@ public sealed class LabGameViewModel : ObservableObject
             OnPropertyChanged(nameof(IsFlagConfirming));
             OnPropertyChanged(nameof(ShowSuggest));
             OnPropertyChanged(nameof(ShowResultSuggest));
+            OnPropertyChanged(nameof(ShowSuggested));
+            OnPropertyChanged(nameof(ShowFlagInMore));
+            OnPropertyChanged(nameof(HasMore));
         }
         Preview = null;
         PreviewError = null;

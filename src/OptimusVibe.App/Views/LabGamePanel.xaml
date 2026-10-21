@@ -24,50 +24,31 @@
     </UserControl.Resources>
     <Border Style="{StaticResource Card}" HorizontalAlignment="Left" MaxWidth="{DynamicResource LabMaxWidth}">
         <StackPanel>
-            <!-- ============================================================ comfortable -->
-            <StackPanel Style="{StaticResource Only.Comfortable}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Game lab" Style="{StaticResource Text.H3}" VerticalAlignment="Center" />
-                        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="12,0,0,0" VerticalAlignment="Center"
-                                Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding ChipLine}">
-                            <TextBlock Text="{Binding ChipText}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
-                        </Border>
-                    </StackPanel>
-                    <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
-                            Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
-                </Grid>
-                <TextBlock Style="{StaticResource Text.Dim}" Margin="0,6,0,0" TextWrapping="Wrap"
-                           Text="Have Claude research this game's settings from evidence on this PC. It runs in your private config repo." />
-
-                <WrapPanel Margin="0,14,0,0">
-                    <Button Style="{StaticResource Button.Primary}" Command="{Binding RequestCommand}" Content="{Binding RequestText}" Margin="0,0,8,6"
-                            Visibility="{Binding ShowRequest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Request presets" />
-                    <Button Command="{Binding RefreshPresetsCommand}" Content="Refresh presets" Margin="0,0,8,6"
-                            Visibility="{Binding ShowRefresh, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Refresh presets" />
-                    <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" Margin="0,0,8,6"
-                            Visibility="{Binding ShowSyncCheck, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Re-check settings sync" />
-                    <Button Command="{Binding TestCommand}" Content="Test preset" Margin="0,0,8,6"
-                            Visibility="{Binding ShowTest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Test preset"
-                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
-                    <Button Command="{Binding MapCommand}" Content="Map this game" Margin="0,0,8,6"
-                            Visibility="{Binding ShowMap, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Map this game"
-                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
-                </WrapPanel>
-            </StackPanel>
+            <!-- ============================================================ comfortable: title, chip, Open issue -->
+            <Grid Style="{StaticResource Only.Comfortable}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal"
+                            ToolTip="Have Claude research this game's settings from evidence on this PC. It runs in your private config repo.">
+                    <TextBlock Text="Game lab" Style="{StaticResource Text.H3}" VerticalAlignment="Center" />
+                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="12,0,0,0" VerticalAlignment="Center"
+                            Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding ChipLine}">
+                        <TextBlock Text="{Binding ChipText}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
+                    </Border>
+                </StackPanel>
+                <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
+                        Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
+            </Grid>
 
             <!-- ============================================================ compact: one row -->
             <Grid Style="{StaticResource Only.Compact}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0"
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                             ToolTip="Have Claude research this game's settings from evidence on this PC. It runs in your private config repo.">
                     <TextBlock Text="Game lab" Style="{StaticResource Text.H3}" VerticalAlignment="Center" />
                     <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="10,0,0,0" VerticalAlignment="Center"
@@ -75,23 +56,76 @@
                         <TextBlock Text="{Binding ChipText}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
                     </Border>
                 </StackPanel>
-                <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                    <Button Style="{StaticResource Button.Primary}" Command="{Binding RequestCommand}" Content="{Binding RequestText}" Margin="0,2,8,2"
-                            Visibility="{Binding ShowRequest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Request presets" />
-                    <Button Command="{Binding RefreshPresetsCommand}" Content="Refresh presets" Margin="0,2,8,2"
-                            Visibility="{Binding ShowRefresh, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Refresh presets" />
-                    <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" Margin="0,2,8,2"
-                            Visibility="{Binding ShowSyncCheck, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Re-check settings sync" />
-                    <Button Command="{Binding TestCommand}" Content="Test preset" Margin="0,2,8,2"
-                            Visibility="{Binding ShowTest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Test preset"
-                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
-                    <Button Command="{Binding MapCommand}" Content="Map this game" Margin="0,2,8,2"
-                            Visibility="{Binding ShowMap, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Map this game"
-                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
-                </WrapPanel>
-                <Button Grid.Column="2" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
+                <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
                         Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
             </Grid>
+
+            <!-- ============================================================ health: status line, one dim why line (read-only) -->
+            <TextBlock Text="{Binding HealthText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="2,8,0,0"
+                       AutomationProperties.Name="{Binding HealthText}" />
+            <TextBlock Text="{Binding HealthWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,2,0,0"
+                       Visibility="{Binding HasHealthWhy, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding HealthWhy}" />
+
+            <!-- the one suggested action (an existing command; A opens its usual confirm card), then More -->
+            <WrapPanel Margin="0,10,0,0">
+                <Button Style="{StaticResource Button.Primary}" Command="{Binding SuggestedCommand}" Content="{Binding SuggestedText}" Margin="0,0,8,6"
+                        Visibility="{Binding ShowSuggested, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding SuggestedText}" />
+                <Button x:Name="MoreButton" Style="{StaticResource Button.Quiet}" Command="{Binding ToggleMoreCommand}" Margin="0,0,8,6"
+                        Visibility="{Binding HasMore, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="More game lab actions">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding MoreText}" />
+                        <TextBlock FontFamily="{StaticResource IconFont}" FontSize="10" Margin="8,1,0,0" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="&#xE70D;" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsMoreOpen}" Value="True">
+                                            <Setter Property="Text" Value="&#xE70E;" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </Button>
+            </WrapPanel>
+
+            <!-- More: every other action once, each with when/why. A expands in place, B collapses (focus back on More). -->
+            <StackPanel x:Name="MorePanel" Margin="0,4,0,0" KeyboardNavigation.DirectionalNavigation="Contained"
+                        Visibility="{Binding IsMoreOpen, Converter={StaticResource VisibleWhen}}">
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowRequestInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding RequestCommand}" Content="{Binding RequestText}" HorizontalAlignment="Left" AutomationProperties.Name="Request presets" />
+                    <TextBlock Text="{Binding RequestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowRefreshInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding RefreshPresetsCommand}" Content="Refresh presets" HorizontalAlignment="Left" AutomationProperties.Name="Refresh presets" />
+                    <TextBlock Text="{Binding RefreshCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowSyncCheckInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" HorizontalAlignment="Left" AutomationProperties.Name="Re-check settings sync" />
+                    <TextBlock Text="{Binding SyncCheckCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowTestInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding TestCommand}" Content="Test preset" HorizontalAlignment="Left" AutomationProperties.Name="Test preset"
+                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
+                    <TextBlock Text="{Binding TestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowMapInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding MapCommand}" Content="Map this game" HorizontalAlignment="Left" AutomationProperties.Name="Map this game"
+                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
+                    <TextBlock Text="{Binding MapCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowManageAgainInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding ManageAgainCommand}" Content="Manage settings again" HorizontalAlignment="Left" AutomationProperties.Name="Manage settings again"
+                            ToolTip="Optimus-Vibe writes this game's settings again. Test the preset afterwards to check the game keeps it." />
+                    <TextBlock Text="{Binding ManageAgainCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowFlagInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding FlagCommand}" Content="Flag as set in-game" HorizontalAlignment="Left" AutomationProperties.Name="Flag as set in-game"
+                            ToolTip="{Binding SuggestLine}" />
+                    <TextBlock Text="{Binding FlagCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+            </StackPanel>
 
             <!-- why the buttons are off -->
             <Grid Visibility="{Binding IsDisabled, Converter={StaticResource VisibleWhen}}">
@@ -108,34 +142,9 @@
                         Visibility="{Binding NeedsSetup, Converter={StaticResource VisibleWhen}}" />
             </Grid>
 
-            <!-- how the active preset reaches the game, and whether it was verified on this device -->
+            <!-- how the active preset reaches the game, and whether it was verified on this device (a flagged game's status line says it) -->
             <TextBlock Text="{Binding ApplyStatusText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
                        Visibility="{Binding HasApplyStatus, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="How the preset is applied" />
-
-            <!-- passive hint: after a normal launch where the game changed most of the preset -->
-            <TextBlock Text="{Binding HintText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
-                       Visibility="{Binding HasHint, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Last launch note" />
-
-            <!-- set in-game: why Test preset is off, the research task, and how to manage the settings again -->
-            <StackPanel Visibility="{Binding IsFlagged, Converter={StaticResource VisibleWhen}}" KeyboardNavigation.DirectionalNavigation="Contained">
-                <TextBlock Text="{Binding TestDisabledText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
-                           Visibility="{Binding HasTestDisabledText, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Why Test preset is off" />
-                <TextBlock Text="{Binding ResearchFinishedText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="2,8,0,0"
-                           Visibility="{Binding ShowResearchFinished, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Research finished" />
-                <TextBlock Text="{Binding ConfigOnlyNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
-                           Visibility="{Binding ShowConfigOnlyNote, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Who can lift the flag" />
-                <Button Style="{StaticResource Button.Quiet}" Command="{Binding ManageAgainCommand}" Content="Manage settings again" HorizontalAlignment="Left" Margin="0,6,0,0"
-                        Visibility="{Binding ShowManageAgain, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Manage settings again"
-                        ToolTip="Optimus-Vibe writes this game's settings again. Test the preset afterwards to check the game keeps it." />
-            </StackPanel>
-
-            <!-- suggestion: the game keeps ignoring the settings (never flagged automatically) -->
-            <StackPanel Visibility="{Binding ShowSuggest, Converter={StaticResource VisibleWhen}}" KeyboardNavigation.DirectionalNavigation="Contained">
-                <TextBlock Text="{Binding SuggestLine}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0" AutomationProperties.Name="Why this game may be set in-game" />
-                <Button Style="{StaticResource Button.Quiet}" Command="{Binding FlagCommand}" Content="Flag as set in-game" HorizontalAlignment="Left" Margin="0,4,0,0"
-                        AutomationProperties.Name="Flag as set in-game"
-                        ToolTip="Stop writing this game's settings. Display and NVIDIA still apply." />
-            </StackPanel>
 
             <!-- Flag as set in-game: confirm -->
             <Border Style="{StaticResource Card.Inset}" Margin="0,12,0,0" Visibility="{Binding IsFlagConfirming, Converter={StaticResource VisibleWhen}}"
@@ -266,7 +275,7 @@
                         </Button>
                         <Button Command="{Binding FlagCommand}" Margin="0,0,8,6" Content="Flag as set in-game"
                                 Visibility="{Binding ShowResultSuggest, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Flag as set in-game"
-                                ToolTip="Stop writing this game's settings. Display and NVIDIA still apply." />
+                                ToolTip="Stop writing this game's settings. The display and graphics-driver settings still apply." />
                         <Button Style="{StaticResource Button.Quiet}" Command="{Binding DismissResultCommand}" Margin="0,0,8,6"
                                 input:FocusCue.FocusWhenShown="{Binding ShowSendResult, Converter={StaticResource Not}}"
                                 AutomationProperties.Name="Close the test result">

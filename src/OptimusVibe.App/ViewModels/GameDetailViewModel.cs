@@ -60,7 +60,7 @@ public sealed class GameDetailViewModel : ObservableObject
             var det = game is null ? null : shell.Lab.DetectedFor(game);
             return new LabGameContext(Name, det?.Key ?? (game is null ? null : LibraryService.ConfiguredKey(game)), game?.Id ?? GameId,
                 det is null ? null : shell.Lab.TargetFor(game, det, Name), game is not null, _snap.Context?.Profile.IsEmpty == true,
-                _snap.Context is { } c && !c.Profile.IsEmpty ? c.Profile.Label ?? c.Preset?.Name : null);
+                _snap.Context is { } c && !c.Profile.IsEmpty ? c.Profile.Label ?? c.Preset?.Name : null, _snap.CloudSync);
         });
         Rebuild();
     }

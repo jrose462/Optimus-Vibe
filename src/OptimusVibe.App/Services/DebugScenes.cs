@@ -161,6 +161,8 @@ public static class DebugScenes
     /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
     /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data);
     /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
+    /// verify-health-working | verify-health-unchecked | verify-health-changed | verify-health-updated | verify-health-sync | verify-health-nopresets |
+    /// verify-health-labworking | verify-health-more (the lab panel's status line, why line and suggested action per health state; "more" opens More).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
     /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
@@ -250,6 +252,14 @@ public static class DebugScenes
             case "verify-flagged":
             case "verify-flagged-done":
             case "verify-flagged-config":
+            case "verify-health-working":
+            case "verify-health-unchecked":
+            case "verify-health-changed":
+            case "verify-health-updated":
+            case "verify-health-sync":
+            case "verify-health-nopresets":
+            case "verify-health-labworking":
+            case "verify-health-more":
                 if (tuned is not null)
                 {
                     vm.OpenLibraryDetail(tuned);
