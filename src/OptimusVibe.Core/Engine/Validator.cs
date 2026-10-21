@@ -154,6 +154,7 @@ public static class Validator
         foreach (var (name, body) in game.Profiles)
             if (body.ContainsKey(ProfileResolver.SnapshotsFrom))
                 report.Errors.Add($"{where}: profiles.{name} sets snapshotsFrom, which is only allowed in presets");
+        foreach (var (pn, pb) in game.Profiles) CheckAmdRaw(pb, $"{where}: profiles.{pn}", perKey: true, report);
         bool hasRawFile = game.Files.Any(f => f.Handler.Equals("file", StringComparison.OrdinalIgnoreCase));
 
         foreach (var (device, presets) in game.Presets)
@@ -173,6 +174,9 @@ public static class Validator
                     foreach (var (ak, av) in resolved.Amd)
                         if (AmdSettingTable.Validate(ak, av) is { } amdError)
                             report.Errors.Add($"{where}: presets.{device}.{preset}.amd.{ak}: {amdError}");
+                    foreach (var e in AmdSettingTable.ValidateBlock(resolved.Amd, duplicates: false))
+                        report.Errors.Add($"{where}: presets.{device}.{preset}: {e}");
+                    CheckAmdRaw(presets[preset], $"{where}: presets.{device}.{preset}", perKey: false, report);
                     if (resolved.FileBlocks.Count == 0 && resolved.Display is null && resolved.Nvidia.Count == 0 && resolved.Amd.Count == 0)
                         report.Warnings.Add($"{where}: presets.{device}.{preset} sets nothing");
                 }
@@ -194,10 +198,23 @@ public static class Validator
             catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}: {ex.Message}"); continue; }
             foreach (var save in saves)
             {
+                CheckAmdRaw(save.Body, $"saves/{game.Id}/{device}/{save.Slug}", perKey: true, report);
                 try { ProfileResolver.ResolveSave(game, device, deviceDef, save); }
                 catch (Exception ex) { report.Errors.Add($"saves/{game.Id}/{device}/{save.Slug}: {ex.Message}"); }
             }
         }
+    }
+
+    /// <summary>`amd:` block of one raw body (profile, preset or save): alias + canonical duplicates and Chill min above max; with <paramref name="perKey"/> also unknown keys and bad values.</summary>
+    private static void CheckAmdRaw(Dictionary<string, object?> body, string where, bool perKey, ValidationReport report)
+    {
+        if (!body.TryGetValue(ProfileResolver.Amd, out var raw) || raw is not Dictionary<string, object?> map) return;
+        var block = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (k, v) in map) block[k] = Values.ToScalar(v);
+        if (perKey)
+            foreach (var (k, v) in block)
+                if (AmdSettingTable.Validate(k, v) is { } err) report.Errors.Add($"{where}.amd.{k}: {err}");
+        foreach (var e in AmdSettingTable.ValidateBlock(block)) report.Errors.Add($"{where}: {e}");
     }
 
     private static void CheckAutoSnapshot(FileDef f, string fw, ValidationReport report)

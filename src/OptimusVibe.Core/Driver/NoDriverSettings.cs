@@ -21,13 +21,11 @@ public sealed class NoDriverSettings : IDriverSettings
         return Array.Empty<DriverChange>();
     }
 
-    public string? Apply(GameDef game, IReadOnlyDictionary<string, string> settings)
+    public string? Apply(GameDef game, IReadOnlyDictionary<string, string> settings, Action<string>? beforeWrite = null)
     {
         Plan(game, settings);
         return null;
     }
 
-    public void Restore(string token)
-    {
-    }
+    public bool Restore(string token) => true;
 }

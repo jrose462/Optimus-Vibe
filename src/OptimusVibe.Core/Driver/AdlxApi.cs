@@ -17,6 +17,13 @@ internal enum AmdSettingId
     EnhancedSync,
     BoostEnabled,
     BoostMinResolution,
+
+    // Snapshot-only ids (not user keys): the raw state behind the composite FrtcFps / AntiLag settings, so a restore brings back
+    // the stored fps / level as well as the enabled flag.
+    FrtcEnabled,
+    FrtcValue,
+    AntiLagEnabled,
+    AntiLagLevel,
 }
 
 internal enum AdlxStatus
@@ -58,6 +65,6 @@ internal interface IAdlxSession : IDisposable
 
     AdlxStatus Write(AmdSettingId id, int value);
 
-    /// <summary>The driver-reported allowed range for numeric settings; false when unknown.</summary>
-    bool TryGetRange(AmdSettingId id, out int min, out int max);
+    /// <summary>The driver-reported allowed range (and step, at least 1) for numeric settings; false when unknown.</summary>
+    bool TryGetRange(AmdSettingId id, out int min, out int max, out int step);
 }

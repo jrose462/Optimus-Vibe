@@ -109,7 +109,7 @@ public static class DriverDiagnostics
         var token = manager.Apply(game, request);
         var afterApply = manager.Plan(game, request).FirstOrDefault()?.Current;
         lines.Add($"apply: token {(token is null ? "none" : "issued")}, driver now reports {afterApply ?? "?"} (expected {target})");
-        if (token is not null) manager.Restore(token);
+        if (token is not null && !manager.Restore(token)) lines.Add("WARNING: restore reported failure; run again or fix the settings in Radeon Software.");
         var afterRestore = manager.Plan(game, new Dictionary<string, string> { [key] = original! }).FirstOrDefault()?.Current;
         lines.Add($"restore: driver now reports {afterRestore ?? "?"} (expected {original})");
 

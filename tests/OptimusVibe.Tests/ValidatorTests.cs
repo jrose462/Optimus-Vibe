@@ -90,6 +90,30 @@ public sealed class ValidatorTests : IDisposable
     }
 
     [Fact]
+    public void AmdAliasAndCanonicalKeyInOneBlock_IsError()
+    {
+        var r = Run(ValidGame.Replace("amd: { AFMF: false }", "amd: { AFMF: false, AfmfEnabled: true }"));
+        Assert.Contains(r.Errors, e => e.Contains("set the same setting"));
+    }
+
+    [Fact]
+    public void AmdChillMinAboveMax_IsError()
+    {
+        var r = Run(ValidGame.Replace("amd: { AFMF: false }", "amd: { ChillMinFps: 100, ChillMaxFps: 50 }"));
+        Assert.Contains(r.Errors, e => e.Contains("ChillMinFps") && e.Contains("above"));
+    }
+
+    [Fact]
+    public void AmdBlockInABaseProfile_IsValidatedToo()
+    {
+        var r = Run(ValidGame.Replace("base:\n    user: { S: { Shadows: 3 } }", "base:\n    user: { S: { Shadows: 3 } }\n    amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }")
+            .Replace("          base:\r\n            user: { S: { Shadows: 3 } }", "          base:\r\n            user: { S: { Shadows: 3 } }\r\n            amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }")
+            .Replace("          base:\n            user: { S: { Shadows: 3 } }", "          base:\n            user: { S: { Shadows: 3 } }\n            amd: { Turbo: 1, AFMF: true, AfmfEnabled: true }"));
+        Assert.Contains(r.Errors, e => e.Contains("profiles.base") && e.Contains("amd.Turbo"));
+        Assert.Contains(r.Errors, e => e.Contains("profiles.base") && e.Contains("set the same setting"));
+    }
+
+    [Fact]
     public void ValidSample_WithValidSave_NoErrors()
     {
         _store.WriteSave("sample", "desktop", new ManualSave

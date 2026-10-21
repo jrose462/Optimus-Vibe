@@ -121,6 +121,62 @@ internal static class AmdSettingTable
         return ByKey.TryGetValue(k, out setting!);
     }
 
+    internal static bool IsAlias(string key) => Aliases.ContainsKey((key ?? "").Trim());
+
+    /// <summary>Settings captured in the restore token: every readable setting, with the composite FrtcFps / AntiLag split into their raw parts. Numbers first, then enable flags.</summary>
+    internal static readonly IReadOnlyList<AmdSettingId> SnapshotOrder =
+    [
+        AmdSettingId.FrtcValue, AmdSettingId.ChillMinFps, AmdSettingId.ChillMaxFps, AmdSettingId.RsrSharpness, AmdSettingId.RisSharpness,
+        AmdSettingId.BoostMinResolution, AmdSettingId.AntiLagLevel, AmdSettingId.WaitForVSync,
+        AmdSettingId.FrtcEnabled, AmdSettingId.ChillEnabled, AmdSettingId.RsrEnabled, AmdSettingId.AfmfEnabled, AmdSettingId.AntiLagEnabled,
+        AmdSettingId.RisEnabled, AmdSettingId.EnhancedSync, AmdSettingId.BoostEnabled,
+    ];
+
+    private static readonly HashSet<AmdSettingId> Flags =
+    [
+        AmdSettingId.FrtcEnabled, AmdSettingId.ChillEnabled, AmdSettingId.RsrEnabled, AmdSettingId.AfmfEnabled, AmdSettingId.AntiLagEnabled,
+        AmdSettingId.RisEnabled, AmdSettingId.EnhancedSync, AmdSettingId.BoostEnabled,
+    ];
+
+    /// <summary>True for on/off switches (restored after the numbers, off before on, so a conflicting feature is released first).</summary>
+    internal static bool IsFlag(AmdSettingId id) => Flags.Contains(id);
+
+    internal sealed record Entry(string Key, string Value, AmdSetting Setting);
+
+    /// <summary>
+    /// Known keys of an `amd:` block with duplicates removed: an alias and its canonical key (AFMF + AfmfEnabled) name the same setting, so the
+    /// canonical key wins (then the ordinal-first key); the losers are returned in <paramref name="dropped"/>. Unknown keys are left out.
+    /// </summary>
+    internal static List<Entry> Dedupe(IReadOnlyDictionary<string, string> block, out List<(string Dropped, string Kept)> dropped)
+    {
+        dropped = [];
+        var won = new Dictionary<AmdSettingId, Entry>();
+        foreach (var kv in block.OrderBy(k => IsAlias(k.Key) ? 1 : 0).ThenBy(k => k.Key.Trim(), StringComparer.Ordinal))
+        {
+            if (!TryGet(kv.Key, out var s)) continue;
+            if (won.TryGetValue(s.Id, out var first)) { dropped.Add((kv.Key.Trim(), first.Key)); continue; }
+            won[s.Id] = new Entry(kv.Key.Trim(), kv.Value, s);
+        }
+        return won.Values.ToList();
+    }
+
+    /// <summary>Whole-block errors for `validate` (per-key errors come from <see cref="Validate"/>): alias + canonical key together, Chill min above max.</summary>
+    public static List<string> ValidateBlock(IReadOnlyDictionary<string, string> block, bool duplicates = true)
+    {
+        var errors = new List<string>();
+        var entries = Dedupe(block, out var dropped);
+        if (duplicates) foreach (var (d, kept) in dropped) errors.Add($"amd.{d} and amd.{kept} set the same setting; keep one");
+        int? min = null, max = null;
+        foreach (var e in entries)
+        {
+            if (e.Setting.TryParse(e.Value, out var v) is not null) continue;
+            if (e.Setting.Id == AmdSettingId.ChillMinFps) min = v;
+            if (e.Setting.Id == AmdSettingId.ChillMaxFps) max = v;
+        }
+        if (min > max) errors.Add($"amd.ChillMinFps ({min}) is above amd.ChillMaxFps ({max})");
+        return errors;
+    }
+
     internal static AmdSetting For(AmdSettingId id) => All.First(s => s.Id == id);
 
     /// <summary>Null when the key and value are valid; otherwise a message for `validate`.</summary>

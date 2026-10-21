@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using OptimusVibe.Config;
 using OptimusVibe.Logging;
@@ -6,9 +7,10 @@ namespace OptimusVibe.Driver;
 
 /// <summary>
 /// AMD (ROG Xbox Ally X, Adrenalin driver): reads and writes the GLOBAL 3D graphics settings through ADLX (<see cref="AdlxNative"/>).
-/// ADLX has no per-application scope, so <see cref="Apply"/> records every value it changes in a JSON restore token and the runner
-/// calls <see cref="Restore"/> after the game exits (same contract as the display-mode restore). Per-setting problems
-/// (unknown key, bad value, unsupported by this driver, native error) are logged and skipped; nothing here throws into the launch.
+/// ADLX has no per-application scope, so <see cref="Apply"/> snapshots every readable setting into a JSON restore token before it writes
+/// and the runner calls <see cref="Restore"/> after the game exits (same contract as the display-mode restore). Restore writes back every
+/// setting that differs from the snapshot and reports whether everything is back; the caller keeps the token until it is. Per-setting
+/// problems (unknown key, bad value, unsupported by this driver, native error) are logged and skipped; nothing here throws into the launch.
 /// Keys are listed in <see cref="AmdSettingTable"/> and documented in docs/amd-adlx.md.
 /// </summary>
 public sealed class AmdAdlxManager : IDriverSettings
@@ -29,10 +31,13 @@ public sealed class AmdAdlxManager : IDriverSettings
 
     private sealed class Token
     {
-        public int V { get; set; } = 1;
+        public int V { get; set; } = 2;
         public string? Gpu { get; set; }
 
-        /// <summary>Previous values in the order they were changed (setting key -> integer value).</summary>
+        /// <summary>v2: every readable setting before anything was written (<see cref="AmdSettingId"/> name -> raw integer), including the raw FRTC / Anti-Lag parts.</summary>
+        public Dictionary<string, int> Snapshot { get; set; } = new();
+
+        /// <summary>v1 (older builds): previous values of just the changed settings, in the order they were changed.</summary>
         public List<KeyValuePair<string, int>> Previous { get; set; } = new();
     }
 
@@ -71,7 +76,7 @@ public sealed class AmdAdlxManager : IDriverSettings
         }
     }
 
-    public string? Apply(GameDef game, IReadOnlyDictionary<string, string> settings)
+    public string? Apply(GameDef game, IReadOnlyDictionary<string, string> settings, Action<string>? beforeWrite = null)
     {
         var resolved = Resolve(settings);
         if (resolved.Count == 0) return null;
@@ -82,12 +87,15 @@ public sealed class AmdAdlxManager : IDriverSettings
             return null;
         }
 
+        string? issued = null;
         try
         {
             using var session = _api.OpenSession();
+            var snapshot = TakeSnapshot(session);
             var pending = new List<(Resolved R, int Previous)>();
-            foreach (var r in resolved)
+            foreach (var r0 in resolved)
             {
+                var r = r0;
                 var st = session.Read(r.Setting.Id, out var cur);
                 if (st == AdlxStatus.Unsupported)
                 {
@@ -104,56 +112,84 @@ public sealed class AmdAdlxManager : IDriverSettings
                     Log.Info($"AMD: {r.Setting.Key} already {r.Setting.Format(r.Target)}.");
                     continue;
                 }
-                if (r.Setting.Kind == AmdKind.Int && !(r.Setting.OffMeansZero && r.Target == 0) &&
-                    session.TryGetRange(r.Setting.Id, out var min, out var max) && (r.Target < min || r.Target > max))
+                if (r.Setting.Kind == AmdKind.Int && !(r.Setting.OffMeansZero && r.Target == 0))
                 {
-                    Log.Warn($"AMD: {r.Setting.Key} = {r.Target} is outside the driver's range {min}..{max}; skipped.");
-                    continue;
+                    if (!session.TryGetRange(r.Setting.Id, out var min, out var max, out var step))
+                    {
+                        Log.Warn($"AMD: the driver did not report a range for {r.Setting.Key}; skipped rather than writing blind.");
+                        continue;
+                    }
+                    if (r.Target < min || r.Target > max)
+                    {
+                        Log.Warn($"AMD: {r.Setting.Key} = {r.Target} is outside the driver's range {min}..{max}; skipped.");
+                        continue;
+                    }
+                    if (step > 1 && (r.Target - min) % step != 0)
+                    {
+                        var rounded = Math.Min(max, min + (int)Math.Round((double)(r.Target - min) / step) * step);
+                        Log.Warn($"AMD: {r.Setting.Key} = {r.Target} is not a multiple of the driver's step {step}; using {rounded}.");
+                        r = r with { Target = rounded };
+                        if (cur == r.Target) continue;
+                    }
                 }
                 pending.Add((r, cur));
             }
 
-            var applied = WriteAll(session, pending.Select(p => (p.R.Setting, p.R.Target)).ToList());
-            var token = new Token { Gpu = session.GpuName };
+            var minPending = pending.FirstOrDefault(p => p.R.Setting.Id == AmdSettingId.ChillMinFps);
+            var maxPending = pending.FirstOrDefault(p => p.R.Setting.Id == AmdSettingId.ChillMaxFps);
+            if (minPending.R is not null && maxPending.R is not null && minPending.R.Target > maxPending.R.Target)
+            {
+                Log.Warn($"AMD: ChillMinFps {minPending.R.Target} is above ChillMaxFps {maxPending.R.Target}; both skipped.");
+                pending.RemoveAll(p => p.R.Setting.Id is AmdSettingId.ChillMinFps or AmdSettingId.ChillMaxFps);
+            }
+            if (pending.Count == 0) return null;
+
+            // The full snapshot is the restore token. Hand it to the caller to persist BEFORE the first write, so a kill mid-apply is recoverable.
+            issued = SerializeSnapshot(session.GpuName, snapshot);
+            beforeWrite?.Invoke(issued);
+
+            var applied = WriteAll(session, pending.Select(p => (p.R.Setting.Id, p.R.Setting.Key, p.R.Setting.Format(p.R.Target), p.R.Target)).ToList());
             foreach (var (r, previous) in pending)
             {
                 if (!applied.Contains(r.Setting.Id)) continue;
-                token.Previous.Add(new(r.Setting.Key, previous));
                 Log.Info($"AMD: {r.Setting.Key} = {r.Setting.Format(r.Target)} (was {r.Setting.Format(previous)}; global, restored after the game exits)");
                 VerifyReadBack(session, r);
             }
-            return token.Previous.Count == 0 ? null : JsonSerializer.Serialize(token);
+
+            // A token is only needed if something really differs from the snapshot now (this also catches a half-applied multi-call write
+            // and side effects such as the driver switching a mutually exclusive feature off).
+            return Differing(session, snapshot).Count == 0 ? null : issued;
         }
         catch (Exception ex)
         {
             Log.Warn($"AMD: applying driver settings for {game.Name} failed: {ex.Message}");
-            return null;
+            return issued; // writes may have happened: keep the token so the caller restores
         }
     }
 
-    public void Restore(string token)
+    public bool Restore(string token)
     {
-        if (string.IsNullOrWhiteSpace(token)) return;
+        if (string.IsNullOrWhiteSpace(token)) return true;
         Token? t;
         try { t = JsonSerializer.Deserialize<Token>(token); }
         catch (Exception ex)
         {
-            Log.Warn($"AMD: restore token unreadable ({ex.Message}); nothing restored.");
-            return;
+            Log.Warn($"AMD: restore token unreadable ({ex.Message}); it can never be restored and is dropped.");
+            return true;
         }
-        if (t is null || t.Previous.Count == 0) return;
+        if (t is null) return true;
 
-        if (!IsAvailable(out var reason))
+        var targets = new List<(AmdSettingId Id, int Value)>();
+        if (t.Snapshot.Count > 0)
         {
-            Log.Warn($"AMD: restore skipped: {reason}");
-            return;
+            foreach (var id in AmdSettingTable.SnapshotOrder)
+                if (t.Snapshot.TryGetValue(id.ToString(), out var v)) targets.Add((id, v));
+            foreach (var key in t.Snapshot.Keys.Where(k => !AmdSettingTable.SnapshotOrder.Any(i => i.ToString() == k)))
+                Log.Warn($"AMD: restore token has unknown setting '{key}'; skipped.");
         }
-
-        try
+        else
         {
-            using var session = _api.OpenSession();
-            var writes = new List<(AmdSetting, int)>();
-            // Undo in reverse order of application.
+            // v1 token: undo in reverse order of application.
             foreach (var (key, value) in Enumerable.Reverse(t.Previous))
             {
                 if (!AmdSettingTable.TryGet(key, out var setting))
@@ -161,40 +197,107 @@ public sealed class AmdAdlxManager : IDriverSettings
                     Log.Warn($"AMD: restore token has unknown setting '{key}'; skipped.");
                     continue;
                 }
-                writes.Add((setting, value));
+                targets.Add((setting.Id, value));
             }
-            var done = WriteAll(session, writes);
-            foreach (var (setting, value) in writes)
-                if (done.Contains(setting.Id)) Log.Info($"AMD: restored {setting.Key} = {setting.Format(value)}");
+        }
+        if (targets.Count == 0) return true;
+
+        if (!IsAvailable(out var reason))
+        {
+            Log.Warn($"AMD: restore postponed, the settings are still changed: {reason}");
+            return false;
+        }
+
+        try
+        {
+            using var session = _api.OpenSession();
+            var wanted = new Dictionary<AmdSettingId, int>();
+            foreach (var (id, v) in targets) wanted[id] = v;
+            var order = targets.Select(x => x.Id).ToList();
+
+            // A few passes: restoring one feature can make the driver flip another (mutually exclusive features), which the next pass fixes.
+            for (var pass = 0; pass < 3; pass++)
+            {
+                var diff = Differing(session, order, wanted);
+                if (diff.Count == 0) return true;
+                // numbers first, then switches that turn a feature OFF, then switches that turn one ON
+                var ordered = diff.Where(x => !AmdSettingTable.IsFlag(x.Id))
+                    .Concat(diff.Where(x => AmdSettingTable.IsFlag(x.Id) && x.Value == 0))
+                    .Concat(diff.Where(x => AmdSettingTable.IsFlag(x.Id) && x.Value != 0))
+                    .Select(x => (x.Id, Label(x.Id), Fmt(x.Id, x.Value), x.Value)).ToList();
+                var done = WriteAll(session, ordered);
+                foreach (var o in ordered)
+                    if (done.Contains(o.Id)) Log.Info($"AMD: restored {o.Item2} = {o.Item3}");
+            }
+            var left = Differing(session, order, wanted);
+            if (left.Count == 0) return true;
+            Log.Warn($"AMD: could not restore {string.Join(", ", left.Select(x => $"{Label(x.Id)} (want {Fmt(x.Id, x.Value)})"))}; the token is kept and restore is retried on the next start.");
+            return false;
         }
         catch (Exception ex)
         {
-            Log.Warn($"AMD: restore failed: {ex.Message}");
+            Log.Warn($"AMD: restore failed: {ex.Message}; the token is kept and restore is retried on the next start.");
+            return false;
         }
     }
 
     // ---------------------------------------------------------------------------------------------
 
+    /// <summary>Reads every snapshot setting the driver exposes (unsupported / unreadable ones are left out: they cannot have been changed by us).</summary>
+    private static Dictionary<AmdSettingId, int> TakeSnapshot(IAdlxSession session)
+    {
+        var snap = new Dictionary<AmdSettingId, int>();
+        foreach (var id in AmdSettingTable.SnapshotOrder)
+            if (session.Read(id, out var v) == AdlxStatus.Ok) snap[id] = v;
+        return snap;
+    }
+
+    private static string SerializeSnapshot(string? gpu, Dictionary<AmdSettingId, int> snapshot) =>
+        JsonSerializer.Serialize(new Token { Gpu = gpu, Snapshot = snapshot.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value) });
+
+    private static List<(AmdSettingId Id, int Value)> Differing(IAdlxSession session, IReadOnlyDictionary<AmdSettingId, int> wanted) =>
+        Differing(session, AmdSettingTable.SnapshotOrder.Where(wanted.ContainsKey).ToList(), wanted);
+
+    /// <summary>The settings whose current value differs from the wanted one (or cannot be read, so a write may not have held).</summary>
+    private static List<(AmdSettingId Id, int Value)> Differing(IAdlxSession session, IReadOnlyList<AmdSettingId> order, IReadOnlyDictionary<AmdSettingId, int> wanted)
+    {
+        var left = new List<(AmdSettingId, int)>();
+        foreach (var id in order)
+        {
+            var want = wanted[id];
+            var st = session.Read(id, out var cur);
+            if (st == AdlxStatus.Unsupported) continue;
+            if (st == AdlxStatus.Ok && cur == want) continue;
+            left.Add((id, want));
+        }
+        return left;
+    }
+
+    private static string Label(AmdSettingId id) => AmdSettingTable.All.FirstOrDefault(s => s.Id == id)?.Key ?? id.ToString();
+
+    private static string Fmt(AmdSettingId id, int v) =>
+        AmdSettingTable.All.FirstOrDefault(s => s.Id == id)?.Format(v) ?? v.ToString(CultureInfo.InvariantCulture);
+
     /// <summary>
     /// Writes every pair; failures are retried once after the others (Chill min/max reject a value that crosses the other bound until it moves).
     /// Returns the ids that were written successfully. Unsupported or failing settings are logged.
     /// </summary>
-    private static HashSet<AmdSettingId> WriteAll(IAdlxSession session, IReadOnlyList<(AmdSetting Setting, int Value)> writes)
+    private static HashSet<AmdSettingId> WriteAll(IAdlxSession session, IReadOnlyList<(AmdSettingId Id, string Key, string Text, int Value)> writes)
     {
         var ok = new HashSet<AmdSettingId>();
-        var retry = new List<(AmdSetting Setting, int Value)>();
+        var retry = new List<(AmdSettingId Id, string Key, string Text, int Value)>();
         foreach (var w in writes)
         {
-            var st = session.Write(w.Setting.Id, w.Value);
-            if (st == AdlxStatus.Ok) ok.Add(w.Setting.Id);
+            var st = session.Write(w.Id, w.Value);
+            if (st == AdlxStatus.Ok) ok.Add(w.Id);
             else if (st == AdlxStatus.Error) retry.Add(w);
-            else Log.Warn($"AMD: {w.Setting.Key} is not supported by this driver/GPU; skipped.");
+            else Log.Warn($"AMD: {w.Key} is not supported by this driver/GPU; skipped.");
         }
         foreach (var w in retry)
         {
-            var st = session.Write(w.Setting.Id, w.Value);
-            if (st == AdlxStatus.Ok) ok.Add(w.Setting.Id);
-            else Log.Warn($"AMD: could not write {w.Setting.Key} = {w.Setting.Format(w.Value)}: {session.LastError ?? "unsupported"}");
+            var st = session.Write(w.Id, w.Value);
+            if (st == AdlxStatus.Ok) ok.Add(w.Id);
+            else Log.Warn($"AMD: could not write {w.Key} = {w.Text}: {session.LastError ?? "unsupported"}");
         }
         return ok;
     }
@@ -207,23 +310,23 @@ public sealed class AmdAdlxManager : IDriverSettings
 
     private static List<Resolved> Resolve(IReadOnlyDictionary<string, string> settings)
     {
+        foreach (var rawKey in settings.Keys)
+            if (!AmdSettingTable.TryGet((rawKey ?? "").Trim(), out _))
+                Log.Warn($"AMD: unknown driver setting '{(rawKey ?? "").Trim()}' (known: {string.Join(", ", AmdSettingTable.All.Select(a => a.Key))}); skipped.");
+
         var map = new Dictionary<AmdSettingId, Resolved>();
-        foreach (var (rawKey, rawValue) in settings)
+        var entries = AmdSettingTable.Dedupe(settings, out var dropped);
+        foreach (var e in entries)
         {
-            var key = (rawKey ?? "").Trim();
-            if (!AmdSettingTable.TryGet(key, out var setting))
-            {
-                Log.Warn($"AMD: unknown driver setting '{key}' (known: {string.Join(", ", AmdSettingTable.All.Select(a => a.Key))}); skipped.");
-                continue;
-            }
-            var error = setting.TryParse(rawValue, out var target);
+            var error = e.Setting.TryParse(e.Value, out var target);
             if (error is not null)
             {
-                Log.Warn($"AMD: invalid value for {setting.Key}: {error}; skipped.");
+                Log.Warn($"AMD: invalid value for {e.Setting.Key}: {error}; skipped.");
                 continue;
             }
-            map[setting.Id] = new Resolved(setting, target);
+            map[e.Setting.Id] = new Resolved(e.Setting, target);
         }
+        foreach (var (d, kept) in dropped) Log.Warn($"AMD: '{d}' and '{kept}' set the same setting; using '{kept}'.");
         // Table order = apply order.
         return AmdSettingTable.All.Where(s => map.ContainsKey(s.Id)).Select(s => map[s.Id]).ToList();
     }
@@ -252,7 +355,7 @@ public sealed class AmdAdlxManager : IDriverSettings
                     AdlxStatus.Unsupported => "unsupported",
                     _ => $"error: {session.LastError}",
                 };
-                var range = s.Kind == AmdKind.Int && session.TryGetRange(s.Id, out var min, out var max) ? $"{min}..{max}" : "";
+                var range = s.Kind == AmdKind.Int && session.TryGetRange(s.Id, out var min, out var max, out _) ? $"{min}..{max}" : "";
                 rows.Add(new StatusRow(s.Key, value, range));
             }
         }
