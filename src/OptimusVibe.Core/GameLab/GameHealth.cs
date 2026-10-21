@@ -245,14 +245,26 @@ public sealed record GameHealth
         var presetsUtc = i.Presets?.MadeUtc;
         bool Stale(DateTime utc) => (heldUtc is { } h && h > utc) || (presetsUtc is { } p && p > utc);
 
-        // the stored streak is device-wide: it speaks for the current preset only through the last test, which must be of it and still the newest word
-        var verifyStands = i.LastVerify is not { } lastVerify || (Runs.CountsFor(i, lastVerify) && !Stale(lastVerify.Utc));
-        if (verifyStands && GameFlags.SuggestsFromVerify(i.OverriddenStreak)) return GameFlags.VerifySuggestionReason(i.OverriddenStreak);
+        if (VerifyStreakStands(i) && GameFlags.SuggestsFromVerify(i.OverriddenStreak)) return GameFlags.VerifySuggestionReason(i.OverriddenStreak);
         var passive = PassiveOverridden(i);
         if (GameFlags.SuggestsFromPassive(passive)) return GameFlags.PassiveSuggestionReason(passive);
         if (i.Mapping is { SuggestSetInGame: true } m && !AllConfigured(m.OpaqueFiles, i.ConfiguredFiles) && !Stale(m.Utc))
             return m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit";
         return null;
+    }
+
+    /// <summary>
+    /// The stored overridden-test streak (<see cref="HealthInputs.OverriddenStreak"/>) still speaks for the current preset. It is device-wide, so
+    /// it counts only through the last test, which must be of the current preset and still the newest word: no held launch or test since, and
+    /// no new presets since.
+    /// </summary>
+    public static bool VerifyStreakStands(HealthInputs i)
+    {
+        if (i.LastVerify is not { } lastVerify) return true;
+        var heldUtc = Runs.NewestHeld(i);
+        var presetsUtc = i.Presets?.MadeUtc;
+        var stale = (heldUtc is { } h && h > lastVerify.Utc) || (presetsUtc is { } p && p > lastVerify.Utc);
+        return Runs.CountsFor(i, lastVerify) && !stale;
     }
 
     /// <summary>

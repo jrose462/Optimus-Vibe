@@ -153,6 +153,15 @@ public sealed class LabState
     /// <summary>The post-session card kinds snoozed for a game at <paramref name="nowUtc"/>.</summary>
     public IReadOnlySet<PostSessionKind> SnoozedFor(string gameId, DateTime nowUtc) =>
         Enum.GetValues<PostSessionKind>().Where(k => Snoozed.TryGetValue(PostSession.SnoozeKey(gameId, k), out var until) && until > nowUtc).ToHashSet();
+
+    /// <summary>
+    /// Game id → when the app last asked the lab to re-research the game by itself (<see cref="AutoFindings"/>): at most one automatic Refresh
+    /// per game every <see cref="AutoFindings.RefreshMemory"/>.
+    /// </summary>
+    public Dictionary<string, DateTime> AutoRefresh { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Game id → when the app asked the lab to re-check the game's settings sync by itself. Once per game, ever.</summary>
+    public Dictionary<string, DateTime> AutoSyncCheck { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -290,6 +299,8 @@ public sealed class LabStateStore(string dataDir)
             s.PresetsMade = new Dictionary<string, PresetsMark>(s.PresetsMade ?? [], StringComparer.OrdinalIgnoreCase);
             s.SessionsSeen = new Dictionary<string, DateTime>(s.SessionsSeen ?? [], StringComparer.OrdinalIgnoreCase);
             s.Snoozed = new Dictionary<string, DateTime>(s.Snoozed ?? [], StringComparer.OrdinalIgnoreCase);
+            s.AutoRefresh = new Dictionary<string, DateTime>(s.AutoRefresh ?? [], StringComparer.OrdinalIgnoreCase);
+            s.AutoSyncCheck = new Dictionary<string, DateTime>(s.AutoSyncCheck ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

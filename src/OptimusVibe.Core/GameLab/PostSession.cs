@@ -9,6 +9,12 @@ public enum PostSessionKind
     /// <summary>The lab asked for evidence and nothing is mapped yet: one launch where the player changes a few graphics options.</summary>
     NeedsMapping,
 
+    /// <summary>
+    /// A finding the game lab could act on (<see cref="AutoFindings.Detect"/>), the first time: asks once whether to send findings like it by
+    /// itself from now on ([Turn on] / [Not now]). Shown only while that setting is off and was never answered.
+    /// </summary>
+    Consent,
+
     /// <summary>The game passively overrode the preset in a row: it may not accept settings from outside.</summary>
     Recurring,
 
@@ -42,6 +48,9 @@ public enum PostSessionAction
     AskLab,
 
     MapGame,
+
+    /// <summary>Turn on "Send findings to the game lab automatically" (<see cref="AutoFindings"/>); the finding at hand is sent right after.</summary>
+    TurnOnAutoFindings,
 }
 
 /// <summary>The inline card on the game page after a session: one line, one dim line, at most two actions, and "Not now" (B).</summary>
@@ -60,9 +69,10 @@ public sealed record PostSessionCard
     /// <summary>
     /// The card asks for something, so it takes focus when the player comes back to the game's page. The "kept all" card never does, and neither
     /// does one whose first button would write the player's settings ("Keep these"): a reflex A press on the way back from the game must not
-    /// land on it.
+    /// land on it. Nor does the consent card: its first button turns on a setting that sends requests to GitHub.
     /// </summary>
-    public bool TakesFocus => Kind != PostSessionKind.Held && Primary is not (PostSessionAction.None or PostSessionAction.KeepThese);
+    public bool TakesFocus => Kind != PostSessionKind.Held &&
+                              Primary is not (PostSessionAction.None or PostSessionAction.KeepThese or PostSessionAction.TurnOnAutoFindings);
 
     /// <summary>
     /// The card has a button for this health action (<see cref="PostSession.AsHealthAction"/>), so the panel's own button for it (the suggested
@@ -155,6 +165,8 @@ public static class PostSession
     /// first, a run of another preset, a flagged game, a card kind snoozed). In order:
     /// <list type="number">
     /// <item><see cref="PostSessionKind.NeedsMapping"/>: an open lab request needs evidence, nothing is mapped and the game can be launched;</item>
+    /// <item><see cref="PostSessionKind.Consent"/>: <paramref name="askConsent"/> (automatic findings are off and were never answered), the lab
+    /// can be asked, and the evidence holds a finding (<see cref="AutoFindings.Detect"/>);</item>
     /// <item><see cref="PostSessionKind.Recurring"/>: this session was passively overridden and so were the ones before it, enough to suggest the
     /// "set in-game" flag (<see cref="GameFlags.SuggestsFromPassive"/>);</item>
     /// <item><see cref="PostSessionKind.Updated"/>: the health says the game updated since its presets, and the lab can be asked;</item>
@@ -164,7 +176,8 @@ public static class PostSession
     /// Nothing here files, flags, saves or launches: every action is the player's press, with its usual confirm card ("Keep these" asks on the
     /// card itself, <see cref="Confirms"/>).
     /// </summary>
-    public static PostSessionCard? For(HealthInputs i, GameHealth health, RunResult run, string name, IReadOnlySet<PostSessionKind>? snoozed = null)
+    public static PostSessionCard? For(HealthInputs i, GameHealth health, RunResult run, string name, IReadOnlySet<PostSessionKind>? snoozed = null,
+        bool askConsent = false)
     {
         if (i.Flag is not null || health.State == HealthState.Flagged || run.IsVerify) return null;
         bool Off(PostSessionKind k) => snoozed?.Contains(k) == true;
@@ -182,7 +195,16 @@ public static class PostSession
         var canAsk = i.LabReady && i.HasConfig && open is null;
         var verdict = VerdictOf(i, run);
 
-        // 2. the game keeps resetting the preset
+        // 2. a finding the lab could act on, the first time: ask once whether to send such findings by itself
+        if (askConsent && canAsk && !Off(PostSessionKind.Consent) && AutoFindings.Detect(i) is { } finding)
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.Consent, Run = run, Text = ConsentText(finding, name, i), Why = AutoFindings.ConsentQuestion,
+                Primary = PostSessionAction.TurnOnAutoFindings,
+                Secondary = finding.Kind == LabKind.Refresh ? PostSessionAction.AskLab : PostSessionAction.None,
+            };
+
+        // 3. the game keeps resetting the preset
         var streak = GameHealth.PassiveOverridden(i);
         if (verdict == PassiveVerdict.Overridden && GameFlags.SuggestsFromPassive(streak) && health.FlagReason is not null && !Off(PostSessionKind.Recurring))
             return new PostSessionCard
@@ -193,7 +215,7 @@ public static class PostSession
                 Primary = PostSessionAction.FlagSetInGame, Secondary = canAsk ? PostSessionAction.AskLab : PostSessionAction.None,
             };
 
-        // 3. the game updated since the presets were made
+        // 4. the game updated since the presets were made
         if (health.State == HealthState.GameUpdated && canAsk && !Off(PostSessionKind.Updated))
             return new PostSessionCard
             {
@@ -201,7 +223,7 @@ public static class PostSession
                 Primary = PostSessionAction.AskLab,
             };
 
-        // 4. the game changed some settings this session
+        // 5. the game changed some settings this session
         if (GameHealth.ChangedByGame(run, verdict) &&
             health.State is HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside or HealthState.GameUpdated &&
             !Off(PostSessionKind.Changed))
@@ -219,7 +241,7 @@ public static class PostSession
             };
         }
 
-        // 5. the first clean session of these presets (or of this build)
+        // 6. the first clean session of these presets (or of this build)
         if (verdict == PassiveVerdict.Held && FirstHeld(i, run) && !Off(PostSessionKind.Held))
             return new PostSessionCard
             {
@@ -238,7 +260,17 @@ public static class PostSession
         PostSessionAction.FlagSetInGame => "Flag as set in-game",
         PostSessionAction.AskLab => "Ask the game lab to re-check",
         PostSessionAction.MapGame => "Map it",
+        PostSessionAction.TurnOnAutoFindings => "Turn on",
         _ => "",
+    };
+
+    /// <summary>The consent card's line: what was found, in the player's words.</summary>
+    private static string ConsentText(AutoFinding finding, string name, HealthInputs i) => finding.Reason switch
+    {
+        AutoFindingReason.GameUpdated => $"{name} updated since the presets last worked.",
+        AutoFindingReason.TestsOverridden => $"{name} overrode the preset in your last {i.OverriddenStreak} tests.",
+        AutoFindingReason.KeepsResetting => $"{name} keeps resetting the preset's settings.",
+        _ => $"Something keeps changing {name}'s settings, maybe cloud sync.",
     };
 
     /// <summary>The health action a card action runs (so the panel's suggested button steps aside while the card offers the same).</summary>
