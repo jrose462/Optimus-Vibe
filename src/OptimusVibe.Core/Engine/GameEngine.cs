@@ -18,6 +18,9 @@ public sealed class FilePlan
     /// <summary>The skip is only because the settings file does not exist yet (first-run games): worth retrying once the game has run.</summary>
     public bool Missing { get; init; }
 
+    /// <summary>Keys the handler refused for this file (key -> reason); they are left out of <see cref="Changes"/> and of what is applied.</summary>
+    public IReadOnlyDictionary<string, string> Rejected { get; init; } = new Dictionary<string, string>();
+
     public bool HasWork => Skip is null && (RestoreSnapshot || Changes.Count > 0);
 }
 
@@ -29,6 +32,9 @@ public sealed class AppliedState
 }
 
 public sealed record Drift(string FileId, string Key, string? Applied, string? Now);
+
+/// <summary>A key that was applied but is no longer in the file: for gvas the game drops properties equal to their defaults, so this is a note, not an override.</summary>
+public sealed record DroppedKey(string FileId, string Key, string Applied);
 
 /// <summary>Plan / apply / drift for one game on this machine.</summary>
 public static class GameEngine
@@ -61,7 +67,13 @@ public static class GameEngine
                 .Where(t => snapshot || !Values.Equivalent(current.GetValueOrDefault(t.Key), t.Value))
                 .Select(t => new KeyChange(t.Key, current.GetValueOrDefault(t.Key), t.Value))
                 .ToList();
-            plans.Add(new FilePlan { File = f, Changes = changes, RestoreSnapshot = snapshot });
+            IReadOnlyDictionary<string, string> rejected = new Dictionary<string, string>();
+            if (!snapshot && exists && changes.Count > 0)
+            {
+                rejected = f.Handler.Preflight(f.Def, f.Path, changes.ToDictionary(c => c.Key, c => c.Target));
+                if (rejected.Count > 0) changes = changes.Where(c => !rejected.ContainsKey(c.Key)).ToList();
+            }
+            plans.Add(new FilePlan { File = f, Changes = changes, RestoreSnapshot = snapshot, Rejected = rejected });
         }
         return plans;
     }
@@ -129,14 +141,17 @@ public static class GameEngine
                         ? $"  {f.Id}: restored snapshot from manual save '{from.Slug}'"
                         : $"  {f.Id}: restored saved snapshot");
                 }
+                var rejected = plan.Rejected;
                 if (plan.Changes.Count > 0)
                 {
-                    f.Handler.Write(f.Def, f.Path!, plan.Changes.ToDictionary(c => c.Key, c => c.Target));
-                    Log.Info($"  {f.Id}: {plan.Changes.Count} setting(s) written");
+                    var refused = f.Handler.WritePartial(f.Def, f.Path!, plan.Changes.ToDictionary(c => c.Key, c => c.Target));
+                    if (refused.Count > 0) rejected = rejected.Concat(refused).ToDictionary(kv => kv.Key, kv => kv.Value);
+                    Log.Info($"  {f.Id}: {plan.Changes.Count - refused.Count} setting(s) written");
                 }
+                foreach (var (key, reason) in rejected) Log.Warn($"  {f.Id}: key '{key}' not applied: {reason}");
                 if (f.Def.ReadOnlyAfterApply) f.Handler.SetReadOnly(f.Path!, true);
 
-                state.Targets[f.Id] = new Dictionary<string, string>(f.Targets);
+                state.Targets[f.Id] = f.Targets.Where(t => !rejected.ContainsKey(t.Key)).ToDictionary(t => t.Key, t => t.Value);
                 if (f.Targets.Count == 0 || plan.RestoreSnapshot) // a restored snapshot is remembered even when keys follow it, so re-apply re-restores only a changed one
                     state.SnapshotHashes[f.Id] = BackupStore.Hash([f.Handler.Snapshot(f.Path!)]);
             }
@@ -149,7 +164,7 @@ public static class GameEngine
     }
 
     /// <summary>Settings the game (or the user, in-game) changed after we applied them.</summary>
-    public static List<Drift> FindDrift(GameContext ctx, AppliedState applied)
+    public static List<Drift> FindDrift(GameContext ctx, AppliedState applied, List<DroppedKey>? dropped = null)
     {
         var drift = new List<Drift>();
         foreach (var f in ctx.Files)
@@ -160,9 +175,19 @@ public static class GameEngine
                 if (applied.Targets.TryGetValue(f.Id, out var targets) && targets.Count > 0)
                 {
                     var now = f.Handler.Read(f.Def, f.Path, targets.Keys);
-                    drift.AddRange(targets
-                        .Where(t => !Values.Equivalent(now.GetValueOrDefault(t.Key), t.Value))
-                        .Select(t => new Drift(f.Id, t.Key, t.Value, now.GetValueOrDefault(t.Key))));
+                    foreach (var t in targets.Where(t => !Values.Equivalent(now.GetValueOrDefault(t.Key), t.Value)))
+                    {
+                        var current = now.GetValueOrDefault(t.Key);
+                        // Unreal leaves a property out of a GVAS save when it equals its default, so a key that vanished was normalised by the
+                        // game (we cannot know the default): note it, but it is not an override.
+                        if (current is null && f.Handler is GvasHandler)
+                        {
+                            dropped?.Add(new DroppedKey(f.Id, t.Key, t.Value));
+                            Log.Info($"  {f.Id}: '{t.Key}' (applied {t.Value}) is no longer in the save; the game drops properties equal to their default, so this is not counted as an override");
+                            continue;
+                        }
+                        drift.Add(new Drift(f.Id, t.Key, t.Value, current));
+                    }
                 }
                 else if (applied.SnapshotHashes.TryGetValue(f.Id, out var hash) &&
                          BackupStore.Hash([f.Handler.Snapshot(f.Path)]) != hash)

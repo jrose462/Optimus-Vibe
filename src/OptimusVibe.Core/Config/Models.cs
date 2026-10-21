@@ -174,7 +174,7 @@ public sealed class FileDef
 {
     public string Id { get; set; } = "";
 
-    /// <summary>ini | json | xml | registry | keyvalue | file</summary>
+    /// <summary>ini | json | xml | registry | keyvalue | gvas | file</summary>
     public string Handler { get; set; } = "";
 
     /// <summary>File path with tokens ({Documents}, {SteamLibrary:123}...), or a registry key for the registry handler.</summary>

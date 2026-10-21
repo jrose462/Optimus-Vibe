@@ -97,7 +97,7 @@ a game file would break a save (renamed file id, removed key), tell the user and
 ## Auto snapshots (`autoSnapshot`)
 
 For a binary settings file a launcher cloud-syncs between devices (Jedi: Survivor's `GameUserSettings.sav` via the EA app, Forspoken's
-`system.save` via Steam Cloud) that presets cannot edit: add `autoSnapshot: perPreset | perDevice` to its `files:` entry (normally `handler: file`).
+`system.save` via Steam Cloud) that presets cannot edit: add `autoSnapshot: perPreset | perDevice` to its `files:` entry (normally `handler: file`; for an Unreal GVAS `.sav` use `handler: gvas` + `autoSnapshot` so the preset's keys are written over the restored copy).
 
 - **Store**: `%LOCALAPPDATA%\OptimusVibe\auto-snapshots\<game>\<device>\<presetKey>\<fileId>.snap` + `.json` (sha256, utc, preset, sessionNote). `presetKey` is the active
   preset (`performance`, `manual-<slug>`) for `perPreset`, `_device` for `perDevice`. Local only (never in the config repo), written atomically, outside the backups rotation.

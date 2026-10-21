@@ -38,10 +38,31 @@ public abstract class SettingsHandler
     public abstract void Write(FileDef def, string path, IReadOnlyDictionary<string, string> values);
 
     /// <summary>
+    /// Like <see cref="Write"/>, but a key the store cannot take (wrong type, unsupported target...) is skipped instead of failing the whole file: the
+    /// other keys are written and each refused key is returned with the reason. Handlers without per-key failures just write everything.
+    /// </summary>
+    public virtual IReadOnlyDictionary<string, string> WritePartial(FileDef def, string path, IReadOnlyDictionary<string, string> values)
+    {
+        Write(def, path, values);
+        return NoRejections;
+    }
+
+    /// <summary>Dry check of <see cref="WritePartial"/> against the file as it is now (nothing is written): the keys it would refuse, with reasons.</summary>
+    public virtual IReadOnlyDictionary<string, string> Preflight(FileDef def, string path, IReadOnlyDictionary<string, string> values) => NoRejections;
+
+    protected static readonly IReadOnlyDictionary<string, string> NoRejections = new Dictionary<string, string>();
+
+    /// <summary>
     /// Every key of a store's text with its value, in the key syntax this handler's `files:` blocks use (so the lab can copy a key into a
     /// preset). Used by mapping runs to diff a file key by key. Null when the handler can't enumerate or the text isn't in its format.
     /// </summary>
     public virtual IReadOnlyList<(string Key, string Value)>? ReadAll(string text) => null;
+
+    /// <summary>
+    /// Human-readable listing of a binary store (key syntax, type, value) for <c>inspect</c>; null when the file is plain text and inspect
+    /// prints it as is. <paramref name="full"/> lists every element of long arrays.
+    /// </summary>
+    public virtual string? Describe(string path, bool full) => null;
 
     public virtual bool Exists(string path) => File.Exists(path);
 
@@ -74,11 +95,12 @@ public abstract class SettingsHandler
         "xml" => new XmlHandler(),
         "registry" => new RegistryHandler(),
         "keyvalue" => new KeyValueTextHandler(),
+        "gvas" => new GvasHandler(),
         "file" => new RawFileHandler(),
-        _ => throw new ConfigException($"Unknown handler '{name}' (ini, json, xml, registry, keyvalue, file)"),
+        _ => throw new ConfigException($"Unknown handler '{name}' (ini, json, xml, registry, keyvalue, gvas, file)"),
     };
 
-    public static readonly string[] Names = ["ini", "json", "xml", "registry", "keyvalue", "file"];
+    public static readonly string[] Names = ["ini", "json", "xml", "registry", "keyvalue", "gvas", "file"];
 }
 
 /// <summary>Line-oriented text file that keeps its encoding, BOM and newline style on save.</summary>

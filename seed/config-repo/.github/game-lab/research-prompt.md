@@ -93,7 +93,7 @@ Rules:
   owner's specific manual save when the evidence names one (a manual save folder name under `config/saves/<game>/<device>/`).
   If none is named, say in `notes:` that the first launch per preset on each device needs the in-game setup done once (the app keeps it for next time); a manual
   save (Saves -> Save current) remains optional. Keep the file listed under `files:` with `handler: file` so
-  it is captured. Binary contents are never in the evidence: do not guess what is inside.
+  it is captured. Binary contents are never in the evidence: do not guess what is inside. Exception: an Unreal GVAS `.sav` (a `GameUserSettings.sav` under Saved Games or SaveGames) can be mapped key by key with `handler: gvas` (key syntax and the `:type` hint for properties the save omits are in settings-store-archetypes.md), but only with property names the evidence or the owner's `inspect` output actually shows; otherwise keep `handler: file` + `autoSnapshot`.
 - A game that writes an option only after it was changed in game (DOOM-style) shows those keys only in pass B: map them
   all, they are what the preset can now set.
 - A mapping run with nothing in pass B means the settings are outside the watched folders and registry keys: ask for
