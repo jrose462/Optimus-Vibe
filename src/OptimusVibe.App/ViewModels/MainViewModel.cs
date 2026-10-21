@@ -856,9 +856,13 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private bool _checkingSessions;
     private bool _checkSessionsAgain;
     private readonly Dictionary<string, DateTime> _sessionsOffered = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _runsStamp;
 
-    /// <summary>A game's session finished (the wrapper stored its run): the game was reloaded and its card offered.</summary>
-    public event Action<string>? SessionFinished;
+    private static DateTime RunResultsStamp(string dataDir)
+    {
+        try { return File.GetLastWriteTimeUtc(Path.Combine(dataDir, PostSession.RunResultsFileName)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return default; }
+    }
 
     /// <summary>Watches this device's run-results.json for sessions the wrapper finishes (also ones started from Steam, not from the app).</summary>
     private void StartSessionWatch(AppSession session)
@@ -872,8 +876,9 @@ public sealed class MainViewModel : ObservableObject, IAppShell
 
     /// <summary>
     /// Looks for sessions finished since the last look (<see cref="PostSession.Detect"/>; the marks live in gamelab-state.json, so each session
-    /// is offered once). For each: reloads the game (its tile chip), offers its post-session card and raises <see cref="SessionFinished"/>.
-    /// Never throws.
+    /// is offered once). For each: reloads the game (its tile chip), offers its post-session card and runs the consent-gated automatic findings
+    /// (a request they send turns the card into "Asked the game lab..."). Every game page re-reads its runs afterwards (a check of the preset
+    /// on the player's next launch is a test run, which has no post-session card). Never throws.
     /// </summary>
     public async Task CheckSessionsAsync()
     {
@@ -903,9 +908,14 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                     if (Lab.WatchSessions)
                     {
                         Lab.AddSession(run, focus: true);
-                        _ = Lab.AutoFindingsAsync([run.Game]); // consent-gated: does nothing unless findings go to the lab automatically
+                        _ = AutoFindingsAfterSessionAsync(run.Game);
                     }
-                    SessionFinished?.Invoke(run.Game);
+                }
+                var stamp = await Task.Run(() => RunResultsStamp(dataDir));
+                if (stamp != _runsStamp)
+                {
+                    _runsStamp = stamp;
+                    Lab.RaiseRunsChanged();
                 }
             } while (_checkSessionsAgain);
         }
@@ -917,6 +927,17 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         {
             _checkingSessions = false;
         }
+    }
+
+    /// <summary>
+    /// The automatic findings for a finished session (consent-gated: does nothing unless findings go to the lab automatically). A request it
+    /// sent or queued for the game turns the session's card into "Asked the game lab to re-check it (#N)" instead of offering to ask again.
+    /// </summary>
+    private async Task AutoFindingsAfterSessionAsync(string gameId)
+    {
+        var result = await Lab.AutoFindingsAsync([gameId]);
+        if (result.Filed.FirstOrDefault(f => string.Equals(f.GameId, gameId, StringComparison.OrdinalIgnoreCase)) is { } filed)
+            Lab.SessionAsked(gameId, filed);
     }
 
     /// <summary>

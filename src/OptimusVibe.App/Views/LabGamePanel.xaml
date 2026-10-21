@@ -65,6 +65,27 @@
                        AutomationProperties.Name="{Binding HealthText}" />
             <TextBlock Text="{Binding HealthWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,2,0,0"
                        Visibility="{Binding HasHealthWhy, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding HealthWhy}" />
+            <TextBlock Text="{Binding VerifyNextLine}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,2,0,0"
+                       Visibility="{Binding ShowVerifyNextLine, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding VerifyNextLine}" />
+
+            <!-- "The game changed some settings": every setting it changed, in place (A opens the list, A again hides it) -->
+            <StackPanel Visibility="{Binding ShowChangedWhich, Converter={StaticResource VisibleWhen}}" Margin="0,4,0,0">
+                <Button Style="{StaticResource Button.Quiet}" Command="{Binding ToggleChangedCommand}" Content="{Binding ChangedWhichText}" HorizontalAlignment="Left"
+                        AutomationProperties.Name="{Binding ChangedWhichText}" ToolTip="Every preset setting the game changed, with what it wrote and what it found afterwards." />
+                <ScrollViewer MaxHeight="{DynamicResource LabListMaxHeight}" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="2,4,0,0"
+                              Visibility="{Binding ShowChangedLines, Converter={StaticResource VisibleWhen}}">
+                    <ItemsControl ItemsSource="{Binding ChangedLines}" Focusable="False" Margin="0,0,8,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding}" Margin="0,1" Foreground="{DynamicResource TextDimBrush}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBlock Text="{Binding ChangedMore}" Style="{StaticResource Text.Caption}" Margin="2,2,0,0"
+                           Visibility="{Binding HasChangedMore, Converter={StaticResource VisibleWhen}}" />
+            </StackPanel>
 
             <!-- after a session: inline, once, no popup. One line, one dim line, at most two actions; B = Not now. It takes focus only when the
                  player just came back from the game to this page (code-behind). -->
@@ -97,6 +118,9 @@
                         <Button Style="{StaticResource Button.Quiet}" Command="{Binding PostDismissCommand}" Margin="0,0,8,6" AutomationProperties.Name="{Binding PostDismissText}">
                             <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="{Binding PostDismissText}" /></StackPanel>
                         </Button>
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding PostMuteCommand}" Content="Don't ask again" Margin="0,0,8,6"
+                                Visibility="{Binding ShowPostMute, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Don't ask again for this game"
+                                ToolTip="No more cards after sessions of this game on this device. More on this page turns them back on." />
                     </WrapPanel>
                 </StackPanel>
             </Border>
@@ -145,6 +169,10 @@
                             ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
                     <TextBlock Text="{Binding TestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
                 </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowVerifyNextInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding VerifyNextCommand}" Content="{Binding VerifyNextText}" HorizontalAlignment="Left" AutomationProperties.Name="{Binding VerifyNextText}" />
+                    <TextBlock Text="{Binding VerifyNextCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
                 <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowMapInMore, Converter={StaticResource VisibleWhen}}">
                     <Button Command="{Binding MapCommand}" Content="Map this game" HorizontalAlignment="Left" AutomationProperties.Name="Map this game"
                             ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
@@ -159,6 +187,11 @@
                     <Button Command="{Binding FlagCommand}" Content="Flag as set in-game" HorizontalAlignment="Left" AutomationProperties.Name="Flag as set in-game"
                             ToolTip="{Binding SuggestLine}" />
                     <TextBlock Text="{Binding FlagCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowUnmuteInMore, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding UnmuteCommand}" Content="Show cards after sessions again" HorizontalAlignment="Left"
+                            AutomationProperties.Name="Show cards after sessions again" />
+                    <TextBlock Text="{Binding UnmuteCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
                 </StackPanel>
             </StackPanel>
 

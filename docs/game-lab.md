@@ -67,10 +67,43 @@ action). It uses `GameLabSetup`, the same code as `optimus-vibe lab setup`:
 When every required step is done the card shows the status (open, queued, researching, needs evidence, in review) with **Run now**,
 **Open board** and **Open repo**.
 
-**Per game.** A game's page offers *Request presets* (no presets here yet), *Refresh presets* and *Re-check settings sync* (configured games).
-A confirmation lists what would be sent (counts and tokenized paths, never contents) and says the evidence goes only to your private config
-repo. The page shows the request's status (Requested, Researching, Needs evidence, Review, Done) with a link to the issue. Everything is
-disabled, with an explanation, until the lab is set up.
+**Per game.** A game's page leads with the game's **health on this device** (`GameHealth.Evaluate`, from data already on the PC: run history,
+the set-in-game flag, the mapping run, the lab request, the cloud-sync check and the build the presets were made for): one status line, one dim
+"why" line and at most one suggested action. Every other action sits under **More**, once, with a one-line caption: *Request presets*,
+*Refresh presets*, *Re-check settings sync*, *Test preset*, *Check presets on my next launch*, *Map this game*, *Manage settings again*,
+*Flag as set in-game*. A confirmation lists what would be sent (counts and tokenized paths, never contents) and says the evidence goes only to
+your private config repo. The page shows the request's status (Requested, Researching, Needs evidence, Review, Done) with a link to the issue.
+The lab actions are disabled, with an explanation, until the lab is set up.
+
+| State (first match wins) | When | Suggested |
+|---|---|---|
+| Set in-game | the game file's `flagged:` or library.yaml `setInGame:` | *Manage settings again* once the research task is closed (user flag only) |
+| No presets | no presets for this device | *Request presets*; *Map this game* when an open request needs evidence |
+| May need to be set in-game | 2 overridden tests, 2 passively overridden launches, or a mapping run with only binary changes | *Flag as set in-game* (never automatic) |
+| Game updated | the installed build differs from the one the presets last worked on | *Ask the game lab to re-check* (else *Test preset*) |
+| Game changed settings | the last launch or test found preset settings the game changed | after a test: *Ask the game lab to re-check*; after a launch: *Check presets on my next launch*. *See which* lists them |
+| Settings may be changed by cloud sync | a sync contradiction, changes while the app wasn't running, a launcher sync rewrite | *Re-check settings sync* |
+| Working | the last test held, or 3 launches in a row kept the preset | none |
+| Not checked | nothing clear yet | none; *Check presets on my next launch* when 3 launches stayed unclear |
+
+An open request that needs evidence makes *Map this game* the suggestion in any state with presets (unless the flag is suggested).
+
+**Passive checks** (Settings > Game lab > "Check presets after each session", default on, local only). A normal launch counts as *held* when
+the game ran at least 60 s and no preset setting drifted. It counts as *overridden* when a setting drifted to the **same value** as in the
+previous normal launch and neither was kept as a save (declined at the capture prompt, or never asked because the prompt is off for the game or
+`--no-prompt`), or when most of the preset drifted in a session under 5 minutes and the player declined to keep it at the prompt (this rule
+needs the answer: with the prompt off it may be the player's own tuning). Drift kept as a save never counts; drift only in files a launcher's
+cloud sync rewrote points at sync instead.
+
+**Check presets on my next launch** is a manual opt-in per game (`gamelab-state.json` `verifyNext`, per device). The player's own next launch
+through the wrapper runs as a test of the preset (no capture prompt, stored as a verify run) and the opt-in is cleared once the game was seen.
+Nothing is launched by itself.
+
+**After a session** an inline card on the game page says what the session showed (kept everything the first time, changed settings with
+*See which* / *Keep these*, keeps resetting with *Flag as set in-game*, updated with *Ask the game lab to re-check*, needs mapping with
+*Map it*). B is *Not now* (that kind of card stays away for 3 days); *Don't ask again* stops the cards for that game on this device until
+More turns them back on. With "Send findings to the game lab automatically" on, a finding sent by itself turns the card into "Hades updated.
+Asked the game lab to re-check it (#14)".
 
 **In the background** (app start and after each sync, at most every 5 minutes, off the UI thread, only once the lab is set up): pending
 "needs evidence" requests are answered automatically ("Sent the extra details Claude asked for"), queued requests are started, the board is

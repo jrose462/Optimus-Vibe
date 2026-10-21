@@ -600,9 +600,17 @@ public sealed class GameLabViewModel : ObservableObject
         public RunResult Run { get; } = run;
         public DateTime ArrivedUtc { get; } = DateTime.UtcNow;
         public bool WantsFocus { get; set; } = focus;
+
+        /// <summary>What the app sent to the lab by itself for this session (consent on), once the automatic pass returned.</summary>
+        public AutoFindingFiled? Asked { get; set; }
     }
 
     private readonly Dictionary<string, PendingSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>run-results.json changed (a session or a test finished): every game page re-reads its runs (health, a check on the next launch).</summary>
+    public event Action? RunsChanged;
+
+    public void RaiseRunsChanged() => RunsChanged?.Invoke();
 
     /// <summary>A game's finished session arrived or was dismissed: its panels re-read their post-session card.</summary>
     public event Action<string>? SessionsChanged;
@@ -622,6 +630,29 @@ public sealed class GameLabViewModel : ObservableObject
         _sessions[run.Game] = new PendingSession(run, focus);
         SessionsChanged?.Invoke(run.Game);
         if (focus) SessionFocusRequested?.Invoke(run.Game);
+    }
+
+    /// <summary>
+    /// The automatic findings pass after the session sent (or queued) a request for the game: its card says so ("Asked the game lab to re-check
+    /// it (#14)") instead of offering to ask. Ignored when the session's card is gone.
+    /// </summary>
+    public void SessionAsked(string gameId, AutoFindingFiled filed)
+    {
+        if (!_sessions.TryGetValue(gameId, out var s)) return;
+        s.Asked = filed;
+        SessionsChanged?.Invoke(gameId);
+    }
+
+    /// <summary>The request the app sent by itself for the game's pending session, if any.</summary>
+    public AutoFindingFiled? AskedFor(string? gameId) => gameId is not null && _sessions.TryGetValue(gameId, out var s) ? s.Asked : null;
+
+    /// <summary>"Don't ask again" on a post-session card (<paramref name="on"/>), or the cards turned back on from More. Closes the pending card.</summary>
+    public void MuteSessions(string gameId, bool on)
+    {
+        if (_main.Session is { } session && !new LabStateStore(session.Paths.DataDir).SetMuted(gameId, on))
+            _main.Notify("Couldn't save that. Try again in a moment.", error: true);
+        if (on) _sessions.Remove(gameId);
+        SessionsChanged?.Invoke(gameId);
     }
 
     /// <summary>The game's card may still take focus (it arrived recently and no panel has taken it yet).</summary>

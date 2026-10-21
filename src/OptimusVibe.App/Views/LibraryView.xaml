@@ -76,9 +76,11 @@
                                             Visibility="{Binding NeedsAttention, Converter={StaticResource VisibleWhen}}" />
                                     <Border DockPanel.Dock="Left" BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="7" Padding="5,0,5,1"
                                             Margin="0,0,6,0" VerticalAlignment="Center" Visibility="{Binding HasAttentionChip, Converter={StaticResource VisibleWhen}}">
-                                        <TextBlock Text="{Binding AttentionChip}" FontSize="11.5" FontWeight="SemiBold" Foreground="#FFD3B8" TextWrapping="NoWrap" />
+                                        <TextBlock Text="{Binding AttentionChip}" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource AttentionBrush}" TextWrapping="NoWrap" />
                                     </Border>
-                                    <TextBlock Text="{Binding StatusLine}" FontSize="{DynamicResource CaptionSize}" Foreground="#D6DBE3" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                    <!-- the narrow tile has no room for both: the chip says what matters, the preset stays in the tile's name and tooltip -->
+                                    <TextBlock Text="{Binding StatusLine}" FontSize="{DynamicResource CaptionSize}" Foreground="#D6DBE3" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               Visibility="{Binding HasAttentionChip, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}" />
                                 </DockPanel>
                                 <TextBlock Grid.Column="1" Text="{Binding SyncGlyph}" FontFamily="{StaticResource IconFont}" FontSize="13" VerticalAlignment="Center" Margin="6,1,0,0"
                                            Foreground="#D6DBE3" />

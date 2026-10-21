@@ -100,6 +100,9 @@ public sealed class LibraryTileViewModel : ObservableObject
     {
         get
         {
+#if DEBUG
+            if (_demoHealth is not null) return _demoHealth;
+#endif
             if (_healthLoaded) return _health;
             _healthLoaded = true;
             _health = null;
@@ -117,6 +120,17 @@ public sealed class LibraryTileViewModel : ObservableObject
     }
 
     private bool WantsHealth => Status == TileStatus.Managed && !IsSetInGame;
+
+#if DEBUG
+    private GameHealth? _demoHealth;
+
+    /// <summary>Debug scenes only: show this health on the tile (its chip and Play hint).</summary>
+    public void ShowDemoHealth(GameHealth health)
+    {
+        _demoHealth = health;
+        RefreshBadge(readInstall: false);
+    }
+#endif
 
     /// <summary>
     /// Reads the installed build (a directory scan for games without a store build id) and the stored mapping run off the UI thread, then
@@ -199,7 +213,9 @@ public sealed class LibraryTileViewModel : ObservableObject
     public string PlayHint => Status switch
     {
         TileStatus.Managed when IsSetInGame => "Display and graphics-driver settings are applied; the game's own settings are left to the game",
-        TileStatus.Managed =>"Your preset is applied, then restored after you quit",
+        // the health's short line when the preset is known to hold here ("Presets held on your last 3 launches")
+        TileStatus.Managed when Health?.PlayLine is { } held => $"Your preset is applied, then restored after you quit. {held}",
+        TileStatus.Managed => "Your preset is applied, then restored after you quit",
         TileStatus.NeedsPresets => "Starts normally — presets aren't ready yet",
         TileStatus.OptedOut => "Starts normally — Optimus-Vibe leaves its settings alone",
         _ => "",
@@ -243,6 +259,7 @@ public sealed class LibraryTileViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusLine));
         OnPropertyChanged(nameof(AttentionChip));
         OnPropertyChanged(nameof(HasAttentionChip));
+        OnPropertyChanged(nameof(PlayHint));
     }
 
     // automation name: the chip is part of it, so it needs no focus stop of its own

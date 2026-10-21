@@ -34,7 +34,10 @@ public sealed class LabPanelLayoutTests
     [InlineData("TestCommand", 1)]
     [InlineData("MapCommand", 1)]
     [InlineData("ManageAgainCommand", 1)]
+    [InlineData("VerifyNextCommand", 1)]
+    [InlineData("UnmuteCommand", 1)]
     [InlineData("SuggestedCommand", 1)]
+    [InlineData("ToggleChangedCommand", 1)]
     [InlineData("ToggleMoreCommand", 1)]
     // under More, and the test result card's own button
     [InlineData("FlagCommand", 2)]
@@ -55,6 +58,7 @@ public sealed class LabPanelLayoutTests
     [InlineData("PostPrimaryCommand", 1)]
     [InlineData("PostSecondaryCommand", 1)]
     [InlineData("PostDismissCommand", 1)]
+    [InlineData("PostMuteCommand", 1)]
     public void EveryCommand_IsBound_AsOftenAsBefore(string command, int times)
     {
         Assert.Equal(times, Bound(Panel(), command).Count);
@@ -68,6 +72,8 @@ public sealed class LabPanelLayoutTests
     [InlineData("MapCommand", "ShowMapInMore", "MapCaption")]
     [InlineData("ManageAgainCommand", "ShowManageAgainInMore", "ManageAgainCaption")]
     [InlineData("FlagCommand", "ShowFlagInMore", "FlagCaption")]
+    [InlineData("VerifyNextCommand", "ShowVerifyNextInMore", "VerifyNextCaption")]
+    [InlineData("UnmuteCommand", "ShowUnmuteInMore", "UnmuteCaption")]
     public void EveryAction_IsUnderMore_WithItsCaption(string command, string visibleWhen, string caption)
     {
         var button = Assert.Single(Bound(More(Panel()), command));

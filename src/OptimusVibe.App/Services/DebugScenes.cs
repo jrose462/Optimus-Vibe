@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using OptimusVibe.App.ViewModels;
 using OptimusVibe.App.Views;
+using OptimusVibe.GameLab;
 using OptimusVibe.Launch;
 
 namespace OptimusVibe.App.Services;
@@ -156,15 +157,19 @@ public static class DebugScenes
     }
 
     /// <summary>
-    /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, game-request,
+    /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, settings-lab-auto (its
+    /// "Automatic" toggles), library-chips (tile health chips, sample health), game-request,
     /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
     /// map-sent | map-failed | map-passive (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
     /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
     /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data);
     /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
     /// verify-health-working | verify-health-unchecked | verify-health-changed | verify-health-updated | verify-health-sync | verify-health-nopresets |
-    /// verify-health-labworking | verify-health-more (the lab panel's status line, why line and suggested action per health state; "more" opens More).
-    /// verify-post-held | verify-post-changed | verify-post-recurring | verify-post-updated | verify-post-map | verify-post-consent (the post-session card, one per kind).
+    /// verify-health-labworking | verify-health-more (the lab panel's status line, why line and suggested action per health state; "more" opens More),
+    /// verify-health-ambiguous | verify-health-verifynext (check presets on my next launch: suggested, then on) | verify-health-changed-which
+    /// (See which, open) | verify-health-evidence (presets, the lab needs evidence) | verify-health-muted (More with "Show cards after sessions again").
+    /// verify-post-held | verify-post-changed | verify-post-recurring | verify-post-updated | verify-post-map | verify-post-consent | verify-post-asked
+    /// (the post-session card, one per kind; post-asked: the lab was asked automatically).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
     /// </summary>
     public static async Task RunSceneAsync(MainWindow window, MainViewModel vm)
@@ -226,6 +231,33 @@ public static class DebugScenes
                 vm.OpenSettings("gamelab");
                 await Task.Delay(3500);
                 break;
+            case "settings-lab-auto":
+                // the "Automatic" toggles at the end of the game lab section
+                vm.OpenSettings("gamelab");
+                await Task.Delay(3500);
+                if (Descendants<CheckBox>(window).FirstOrDefault(c => c.IsVisible &&
+                        System.Windows.Automation.AutomationProperties.GetName(c) == "Request presets for new games automatically") is { } auto)
+                {
+                    auto.BringIntoView(new Rect(0, -60, auto.ActualWidth, 420));
+                    await Task.Delay(500);
+                }
+                break;
+            case "library-chips":
+            {
+                // the tiles' health chips ("Game updated", "Changed by game") and a working game's Play hint, with sample health
+                var managed = vm.Library.Tiles.Where(t => t.Status == TileStatus.Managed && !t.IsSetInGame).Take(3).ToList();
+                var samples = new[] { HealthState.GameUpdated, HealthState.GameChangedSettings, HealthState.Working };
+                for (var i = 0; i < managed.Count; i++)
+                    managed[i].ShowDemoHealth(new GameHealth
+                    {
+                        State = samples[i],
+                        Headline = samples[i] == HealthState.Working ? "Working. Presets held on your last 3 launches." : "",
+                    });
+                await Task.Delay(300);
+                foreach (var sv in Descendants<ScrollViewer>(window).Where(s => s.IsVisible && s.ScrollableHeight > 0)) sv.ScrollToVerticalOffset(460);
+                await Task.Delay(500);
+                break;
+            }
             case "report":
                 vm.OpenReport(null, null);
                 await Task.Delay(800);
@@ -262,6 +294,12 @@ public static class DebugScenes
             case "verify-health-nopresets":
             case "verify-health-labworking":
             case "verify-health-more":
+            case "verify-health-ambiguous":
+            case "verify-health-verifynext":
+            case "verify-health-changed-which":
+            case "verify-health-evidence":
+            case "verify-health-muted":
+            case "verify-post-asked":
             case "verify-post-held":
             case "verify-post-changed":
             case "verify-post-recurring":

@@ -68,7 +68,15 @@ public sealed class LabGameViewModel : ObservableObject
     private PostSessionCard? _post;
     private DateTime? _postDetailsFor;
     private DateTime? _keepConfirmFor;
+    private bool _verifyNextLoaded;
+    private bool _verifyNext;
+    private DateTime? _verifyNextDoneAt;
+    private bool _changedOpen;
+    private bool _mutedLoaded;
+    private bool _muted;
 #if DEBUG
+    private bool _demoVerifyNext;
+    private bool _demoMuted;
     private PostSessionCard? _demoPost;
     private bool _demo;
     private RunResult? _demoHint;
@@ -109,7 +117,12 @@ public sealed class LabGameViewModel : ObservableObject
         PostPrimaryCommand = new AsyncRelayCommand(() => RunPostAsync(PostCard?.Primary ?? PostSessionAction.None), () => Idle() && CanRunPost(PostCard?.Primary));
         PostSecondaryCommand = new AsyncRelayCommand(() => RunPostAsync(PostCard?.Secondary ?? PostSessionAction.None), () => Idle() && CanRunPost(PostCard?.Secondary));
         PostDismissCommand = new RelayCommand(DismissPost, () => HasPostSession);
+        PostMuteCommand = new RelayCommand(MutePost, () => ShowPostMute);
+        UnmuteCommand = new RelayCommand(Unmute, () => IsMuted);
+        VerifyNextCommand = new RelayCommand(ToggleVerifyNext, () => Idle() && CanVerifyNext);
+        ToggleChangedCommand = new RelayCommand(ToggleChanged);
         lab.IssuesChanged += Refresh;
+        lab.RunsChanged += Refresh;
         lab.SessionsChanged += id =>
         {
             if (!string.Equals(id, Ctx.GameId, StringComparison.OrdinalIgnoreCase)) return;
@@ -151,6 +164,10 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand PostPrimaryCommand { get; }
     public ICommand PostSecondaryCommand { get; }
     public ICommand PostDismissCommand { get; }
+    public ICommand PostMuteCommand { get; }
+    public ICommand UnmuteCommand { get; }
+    public ICommand VerifyNextCommand { get; }
+    public ICommand ToggleChangedCommand { get; }
 
     public void Refresh()
     {
@@ -159,6 +176,14 @@ public sealed class LabGameViewModel : ObservableObject
         _flagLoaded = false;
         _healthLoaded = false;
         _postLoaded = false;
+        _mutedLoaded = false;
+        _verifyNextLoaded = false;
+        // a check on the next launch was on: if that launch is done, its result shows in the result card
+        if (_verifyNext)
+        {
+            LoadVerifyNext();
+            ShowVerifyNextResult();
+        }
         OnPropertyChanged(string.Empty);
     }
 
@@ -376,6 +401,11 @@ public sealed class LabGameViewModel : ObservableObject
     }
 
 #if DEBUG
+    private static HealthInputs DemoInputs() => new()
+    {
+        GameId = "demo", Device = "desktop", HasConfig = true, HasPresets = true, LabReady = true, CanLaunch = true, CurrentPreset = "recommended:performance",
+    };
+
     /// <summary>Debug scenes only: show a card with sample data (confirm | held | overridden | sent | unknown | hint).</summary>
     public void ShowDemo(string kind)
     {
@@ -424,6 +454,9 @@ public sealed class LabGameViewModel : ObservableObject
         ClearTransient();
         _result = null;
         _demoInputs = null;
+        _demoVerifyNext = false;
+        _demoMuted = false;
+        _changedOpen = false;
         _demoPost = null;
         _postDetailsFor = null;
         _moreOpen = false;
@@ -488,7 +521,38 @@ public sealed class LabGameViewModel : ObservableObject
             // one scene per health state (the "suggest" scenes above cover CantBeSetFromOutside)
             case "health-working": _demoInputs = Inputs() with { Recent = [Played(5), Played(3), Played(1)] }; break;
             case "health-unchecked": _demoInputs = Inputs() with { Recent = [Played(1)] }; break;
+            case "health-ambiguous":
+            {
+                // three short launches that can't tell: the next launch can check it ("Check presets on my next launch")
+                var a = Played(3); a.DurationSec = 20;
+                var b = Played(2); b.DurationSec = 20;
+                var c = Played(1); c.DurationSec = 20;
+                _demoInputs = Inputs() with { Recent = [a, b, c] };
+                break;
+            }
+            case "health-verifynext":
+            {
+                var a = Played(3); a.DurationSec = 20;
+                var b = Played(2); b.DurationSec = 20;
+                var c = Played(1); c.DurationSec = 20;
+                _demoVerifyNext = true;
+                _demoInputs = Inputs() with { Recent = [a, b, c], VerifyNextLaunch = true };
+                break;
+            }
             case "health-changed": _demoInputs = Inputs() with { Recent = [Played(2, drifted: 4), Played(1, drifted: 4)] }; break;
+            case "health-changed-which":
+                _demoInputs = Inputs() with { Recent = [Played(2, drifted: 4), Played(1, drifted: 4)] };
+                _changedOpen = true;
+                break;
+            case "health-evidence":
+                // presets, and the lab asked for evidence nothing on this PC has sent: Map this game is the suggestion
+                _demoInputs = Inputs() with
+                {
+                    Recent = [Played(1)],
+                    LabRequest = new LabIssue(14, "Demo", "https://github.com/", true, [], LabStatus.NeedsEvidence, null, null, null),
+                };
+                break;
+            case "health-muted": _demoMuted = true; _moreOpen = true; break;
             case "health-updated":
                 _demoInputs = Inputs() with
                 {
@@ -501,6 +565,20 @@ public sealed class LabGameViewModel : ObservableObject
                     CloudSync = new CloudSyncReport { GameId = "demo", Device = "desktop", HasExternalChanges = true, Confidence = SyncConfidence.Low },
                 };
                 break;
+            case "post-asked":
+            {
+                var run = Session(0, CaptureAnswer.NotAsked);
+                var inputs = Inputs() with
+                {
+                    Recent = [run], Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-30), BuildId = "steam:100" }, CurrentBuild = "steam:200",
+                };
+                // the request just sent counts as open for the page (as JustAsked makes it), the card is judged before it
+                _demoInputs = inputs with { LabRequest = new LabIssue(14, "Demo", "https://github.com/", true, [], LabStatus.Queued, null, null, null) };
+                _demoPost = PostSession.For(inputs, GameHealth.Evaluate(inputs), run, Ctx.Name,
+                    asked: new AutoFindingFiled("demo", Ctx.Name, new AutoFinding(LabKind.Refresh, AutoFindingReason.GameUpdated), 14,
+                        "https://github.com/", false, false));
+                break;
+            }
             case "health-nopresets": _demoInputs = Inputs() with { HasPresets = false }; break;
             case "health-labworking":
                 _demoInputs = Inputs() with
@@ -618,7 +696,7 @@ public sealed class LabGameViewModel : ObservableObject
             HasConfig = ctx.HasConfig, HasPresets = ctx.HasConfig && !ctx.NeedsPresets,
             Flag = _flag, FlagFromConfig = _flag is not null && _userFlag is null, HasUserFlag = _userFlag is not null,
             ResearchFinished = _flag?.Issue is { } n && n == _researchFinishedFor,
-            LabRequest = Issue, LabReady = LabReady, CloudSync = ctx.CloudSync, CanLaunch = CanMap,
+            LabRequest = Issue ?? JustAsked(), LabReady = LabReady, CloudSync = ctx.CloudSync, CanLaunch = CanMap, VerifyNextLaunch = VerifyNextArmed,
         };
         if (session is null) return inputs;
 
@@ -656,6 +734,15 @@ public sealed class LabGameViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The request the app just sent by itself after this game's session, until the lab's request list shows it: the health counts it as
+    /// open, so nothing offers to ask the lab again meanwhile. Null when none (or it only waits in the outbox).
+    /// </summary>
+    private LabIssue? JustAsked() =>
+        _lab.AskedFor(Ctx.GameId) is { Queued: false, Issue: { } n, Url: { } url } a
+            ? new LabIssue(n, a.Name, url, true, [], LabStatus.Queued, null, null, null)
+            : null;
+
     /// <summary>The status line: "Working. Presets held on your last 3 launches.", "Not checked on this device yet"...</summary>
     public string HealthText => Health.Headline;
 
@@ -664,26 +751,22 @@ public sealed class LabGameViewModel : ObservableObject
 
     public bool HasHealthWhy => HealthWhy.Length > 0;
 
+    /// <summary>Which lab actions are on offer for this game right now (<see cref="LabPanelPlan"/> places each once).</summary>
+    public PanelOffers Offers => new()
+    {
+        Request = ShowRequest, Refresh = ShowRefresh, SyncCheck = ShowSyncCheck, Test = ShowTest && !IsFlagged, Map = ShowMap,
+        ManageAgain = ShowManageAgain, Flag = SuggestionReason is not null, VerifyNext = CanVerifyNext,
+    };
+
     /// <summary>The state's suggested action, when its command is on offer here; otherwise none.</summary>
     public HealthAction Suggested
     {
         get
         {
-            var action = Health.Suggested;
 #if DEBUG
-            if (_demo) return action;
+            if (_demo) return Health.Suggested;
 #endif
-            var offered = action switch
-            {
-                HealthAction.RequestPresets => ShowRequest,
-                HealthAction.RefreshPresets => ShowRefresh,
-                HealthAction.TestPreset => ShowTest && !IsFlagged,
-                HealthAction.MapGame => ShowMap,
-                HealthAction.FlagSetInGame => SuggestionReason is not null,
-                HealthAction.ManageAgain => ShowManageAgain,
-                _ => false,
-            };
-            return offered ? action : HealthAction.None;
+            return LabPanelPlan.Suggested(Health.Suggested, Offers);
         }
     }
 
@@ -696,6 +779,8 @@ public sealed class LabGameViewModel : ObservableObject
         HealthAction.MapGame => MapCommand,
         HealthAction.FlagSetInGame => FlagCommand,
         HealthAction.ManageAgain => ManageAgainCommand,
+        HealthAction.SyncCheck => SyncCheckCommand,
+        HealthAction.VerifyNextLaunch => VerifyNextCommand,
         _ => null,
     };
 
@@ -703,12 +788,135 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>
     /// The suggested button; "Flag as set in-game" steps aside while its confirm card or a test result (which has its own) is open, and any
-    /// suggestion steps aside while the post-session card offers the same action.
+    /// suggestion steps aside while the post-session card offers the same action (<see cref="LabPanelPlan.ShowSuggested"/>).
     /// </summary>
-    public bool ShowSuggested => Suggested != HealthAction.None && !(Suggested == HealthAction.FlagSetInGame && (_flagConfirming || HasResult)) &&
-                                 !PostOffers(Suggested);
+    public bool ShowSuggested => LabPanelPlan.ShowSuggested(Suggested, PostCard, _flagConfirming, HasResult);
 
-    private bool PostOffers(HealthAction action) => PostCard is { } c && c.Offers(action);
+    // ---------------------------------------------------------------- "Also check presets on my next launch" (a manual opt-in per game)
+
+    /// <summary>The game has presets here, is installed and not flagged: its next launch can check the preset instead of an extra test launch.</summary>
+    public bool CanVerifyNext =>
+#if DEBUG
+        _demo ? !IsFlagged && Health.State is not HealthState.NoPresets :
+#endif
+        Ctx.GameId is not null && Ctx.HasConfig && !Ctx.NeedsPresets && !IsFlagged && CanTest;
+
+    /// <summary>The next launch of this game checks the preset (stored per device in gamelab-state.json; the wrapper clears it after that launch).</summary>
+    public bool VerifyNextArmed
+    {
+        get
+        {
+#if DEBUG
+            if (_demo) return _demoVerifyNext;
+#endif
+            LoadVerifyNext();
+            return _verifyNext;
+        }
+    }
+
+    private void LoadVerifyNext()
+    {
+        if (_verifyNextLoaded) return;
+        _verifyNextLoaded = true;
+        var was = _verifyNext;
+        _verifyNext = false;
+        try
+        {
+            if (_main.Session is { } s && Ctx.GameId is { } id) _verifyNext = new LabStateStore(s.Paths.DataDir).VerifiesNext(id);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read whether the next launch checks the preset: {ex.Message}");
+        }
+        if (was && !_verifyNext) _verifyNextDoneAt ??= DateTime.UtcNow; // the wrapper finished that launch: its result shows in the result card
+    }
+
+    public string VerifyNextText => VerifyNextArmed ? "Don't check on my next launch" : GameHealth.ActionText(HealthAction.VerifyNextLaunch);
+
+    public string VerifyNextCaption => VerifyNextArmed
+        ? "Your next launch checks the preset. Turn it off to play normally (you're asked about changed settings again)."
+        : "Your own next launch checks the preset, no extra launch: change nothing in-game that time. It doesn't ask to keep changes afterwards.";
+
+    /// <summary>The dim line while it is on, unless the health's why line says it already.</summary>
+    public bool ShowVerifyNextLine => VerifyNextArmed && CanVerifyNext && HealthWhy != GameHealth.VerifyNextLine;
+
+    public string VerifyNextLine => GameHealth.VerifyNextLine;
+
+    private void ToggleVerifyNext()
+    {
+        var on = !VerifyNextArmed;
+#if DEBUG
+        if (_demo)
+        {
+            _demoVerifyNext = on;
+            _demoInputs = (_demoInputs ?? DemoInputs()) with { VerifyNextLaunch = on };
+            OnPropertyChanged(string.Empty);
+            return;
+        }
+#endif
+        if (_main.Session is not { } s || Ctx.GameId is not { } id) return;
+        if (!new LabStateStore(s.Paths.DataDir).SetVerifyNext(id, on))
+        {
+            _main.Notify("Couldn't save that. Try again in a moment.", error: true);
+            return;
+        }
+        _verifyNextLoaded = false;
+        _verifyNext = on;
+        _verifyNextDoneAt = null;
+        _healthLoaded = false;
+        _main.Notify(on
+            ? $"Your next launch of {Ctx.Name} checks the preset. Change nothing in-game that time."
+            : $"Your next launch of {Ctx.Name} is a normal one again.");
+        OnPropertyChanged(string.Empty);
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>
+    /// The check on the next launch finished while this page was alive: its result shows in the test result card, as after Test preset.
+    /// </summary>
+    private void ShowVerifyNextResult()
+    {
+        if (_verifyNextDoneAt is not { } since || _main.Session is not { } s || Ctx.GameId is not { } id || _result is not null || _testing) return;
+        try
+        {
+            if (RunResults.Get(s.Paths.DataDir, id, s.Device.Name, verifyOnly: true) is { } verify && verify.Utc >= since.AddHours(-12))
+            {
+                _verifyNextDoneAt = null;
+                _resultSent = false;
+                _result = verify;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read the check of the last launch: {ex.Message}");
+        }
+    }
+
+    // ---------------------------------------------------------------- "See which": every setting behind "The game changed some settings"
+
+    /// <summary>The run behind <see cref="HealthState.GameChangedSettings"/>, unless the post-session card lists the same run.</summary>
+    private RunResult? ChangedRun => Health.ChangedRun is { } r && !(PostCard is { Kind: PostSessionKind.Changed } c && c.Run.Utc == r.Utc) ? r : null;
+
+    public bool ShowChangedWhich => ChangedRun is not null;
+    public string ChangedWhichText => _changedOpen ? "Hide the list" : "See which";
+    public bool ShowChangedLines => ChangedRun is not null && _changedOpen;
+
+    public IReadOnlyList<string> ChangedLines => ChangedRun is { } r && _changedOpen ? DriftLines(r) : [];
+    public string ChangedMore => ChangedRun is { } r && _changedOpen && r.Drift.Count > MaxResultLines ? $"…and {r.Drift.Count - MaxResultLines} more" : "";
+    public bool HasChangedMore => ChangedMore.Length > 0;
+
+    private static IReadOnlyList<string> DriftLines(RunResult r) =>
+        r.Drift.Take(MaxResultLines).Select(d => d.IsWholeFile ? $"{d.FileId} (whole file)" : $"{d.Key}: {d.Applied ?? "(not set)"} → {d.Now ?? "(missing)"}").ToList();
+
+    private void ToggleChanged()
+    {
+        _changedOpen = !_changedOpen;
+        OnPropertyChanged(nameof(ChangedWhichText));
+        OnPropertyChanged(nameof(ShowChangedLines));
+        OnPropertyChanged(nameof(ChangedLines));
+        OnPropertyChanged(nameof(ChangedMore));
+        OnPropertyChanged(nameof(HasChangedMore));
+    }
 
     // ---------------------------------------------------------------- post-session card: inline, once, B = Not now
 
@@ -730,7 +938,8 @@ public sealed class LabGameViewModel : ObservableObject
             try
             {
                 var health = Health;
-                if (_inputs is { } inputs) _post = PostSession.For(inputs, health, run, Ctx.Name, _lab.SnoozedFor(id), _lab.AsksAutoFindingsConsent);
+                if (_inputs is { } inputs)
+                    _post = PostSession.For(inputs, health, run, Ctx.Name, _lab.SnoozedFor(id), _lab.AsksAutoFindingsConsent, _lab.AskedFor(id));
             }
             catch (Exception ex)
             {
@@ -764,8 +973,10 @@ public sealed class LabGameViewModel : ObservableObject
     public string PostLinesMore => PostCard is { } c && ShowPostLines && c.Run.Drift.Count > MaxResultLines ? $"…and {c.Run.Drift.Count - MaxResultLines} more" : "";
     public bool HasPostLinesMore => PostLinesMore.Length > 0;
 
+    // "Open issue" steps aside while the panel's own "Open issue" (beside the request chip) is on screen: each action once
     private bool ShowPostAction(PostSessionAction? action) =>
-        action is { } a && a != PostSessionAction.None && !(a == PostSessionAction.SeeWhich && ShowPostLines);
+        action is { } a && a != PostSessionAction.None && !(a == PostSessionAction.SeeWhich && ShowPostLines) &&
+        !(a == PostSessionAction.OpenIssue && HasChip);
 
     public bool ShowPostPrimary => ShowPostAction(PostCard?.Primary);
     public string PostPrimaryText => IsKeepConfirming ? PostSession.KeepConfirmAction : PostSession.ActionText(PostCard?.Primary ?? PostSessionAction.None);
@@ -774,6 +985,73 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>B: "Not now" keeps this kind of card away for a few days; the one-off "kept all" card just closes.</summary>
     public string PostDismissText => IsKeepConfirming ? "Cancel" : PostCard is { CanSnooze: false } ? "OK" : "Not now";
+
+    /// <summary>"Don't ask again": no more post-session cards for this game on this device (More turns them back on).</summary>
+    public bool ShowPostMute => PostCard is { CanSnooze: true } && !IsKeepConfirming;
+
+    /// <summary>The player chose "Don't ask again" on a post-session card of this game (<see cref="LabState.Muted"/>).</summary>
+    public bool IsMuted
+    {
+        get
+        {
+#if DEBUG
+            if (_demo) return _demoMuted;
+#endif
+            if (_mutedLoaded) return _muted;
+            _mutedLoaded = true;
+            _muted = false;
+            try
+            {
+                if (_main.Session is { } s && Ctx.GameId is { } id) _muted = new LabStateStore(s.Paths.DataDir).Load().IsMuted(id);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not read whether this game's cards are muted: {ex.Message}");
+            }
+            return _muted;
+        }
+    }
+
+    public bool ShowUnmuteInMore => IsMuted;
+    public string UnmuteCaption => "You chose “Don't ask again” on a card after a session. This shows those cards for this game again.";
+
+    private void MutePost()
+    {
+        var card = PostCard;
+        if (card is not { CanSnooze: true }) return;
+#if DEBUG
+        if (_demo)
+        {
+            _demoMuted = true;
+            ClosePost(snooze: false);
+            OnPropertyChanged(string.Empty);
+            return;
+        }
+#endif
+        if (Ctx.GameId is not { } id) return;
+        if (PostSession.KeepsSession(card.Kind)) _lab.AnswerConsent(id, snooze: false); // it asked once either way
+        _lab.MuteSessions(id, true);
+        _mutedLoaded = false;
+        _main.Notify($"No more cards after sessions of {Ctx.Name}. More on its page turns them back on.");
+        OnPropertyChanged(string.Empty);
+    }
+
+    private void Unmute()
+    {
+#if DEBUG
+        if (_demo)
+        {
+            _demoMuted = false;
+            OnPropertyChanged(string.Empty);
+            return;
+        }
+#endif
+        if (Ctx.GameId is not { } id) return;
+        _lab.MuteSessions(id, false);
+        _mutedLoaded = false;
+        OnPropertyChanged(string.Empty);
+        CommandManager.InvalidateRequerySuggested();
+    }
 
     /// <summary>
     /// The card should take focus now: it asks for something, it arrived after a session the player just came back from, and no panel has taken
@@ -798,6 +1076,11 @@ public sealed class LabGameViewModel : ObservableObject
         PostSessionAction.AskLab => RefreshPresetsCommand.CanExecute(null),
         PostSessionAction.MapGame => MapCommand.CanExecute(null),
         PostSessionAction.TurnOnAutoFindings => CanAct && Ctx.GameId is not null,
+        PostSessionAction.OpenIssue =>
+#if DEBUG
+            _demo ||
+#endif
+            (Ctx.GameId is { } id && _lab.AskedFor(id)?.Url is not null),
         _ => false,
     };
 
@@ -821,9 +1104,13 @@ public sealed class LabGameViewModel : ObservableObject
             RaisePost();
             return;
         }
+        var asked = Ctx.GameId is { } askedId ? _lab.AskedFor(askedId) : null;
         ClosePost(snooze: false);
         switch (action)
         {
+            case PostSessionAction.OpenIssue:
+                if (asked?.Url is { } url) _lab.OpenUrl(url);
+                break;
             case PostSessionAction.KeepThese: await SaveResultAsync(); break;
             case PostSessionAction.FlagSetInGame: Run(FlagCommand); break;
             case PostSessionAction.AskLab: Run(RefreshPresetsCommand); break;
@@ -883,9 +1170,10 @@ public sealed class LabGameViewModel : ObservableObject
                  {
                      nameof(PostCard), nameof(HasPostSession), nameof(PostSessionText), nameof(PostSessionWhy), nameof(HasPostSessionWhy), nameof(ShowPostLines),
                      nameof(PostLines), nameof(PostLinesMore), nameof(HasPostLinesMore), nameof(ShowPostPrimary), nameof(PostPrimaryText), nameof(ShowPostSecondary),
-                     nameof(PostSecondaryText), nameof(PostDismissText), nameof(IsKeepConfirming), nameof(ShowSuggested),
+                     nameof(PostSecondaryText), nameof(PostDismissText), nameof(IsKeepConfirming), nameof(ShowSuggested), nameof(ShowPostMute),
                      nameof(ShowRequestInMore), nameof(ShowRefreshInMore), nameof(ShowTestInMore), nameof(ShowMapInMore), nameof(ShowManageAgainInMore),
-                     nameof(ShowFlagInMore), nameof(HasMore),
+                     nameof(ShowFlagInMore), nameof(ShowSyncCheckInMore), nameof(ShowVerifyNextInMore), nameof(HasMore), nameof(ShowChangedWhich),
+                     nameof(ShowChangedLines), nameof(ChangedLines),
                  })
             OnPropertyChanged(n);
         CommandManager.InvalidateRequerySuggested();
@@ -906,19 +1194,22 @@ public sealed class LabGameViewModel : ObservableObject
     public string MoreText => _moreOpen ? "Less" : "More";
 
     // each action once: not under More while the suggested button or the post-session card offers it (it comes back when the card closes)
-    private bool InMore(bool shown, HealthAction action) => shown && Suggested != action && !PostOffers(action);
+    private bool InMore(HealthAction action) =>
+        LabPanelPlan.InMore(action, Offers, Suggested, PostCard, _flagConfirming, HasResult);
 
-    public bool ShowRequestInMore => InMore(ShowRequest, HealthAction.RequestPresets);
-    public bool ShowRefreshInMore => InMore(ShowRefresh, HealthAction.RefreshPresets);
-    public bool ShowSyncCheckInMore => ShowSyncCheck;
-    public bool ShowTestInMore => InMore(ShowTest, HealthAction.TestPreset);
-    public bool ShowMapInMore => InMore(ShowMap, HealthAction.MapGame);
-    public bool ShowManageAgainInMore => InMore(ShowManageAgain, HealthAction.ManageAgain);
+    public bool ShowRequestInMore => InMore(HealthAction.RequestPresets);
+    public bool ShowRefreshInMore => InMore(HealthAction.RefreshPresets);
+    public bool ShowSyncCheckInMore => InMore(HealthAction.SyncCheck);
+    public bool ShowTestInMore => InMore(HealthAction.TestPreset);
+    public bool ShowVerifyNextInMore => InMore(HealthAction.VerifyNextLaunch);
+    public bool ShowMapInMore => InMore(HealthAction.MapGame);
+    public bool ShowManageAgainInMore => InMore(HealthAction.ManageAgain);
 
     /// <summary>"Flag as set in-game" while it is suggested by the evidence but not the state's own suggestion (the state shows a stronger one).</summary>
-    public bool ShowFlagInMore => InMore(ShowSuggest, HealthAction.FlagSetInGame);
+    public bool ShowFlagInMore => InMore(HealthAction.FlagSetInGame);
 
-    public bool HasMore => ShowRequestInMore || ShowRefreshInMore || ShowSyncCheckInMore || ShowTestInMore || ShowMapInMore || ShowManageAgainInMore || ShowFlagInMore;
+    public bool HasMore => ShowRequestInMore || ShowRefreshInMore || ShowSyncCheckInMore || ShowTestInMore || ShowVerifyNextInMore || ShowMapInMore ||
+                           ShowManageAgainInMore || ShowFlagInMore || ShowUnmuteInMore;
 
     public string RequestCaption => "Claude researches the game's settings and writes presets for this device. Takes a few minutes.";
     public string RefreshCaption => "Asks the game lab to research this game again. Use after a big update or if the presets look wrong.";
@@ -1328,25 +1619,26 @@ public sealed class LabGameViewModel : ObservableObject
     /// </summary>
     public bool CancelTransient()
     {
-        if (ClearTransient()) return true;
-        if (_result is not null && !_testing)
+        // only while focus is in the post-session card: one the player has not reached (below the fold, an old session) never takes B or snoozes unseen
+        var confirming = IsConfirming || _testConfirming || _forgetConfirming || _flagConfirming || IsKeepConfirming;
+        switch (LabPanelPlan.NextCancel(confirming, _result is not null, _testing, HasPostSession && PostCardHasFocus, _moreOpen))
         {
-            _result = null;
-            OnPropertyChanged(string.Empty);
-            return true;
+            case CancelStep.CloseConfirmation:
+                ClearTransient();
+                return true;
+            case CancelStep.CloseResult:
+                _result = null;
+                OnPropertyChanged(string.Empty);
+                return true;
+            case CancelStep.DismissPostCard:
+                DismissPost();
+                return true;
+            case CancelStep.CollapseMore:
+                IsMoreOpen = false;
+                return true;
+            default:
+                return false;
         }
-        // only while focus is in the card: one the player has not reached (below the fold, an old session) never takes B or snoozes unseen
-        if (HasPostSession && PostCardHasFocus)
-        {
-            DismissPost();
-            return true;
-        }
-        if (_moreOpen)
-        {
-            IsMoreOpen = false;
-            return true;
-        }
-        return false;
     }
 
     /// <summary>Closes confirmation cards but keeps a test result on screen (another panel on the game page is opening).</summary>
