@@ -385,7 +385,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public bool HasSteamBanner => SteamChanges is { Count: > 0 };
 
     public string SteamBannerText => SteamChanges is { Count: var n }
-        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update so your presets are used. Optimus-Vibe closes Steam, makes the change, checks it and puts Steam back the way it was (back in the tray if it was only running in the background)."
+        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update so your presets are used. Optimus-Vibe closes Steam, makes the change, checks it and leaves Steam as it was."
         : "";
 
     // ---------------------------------------------------------------- launch overlay
