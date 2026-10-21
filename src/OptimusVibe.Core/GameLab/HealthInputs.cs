@@ -75,7 +75,9 @@ public sealed record HealthInputs
 
     /// <summary>
     /// The newest build the presets are known to work on: the build they arrived with, a held Test preset run's build, or a passively
-    /// held normal run's build, whichever is newest and known. Null when none of them recorded a build.
+    /// held normal run's build, whichever is newest and known. Builds of the same kind as <see cref="CurrentBuild"/> come first (a Steam game
+    /// whose manifest could not be read once records an exe fingerprint, which must not hide a newer Steam build id); another kind only when
+    /// there is none of it. Null when none of them recorded a build.
     /// </summary>
     public string? BaselineBuild
     {
@@ -87,7 +89,10 @@ public sealed record HealthInputs
             var verdicts = PassiveVerdicts;
             for (var i = 0; i < Recent.Count; i++)
                 if (verdicts[i] == PassiveVerdict.Held && Recent[i].Build is { Length: > 0 } held) known.Add((Recent[i].Utc, held));
-            return known.Count == 0 ? null : known.MaxBy(k => k.Utc).Build;
+            if (known.Count == 0) return null;
+            if (CurrentBuild is { Length: > 0 } now && known.Where(k => GameBuild.IsStoreBuild(k.Build) == GameBuild.IsStoreBuild(now)).ToList() is { Count: > 0 } same)
+                known = same;
+            return known.MaxBy(k => k.Utc).Build;
         }
     }
 

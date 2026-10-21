@@ -117,13 +117,25 @@ public sealed class RunResult
     /// <summary>How the launch went when it did not go to plan ("The game process never appeared...", "Battle.net selected the game but did not launch it..."); null when fine.</summary>
     public string? LaunchNote { get; set; }
 
-    /// <summary>File ids written again after the game process was seen (a launcher's cloud sync had changed them, or they did not exist before launch).</summary>
+    /// <summary>
+    /// File ids written after the game process was seen: rewritten because a launcher's cloud sync had changed them, created late, or (applyTiming
+    /// afterProcessStart) written for the first time.
+    /// </summary>
     public List<string> Reapplied { get; set; } = [];
+
+    /// <summary>
+    /// The part of <see cref="Reapplied"/> that the wrapper had already written before launch and wrote again because it had changed in between
+    /// (a launcher's cloud sync). Only these point at sync (<see cref="PassiveVerdict.SyncSuspect"/>). Empty on results from older versions.
+    /// </summary>
+    public List<string> SyncReapplied { get; set; } = [];
 
     /// <summary>File ids that only existed after the game booted: applied, but they take effect next launch.</summary>
     public List<string> LateFiles { get; set; } = [];
 
-    /// <summary>What the player answered at the "keep these changes?" prompt. Null on results from older versions.</summary>
+    /// <summary>
+    /// What the player answered at the "keep these changes?" prompt. Null on results from older versions, and while the prompt is still open
+    /// (the run is stored before it is shown, so a wrapper killed meanwhile still leaves its result; <see cref="RunResults.SetCapture"/> fills it in).
+    /// </summary>
     public CaptureAnswer? Capture { get; set; }
 
     /// <summary>How long the game ran, in seconds (from the game process being seen, else from the launch, to its exit). Null when unknown.</summary>
@@ -181,6 +193,9 @@ public static class RunResults
     public const int ShortSessionSec = 300;
 
     private static readonly object Gate = new();
+
+    /// <summary>Held across processes (wrappers of different games, the app) around every read and read-modify-write of the file.</summary>
+    private const string FileMutexName = @"Local\OptimusVibe.run-results";
     private static readonly JsonSerializerOptions Opts = new()
     {
         WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -200,38 +215,54 @@ public static class RunResults
     /// Remember a result as the game's last run on that device: as its last verify run when it is one, otherwise in the
     /// <see cref="RunResultEntry.Recent"/> ring (and the passive streak).
     /// </summary>
-    public static void Record(string dataDir, RunResult result)
+    /// <remarks>
+    /// A normal run whose <see cref="RunResult.Capture"/> is null is pending (the capture prompt is still open): it is stored, but its step of the
+    /// passive streak waits for <see cref="SetCapture"/>.
+    /// </remarks>
+    public static void Record(string dataDir, RunResult result) => Modify(dataDir, m =>
     {
-        lock (Gate)
+        if (!m.Games.TryGetValue(result.Game, out var devices)) m.Games[result.Game] = devices = new(StringComparer.OrdinalIgnoreCase);
+        if (!devices.TryGetValue(result.Device, out var entry)) devices[result.Device] = entry = new RunResultEntry();
+        entry.Last = result;
+        if (result.IsVerify)
         {
-            try
-            {
-                var m = Load(dataDir);
-                if (!m.Games.TryGetValue(result.Game, out var devices)) m.Games[result.Game] = devices = new(StringComparer.OrdinalIgnoreCase);
-                if (!devices.TryGetValue(result.Device, out var entry)) devices[result.Device] = entry = new RunResultEntry();
-                entry.Last = result;
-                if (result.IsVerify)
-                {
-                    entry.LastVerify = result;
-                    entry.OverriddenStreak = NextStreak(entry.OverriddenStreak, Verdict(result));
-                }
-                else
-                {
-                    entry.Recent ??= [];
-                    entry.PassiveOverriddenStreak = NextPassiveStreak(entry.PassiveOverriddenStreak, Passive(result, entry.Recent.LastOrDefault()));
-                    entry.Recent.Add(result);
-                    if (entry.Recent.Count > RecentCap) entry.Recent.RemoveRange(0, entry.Recent.Count - RecentCap);
-                }
-                Directory.CreateDirectory(dataDir);
-                var tmp = FileFor(dataDir) + ".tmp";
-                File.WriteAllText(tmp, JsonSerializer.Serialize(m, Opts), new UTF8Encoding(false));
-                File.Move(tmp, FileFor(dataDir), overwrite: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                Log.Warn($"Could not save {FileFor(dataDir)}: {ex.Message}");
-            }
+            entry.LastVerify = result;
+            entry.OverriddenStreak = NextStreak(entry.OverriddenStreak, Verdict(result));
         }
+        else
+        {
+            entry.Recent ??= [];
+            if (result.Capture is not null)
+                entry.PassiveOverriddenStreak = NextPassiveStreak(entry.PassiveOverriddenStreak, Passive(result, entry.Recent.LastOrDefault()));
+            entry.Recent.Add(result);
+            if (entry.Recent.Count > RecentCap) entry.Recent.RemoveRange(0, entry.Recent.Count - RecentCap);
+        }
+        return true;
+    });
+
+    /// <summary>
+    /// Fills in the capture answer of a normal run stored pending (<see cref="Record"/> with a null <see cref="RunResult.Capture"/>) and takes its
+    /// step of the passive streak. Stores the run whole when it is not there (the first write failed). Never throws.
+    /// </summary>
+    public static void SetCapture(string dataDir, RunResult result, CaptureAnswer answer)
+    {
+        var found = false;
+        Modify(dataDir, m =>
+        {
+            if (!m.Games.TryGetValue(result.Game, out var devices) || !devices.TryGetValue(result.Device, out var entry)) return false;
+            entry.Recent ??= [];
+            var i = entry.Recent.FindLastIndex(r => r.Utc == result.Utc && !r.IsVerify);
+            if (i < 0) return false;
+            found = true;
+            var run = entry.Recent[i];
+            if (run.Capture is not null) return false; // already final
+            run.Capture = answer;
+            if (entry.Last is { IsVerify: false } last && last.Utc == run.Utc) last.Capture = answer;
+            entry.PassiveOverriddenStreak = NextPassiveStreak(entry.PassiveOverriddenStreak, Passive(run, i > 0 ? entry.Recent[i - 1] : null));
+            return true;
+        });
+        result.Capture = answer;
+        if (!found) Record(dataDir, result);
     }
 
     /// <summary>The streak after one more verify run: overridden adds one, held starts over, an unclear verdict changes nothing.</summary>
@@ -253,60 +284,38 @@ public static class RunResults
     /// <summary>Consecutive overridden verify runs of a game on a device (0 when none recorded).</summary>
     public static int OverriddenStreak(string dataDir, string gameId, string device)
     {
-        lock (Gate)
-        {
-            var m = Load(dataDir);
-            return m.Games.TryGetValue(gameId, out var devices) && devices.TryGetValue(device, out var e) ? e.OverriddenStreak : 0;
-        }
+        var m = Read(dataDir);
+        return m.Games.TryGetValue(gameId, out var devices) && devices.TryGetValue(device, out var e) ? e.OverriddenStreak : 0;
     }
 
     /// <summary>
     /// Starts both streaks over, verify and passive (the user chose to manage the game's settings again: it must be tested again before the flag
     /// is suggested).
     /// </summary>
-    public static void ResetStreak(string dataDir, string gameId, string device)
+    public static void ResetStreak(string dataDir, string gameId, string device) => Modify(dataDir, m =>
     {
-        lock (Gate)
-        {
-            try
-            {
-                var m = Load(dataDir);
-                if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return;
-                if (e.OverriddenStreak == 0 && e.PassiveOverriddenStreak == 0) return;
-                e.OverriddenStreak = 0;
-                e.PassiveOverriddenStreak = 0;
-                var tmp = FileFor(dataDir) + ".tmp";
-                File.WriteAllText(tmp, JsonSerializer.Serialize(m, Opts), new UTF8Encoding(false));
-                File.Move(tmp, FileFor(dataDir), overwrite: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                Log.Warn($"Could not save {FileFor(dataDir)}: {ex.Message}");
-            }
-        }
-    }
+        if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return false;
+        if (e.OverriddenStreak == 0 && e.PassiveOverriddenStreak == 0) return false;
+        e.OverriddenStreak = 0;
+        e.PassiveOverriddenStreak = 0;
+        return true;
+    });
 
     /// <summary>The last run (or, with <paramref name="verifyOnly"/>, the last verify run) of a game on a device; null when none.</summary>
     public static RunResult? Get(string dataDir, string gameId, string device, bool verifyOnly = false)
     {
-        lock (Gate)
-        {
-            var m = Load(dataDir);
-            if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return null;
-            return verifyOnly ? e.LastVerify : e.Last;
-        }
+        var m = Read(dataDir);
+        if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return null;
+        return verifyOnly ? e.LastVerify : e.Last;
     }
 
     /// <summary>Everything stored for a game on a device (a fresh copy: changing it changes nothing on disk); null when none.</summary>
     public static RunResultEntry? Entry(string dataDir, string gameId, string device)
     {
-        lock (Gate)
-        {
-            var m = Load(dataDir);
-            if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return null;
-            e.Recent ??= [];
-            return e;
-        }
+        var m = Read(dataDir);
+        if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e)) return null;
+        e.Recent ??= [];
+        return e;
     }
 
     /// <summary>The last normal runs of a game on a device, oldest first (empty when none).</summary>
@@ -317,6 +326,99 @@ public static class RunResults
     public static int PassiveOverriddenStreak(string dataDir, string gameId, string device) =>
         Entry(dataDir, gameId, device)?.PassiveOverriddenStreak ?? 0;
 
+    /// <summary>A read of the whole file, under both locks.</summary>
+    private static Model Read(string dataDir)
+    {
+        lock (Gate)
+        {
+            using var _ = FileLock.Acquire();
+            return Load(dataDir);
+        }
+    }
+
+    /// <summary>
+    /// Read-modify-write of the file under the in-process lock and the cross-process mutex; <paramref name="change"/> returns false when there
+    /// is nothing to write. Written to a temp file of this writer's own, then moved over the file (retried briefly while a reader holds it).
+    /// Never throws for file errors.
+    /// </summary>
+    private static void Modify(string dataDir, Func<Model, bool> change)
+    {
+        lock (Gate)
+        {
+            using var _ = FileLock.Acquire();
+            string? tmp = null;
+            try
+            {
+                var m = Load(dataDir);
+                if (!change(m)) return;
+                Directory.CreateDirectory(dataDir);
+                tmp = $"{FileFor(dataDir)}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(m, Opts), new UTF8Encoding(false));
+                for (var attempt = 1; ; attempt++)
+                {
+                    try
+                    {
+                        File.Move(tmp!, FileFor(dataDir), overwrite: true);
+                        tmp = null;
+                        break;
+                    }
+                    catch (Exception ex) when (attempt < 5 && ex is IOException or UnauthorizedAccessException)
+                    {
+                        Thread.Sleep(40 * attempt);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Could not save {FileFor(dataDir)}: {ex.Message}");
+            }
+            finally
+            {
+                if (tmp is not null)
+                    try { File.Delete(tmp); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Warn($"Could not remove {tmp}: {ex.Message}"); }
+            }
+        }
+    }
+
+    /// <summary>The cross-process mutex around the file. When it can't be had in time the caller goes on without it (logged).</summary>
+    private sealed class FileLock : IDisposable
+    {
+        private Mutex? _mutex;
+
+        public static FileLock Acquire()
+        {
+            var l = new FileLock();
+            try
+            {
+                var mutex = new Mutex(initiallyOwned: false, FileMutexName);
+                bool owned;
+                try { owned = mutex.WaitOne(TimeSpan.FromSeconds(10)); }
+                catch (AbandonedMutexException) { owned = true; } // the holder died without releasing: it is ours now
+                if (owned) l._mutex = mutex;
+                else
+                {
+                    mutex.Dispose();
+                    Log.Warn("run-results.json: another process held it too long, going on without the lock");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
+            {
+                Log.Warn($"run-results.json: no cross-process lock ({ex.Message})");
+            }
+            return l;
+        }
+
+        public void Dispose()
+        {
+            if (_mutex is null) return;
+            try { _mutex.ReleaseMutex(); }
+            catch (ApplicationException) { /* not owned by this thread */ }
+            _mutex.Dispose();
+            _mutex = null;
+        }
+    }
+
     private static Model Load(string dataDir)
     {
         try
@@ -324,7 +426,12 @@ public static class RunResults
             var file = FileFor(dataDir);
             if (File.Exists(file))
             {
-                var m = JsonSerializer.Deserialize<Model>(File.ReadAllText(file), Opts);
+                string text;
+                // opened fully shared: a reader outside the mutex (an older build, a file watcher) never makes this read fail
+                using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                    text = reader.ReadToEnd();
+                var m = JsonSerializer.Deserialize<Model>(text, Opts);
                 if (m is not null)
                     return new Model { Games = new Dictionary<string, Dictionary<string, RunResultEntry>>(m.Games, StringComparer.OrdinalIgnoreCase) };
             }
@@ -355,10 +462,15 @@ public static class RunResults
     /// <list type="bullet">
     /// <item>kept as a save: <see cref="PassiveVerdict.UserSaved"/>, never against the preset;</item>
     /// <item>no drift in a session of at least <see cref="PassiveHeldMinSec"/>: <see cref="PassiveVerdict.Held"/>;</item>
-    /// <item>only files re-applied after a launcher's cloud sync drifted: <see cref="PassiveVerdict.SyncSuspect"/>;</item>
-    /// <item>a setting drifted to the same value as in the previous normal run (not kept as a save there either), or at least
-    /// <see cref="HintRatio"/> of the preset drifted in a session shorter than <see cref="ShortSessionSec"/>: <see cref="PassiveVerdict.Overridden"/>;</item>
-    /// <item>anything else, a verify run, an unseen game or nothing applied: <see cref="PassiveVerdict.Unknown"/>.</item>
+    /// <item>only files written again because a launcher's cloud sync changed them after the pre-launch apply
+    /// (<see cref="RunResult.SyncReapplied"/>) drifted: <see cref="PassiveVerdict.SyncSuspect"/>;</item>
+    /// <item>the player was asked about the drift and answered Don't save (<see cref="CaptureAnswer.DontSave"/>), and either a setting drifted
+    /// to the same value as in the previous normal run (answered Don't save there too; whole files never count, what they became is not
+    /// known), or at least <see cref="HintRatio"/> of the preset drifted in a session shorter than <see cref="ShortSessionSec"/>:
+    /// <see cref="PassiveVerdict.Overridden"/>;</item>
+    /// <item>anything else, including drift the player was never asked about (the question turned off, <c>--no-prompt</c>, an answer still
+    /// pending), a verify run, an unseen game or nothing applied: <see cref="PassiveVerdict.Unknown"/>. The player may have made unasked
+    /// changes on purpose.</item>
     /// </list>
     /// </summary>
     public static PassiveVerdict Passive(RunResult r, RunResult? previous)
@@ -366,7 +478,9 @@ public static class RunResults
         if (r.IsVerify || !r.ProcessSeen || r.Applied == 0) return PassiveVerdict.Unknown;
         if (r.Capture == CaptureAnswer.Saved) return PassiveVerdict.UserSaved;
         if (r.Drift.Count == 0) return r.DurationSec >= PassiveHeldMinSec ? PassiveVerdict.Held : PassiveVerdict.Unknown;
-        if (r.Reapplied.Count > 0 && r.Drift.All(d => r.Reapplied.Contains(d.FileId, StringComparer.OrdinalIgnoreCase))) return PassiveVerdict.SyncSuspect;
+        var sync = r.SyncReapplied ?? [];
+        if (sync.Count > 0 && r.Drift.All(d => sync.Contains(d.FileId, StringComparer.OrdinalIgnoreCase))) return PassiveVerdict.SyncSuspect;
+        if (r.Capture != CaptureAnswer.DontSave) return PassiveVerdict.Unknown; // never asked (or no answer): the drift may be the player's own
         if (Recurs(r, previous)) return PassiveVerdict.Overridden;
         if (DriftRatio(r) >= HintRatio && r.DurationSec is { } sec && sec < ShortSessionSec) return PassiveVerdict.Overridden;
         return PassiveVerdict.Unknown;
@@ -385,12 +499,15 @@ public static class RunResults
         return n;
     }
 
-    /// <summary>A setting drifted to the same value in the previous normal run too, and that drift was not kept as a save.</summary>
+    /// <summary>
+    /// A setting drifted to the same value in the previous normal run too, where the player was also asked and chose not to keep it. Whole-file
+    /// drift never counts: only "differs from the save" is known, not what the file became.
+    /// </summary>
     private static bool Recurs(RunResult r, RunResult? previous)
     {
-        if (previous is null || previous.IsVerify || !previous.ProcessSeen || previous.Capture == CaptureAnswer.Saved || previous.Drift.Count == 0) return false;
-        var before = previous.Drift.Select(DriftSignature).ToHashSet(StringComparer.Ordinal);
-        return r.Drift.Any(d => before.Contains(DriftSignature(d)));
+        if (previous is null || previous.IsVerify || !previous.ProcessSeen || previous.Capture != CaptureAnswer.DontSave || previous.Drift.Count == 0) return false;
+        var before = previous.Drift.Where(d => !d.IsWholeFile).Select(DriftSignature).ToHashSet(StringComparer.Ordinal);
+        return r.Drift.Any(d => !d.IsWholeFile && before.Contains(DriftSignature(d)));
     }
 
     private static string DriftSignature(RunDrift d) => $"{d.FileId.ToLowerInvariant()}\n{d.Key}\n{d.Now}";

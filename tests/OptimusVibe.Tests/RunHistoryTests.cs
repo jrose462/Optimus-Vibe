@@ -10,6 +10,7 @@ namespace OptimusVibe.Tests;
 /// The run history groundwork of the organic game lab: the ring of normal runs, the capture answer and session length on every result, the
 /// passive verdict and its streak, and the health inputs built from them.
 /// </summary>
+[Collection("RunnerMutex")] // Runner.Run takes the process-wide "testgame" run mutex
 public sealed class RunHistoryTests : IDisposable
 {
     private readonly TempDir _tmp = new();
@@ -18,7 +19,8 @@ public sealed class RunHistoryTests : IDisposable
 
     private static readonly DateTime T0 = new(2026, 10, 20, 12, 0, 0, DateTimeKind.Utc);
 
-    private static RunResult Normal(int drifted = 0, int? sec = 600, CaptureAnswer? capture = CaptureAnswer.NotAsked, int keys = 10, string now = "2",
+    // DontSave by default: the player was asked about the drift and did not keep it, the only answer passive overrides count
+    private static RunResult Normal(int drifted = 0, int? sec = 600, CaptureAnswer? capture = CaptureAnswer.DontSave, int keys = 10, string now = "2",
         int minute = 0, bool seen = true, string? build = null)
     {
         var r = new RunResult
@@ -161,6 +163,7 @@ public sealed class RunHistoryTests : IDisposable
     {
         var r = Normal(5, sec: 120);
         r.Reapplied = ["GFX"];
+        r.SyncReapplied = ["GFX"];
         Assert.Equal(PassiveVerdict.SyncSuspect, RunResults.Passive(r, null));
 
         r.Drift.Add(new RunDrift { FileId = "other", Key = "K", Applied = "1", Now = "2" });
@@ -210,7 +213,7 @@ public sealed class RunHistoryTests : IDisposable
         Assert.Equal(0, RunResults.PassiveHeldStreak([]));
         Assert.Equal(3, RunResults.PassiveHeldStreak([Normal(1), Normal(0), Normal(0), Normal(0)]));
         Assert.Equal(0, RunResults.PassiveHeldStreak([Normal(0), Normal(0), Normal(0, sec: 10)]));
-        Assert.Equal("the game changed the preset's settings after your last 2 launches", GameFlags.PassiveSuggestionReason(2));
+        Assert.Equal("the game reset the preset's settings in 2 of your recent launches", GameFlags.PassiveSuggestionReason(2));
     }
 
     // ---------------------------------------------------------------- the runner

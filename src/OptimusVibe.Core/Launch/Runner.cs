@@ -47,6 +47,9 @@ public sealed class RunOptions
 
     /// <summary>Test seam: stands in for <see cref="DisplayManager.Apply(DisplayModeDef, string?)"/> so a run can be tested without changing the screen.</summary>
     internal Func<DisplayModeDef, string?, DisplayModeState?>? DisplayApply { get; init; }
+
+    /// <summary>Test seam: stands in for the store scan that finds a game's install when the run knows no install folder (<see cref="Runner.RunBuild"/>).</summary>
+    internal Func<GameDef, DetectedGame?>? FindInstall { get; init; }
 }
 
 /// <summary>
@@ -164,12 +167,17 @@ public static class Runner
 
         if (applied is not null)
         {
-            // Measured first (the prompt shows that drift), stored after the prompt so the result carries the player's answer.
             var verify = options?.Verify == true;
-            details.Build = GameBuild.ForGame(ctx.Game, InstallDir(ctx.Game, options));
+            details.Build = RunBuild(ctx.Game, InstallDir(ctx.Game, options), options?.FindInstall);
+            if (inGame is null) ObservePresetsBuild(ctx, details.Build);
             var (drift, result) = MeasureResult(ctx, applied, verify, processSeen, details);
-            var answer = prompt && !verify ? AskCapture(ctx, applied, drift: drift).Answer : CaptureAnswer.NotAsked;
-            StoreResult(ctx, result, answer);
+            if (prompt && !verify && drift.Count > 0)
+            {
+                // Stored before the prompt (pending, no streak step yet) so a wrapper killed while it is open still leaves the run; the answer follows.
+                StoreResult(ctx, result, capture: null);
+                FinishResult(ctx, result, AskCapture(ctx, applied, drift: drift).Answer);
+            }
+            else StoreResult(ctx, result, CaptureAnswer.NotAsked);
         }
         if (inGame is null) SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
@@ -248,6 +256,7 @@ public static class Runner
                 result.LaunchCommand = details.Command;
                 result.LaunchNote = details.Note;
                 result.Reapplied = details.Reapplied.ToList();
+                result.SyncReapplied = details.SyncReapplied.ToList();
                 result.LateFiles = details.Late.ToList();
                 result.DurationSec = processSeen ? details.DurationSec : null;
                 result.Build = details.Build;
@@ -261,8 +270,11 @@ public static class Runner
         }
     }
 
-    /// <summary>The second half of <see cref="RecordResult"/>: stores the result with the player's answer at the capture prompt. Never throws.</summary>
-    internal static void StoreResult(GameContext ctx, RunResult? result, CaptureAnswer capture)
+    /// <summary>
+    /// The second half of <see cref="RecordResult"/>: stores the result with the player's answer at the capture prompt, or (<paramref name="capture"/>
+    /// null) pending, before the prompt is shown; <see cref="FinishResult"/> then adds the answer. Never throws.
+    /// </summary>
+    internal static void StoreResult(GameContext ctx, RunResult? result, CaptureAnswer? capture)
     {
         if (result is null || ctx.InGame is not null) return;
         try
@@ -270,11 +282,66 @@ public static class Runner
             result.Capture = capture;
             RunResults.Record(ctx.Paths.DataDir, result);
             Log.Info($"run result ({result.Mode}): {RunResults.Verdict(result).ToString().ToLowerInvariant()}; {result.Drift.Count} of {result.Applied} setting(s) changed" +
-                     $"{(result.DurationSec is { } sec ? $", {sec} s played" : "")}; capture {capture.ToString().ToLowerInvariant()}");
+                     $"{(result.DurationSec is { } sec ? $", {sec} s played" : "")}; capture {capture?.ToString().ToLowerInvariant() ?? "pending"}");
         }
         catch (Exception ex)
         {
             Log.Warn($"Could not record the run result: {ex.Message}");
+        }
+    }
+
+    /// <summary>Adds the player's answer to a result stored pending by <see cref="StoreResult"/> (and its passive streak step). Never throws.</summary>
+    internal static void FinishResult(GameContext ctx, RunResult? result, CaptureAnswer capture)
+    {
+        if (result is null || ctx.InGame is not null) return;
+        try
+        {
+            RunResults.SetCapture(ctx.Paths.DataDir, result, capture);
+            Log.Info($"run result: capture {capture.ToString().ToLowerInvariant()}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not record the capture answer: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The build this run played (<see cref="GameBuild"/>): the Steam build id, else the exe fingerprint of the install folder the run knows
+    /// (<c>--install-dir</c> or the Steam folder), else the build of the install a scan of the game's store finds (<paramref name="findInstall"/>,
+    /// default <see cref="LibraryService.FindInstall"/>), fingerprinted the same way the library and the lab do, so held runs of any store carry
+    /// a build comparable with theirs. Null when unknown. Never throws.
+    /// </summary>
+    internal static string? RunBuild(GameDef game, string? installDir, Func<GameDef, DetectedGame?>? findInstall = null)
+    {
+        try
+        {
+            if ((installDir is not null || game.SteamAppId is not null) && GameBuild.ForGame(game, installDir) is { } known) return known;
+            return (findInstall ?? DetectInstall)(game) is { } detected ? GameBuild.Of(detected) : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not tell the build of {game.Id}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>The detected install of a game from a scan of its own store only (null for a store no scanner knows).</summary>
+    private static DetectedGame? DetectInstall(GameDef game) =>
+        GameScanners.Stores.Contains(game.Store, StringComparer.OrdinalIgnoreCase)
+            ? LibraryService.FindInstall(game, GameScanners.ScanAll([game.Store]))
+            : null;
+
+    /// <summary>The first build seen after the lab's presets arrived without one counts as theirs (<see cref="GameLab.LabStateStore.ObservePresetsBuild"/>). Never throws.</summary>
+    private static void ObservePresetsBuild(GameContext ctx, string? build)
+    {
+        if (build is null) return;
+        try
+        {
+            if (new GameLab.LabStateStore(ctx.Paths.DataDir).ObservePresetsBuild(ctx.Game.Id, build)) Log.Info($"presets build: {build}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not note the presets build: {ex.Message}");
         }
     }
 
@@ -382,6 +449,9 @@ public static class Runner
         public List<string> Reapplied { get; } = [];
         public List<string> Late { get; } = [];
 
+        /// <summary>Files written before launch and written again once the game was seen because they had changed meanwhile (a launcher's cloud sync).</summary>
+        public List<string> SyncReapplied { get; } = [];
+
         /// <summary>When the launch was started, when the game process was first seen (null: never, or not watched), and when the wait ended.</summary>
         public DateTime? StartedUtc { get; set; }
         public DateTime? GameSeenUtc { get; set; }
@@ -409,6 +479,9 @@ public static class Runner
                 cancel.WaitHandle.WaitOne(left < TimeSpan.FromSeconds(1) ? left : TimeSpan.FromSeconds(1));
         };
         var maxWait = lateWait ?? LateFileWait;
+        // what the pre-launch apply wrote: only a rewrite of one of these means something changed it in between (afterProcessStart writes nothing before)
+        var writtenBefore = applied.Targets.Where(t => t.Value.Count > 0).Select(t => t.Key).Concat(applied.SnapshotHashes.Keys)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         try
         {
             if (settle > TimeSpan.Zero) sleep(settle);
@@ -428,6 +501,7 @@ public static class Runner
                         var label = late ? $"{p.File.Id} (created late: takes effect next launch)" : p.File.Id;
                         if (!details.Reapplied.Contains(p.File.Id)) details.Reapplied.Add(p.File.Id);
                         if (late && !details.Late.Contains(p.File.Id)) details.Late.Add(p.File.Id);
+                        if (!late && writtenBefore.Contains(p.File.Id) && !details.SyncReapplied.Contains(p.File.Id)) details.SyncReapplied.Add(p.File.Id);
                         Log.Info($"  re-applied after launch: {label}");
                     }
                 }
