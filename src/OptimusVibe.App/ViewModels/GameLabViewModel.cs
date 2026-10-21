@@ -100,6 +100,8 @@ public sealed class GameLabViewModel : ObservableObject
     private readonly LabThrottle _throttle = new(CycleInterval);
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private IReadOnlyList<LabIssue> _issues = [];
+    private bool _issuesRead; // Issues came from a successful read of the lab's requests (not just the empty start value)
+    private bool? _repoPrivate; // last answer GitHub gave about the config repo's visibility (null: not asked yet)
     private LabRepoRef? _repo;
     private string? _repoProblem;
     private bool _signedIn;
@@ -232,7 +234,9 @@ public sealed class GameLabViewModel : ObservableObject
         {
             if (!Set(ref _watchSessions, value)) return;
             OnPropertyChanged(nameof(AsksAutoFindingsConsent));
-            if (!_loading) _ = SaveAsync(s => s.GameLabWatchSessions = value);
+            if (_loading) return;
+            _ = SaveAsync(s => s.GameLabWatchSessions = value);
+            if (!value) WithdrawQueuedFindings(); // automatic findings need this on (GameLab.AutoFindings.ConsentFrom)
         }
     }
 
@@ -247,13 +251,30 @@ public sealed class GameLabViewModel : ObservableObject
             if (_loading) return;
             _autoFindingsAsked = true; // answered in Settings: the card never asks
             _ = SaveAsync(s => { s.GameLabAutoFindings = value; s.GameLabAutoFindingsAsked = true; });
+            if (!value) WithdrawQueuedFindings(); // consent withdrawn: what waits offline is not sent either
+        }
+    }
+
+    /// <summary>Removes the automatic findings still waiting in the outbox (consent, or the session check it needs, was turned off).</summary>
+    private void WithdrawQueuedFindings()
+    {
+        try
+        {
+            var n = GameLab.AutoFindings.WithdrawQueued(_main.Outbox.Store);
+            if (n == 0) return;
+            _main.Outbox.Service.RaiseChanged();
+            _main.Notify(n == 1 ? "Withdrew 1 automatic request that was waiting to be sent." : $"Withdrew {n} automatic requests that were waiting to be sent.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not withdraw the waiting automatic requests: {ex.Message}");
         }
     }
 
     public string WatchSessionsTitle => GameLab.AutoFindings.WatchSessionsTitle;
     public string WatchSessionsText => GameLab.AutoFindings.WatchSessionsText;
     public string AutoFindingsTitle => GameLab.AutoFindings.SettingTitle;
-    public string AutoFindingsText => GameLab.AutoFindings.SettingText(RepoName) + " This machine only.";
+    public string AutoFindingsText => GameLab.AutoFindings.SettingText(RepoName, _repoPrivate) + " This machine only.";
 
     /// <summary>The post-session card may ask, once, whether to send findings automatically: the lab is set up and nobody answered yet.</summary>
     public bool AsksAutoFindingsConsent => IsReady && WatchSessions && !AutoFindings && !_autoFindingsAsked;
@@ -384,7 +405,10 @@ public sealed class GameLabViewModel : ObservableObject
             _lastNetworkCheck = DateTime.UtcNow;
             _status = status;
             Apply(status);
-            Issues = await Task.Run(async () => { try { return await _service.ListIssuesAsync(conn); } catch (Exception) { return (IReadOnlyList<LabIssue>)status.Open; } });
+            var read = await Task.Run(async () => { try { return await _service.ListIssuesAsync(conn); } catch (Exception) { return null; } });
+            if (read is not null) _issuesRead = true;
+            Issues = read ?? status.Open;
+            if (await Task.Run(() => _service.IsRepoPrivateAsync(conn)) is { } isPrivate) SetRepoPrivate(isPrivate);
             var ready = status.Ready;
             if (ready != s.GameLabReady && !GameLabService.IsDemo) await SaveAsync(x => x.GameLabReady = ready);
             IsReady = ready;
@@ -620,10 +644,26 @@ public sealed class GameLabViewModel : ObservableObject
     public void DismissSession(string gameId, PostSessionKind? snooze = null)
     {
         if (snooze == PostSessionKind.Consent) MarkConsentAsked(); // "Not now" on the consent card: it asked once
-        if (snooze is { } kind && _main.Session is { } session)
-            new LabStateStore(session.Paths.DataDir).Update(s =>
-                s.Snoozed[PostSession.SnoozeKey(gameId, kind)] = DateTime.UtcNow.AddDays(PostSession.SnoozeDays));
+        Snooze(gameId, snooze);
         if (_sessions.Remove(gameId)) SessionsChanged?.Invoke(gameId);
+    }
+
+    /// <summary>
+    /// The consent card was answered by any of its buttons (Turn on, the one-off request, Not now): it asked once, so it never comes back. The
+    /// session stays pending (<see cref="PostSession.KeepsSession"/>), so its own card ("Keep these", "See which"...) shows next.
+    /// </summary>
+    public void AnswerConsent(string gameId, bool snooze)
+    {
+        MarkConsentAsked();
+        if (snooze) Snooze(gameId, PostSessionKind.Consent);
+        SessionsChanged?.Invoke(gameId);
+    }
+
+    private void Snooze(string gameId, PostSessionKind? kind)
+    {
+        if (kind is not { } k || _main.Session is not { } session) return;
+        new LabStateStore(session.Paths.DataDir).Update(s =>
+            s.Snoozed[PostSession.SnoozeKey(gameId, k)] = DateTime.UtcNow.AddDays(PostSession.SnoozeDays));
     }
 
     /// <summary>The post-session card kinds "Not now" keeps away for the game right now.</summary>
@@ -725,7 +765,11 @@ public sealed class GameLabViewModel : ObservableObject
 
     private async Task RefreshIssuesAsync(GameLabService.Connection conn)
     {
-        try { Issues = await Task.Run(() => _service.ListIssuesAsync(conn)); }
+        try
+        {
+            Issues = await Task.Run(() => _service.ListIssuesAsync(conn));
+            _issuesRead = true;
+        }
         catch (Exception ex) { Log.Warn($"Game lab: refreshing requests failed: {ex.Message}"); }
     }
 
@@ -858,13 +902,16 @@ public sealed class GameLabViewModel : ObservableObject
         _ = SaveAsync(s => s.GameLabAutoFindingsAsked = true);
     }
 
-    /// <summary>"Turn on" on the consent card: findings go to the lab by themselves from now on, and the game's finding at hand goes now.</summary>
-    public async Task TurnOnAutoFindingsAsync(string gameId)
+    /// <summary>
+    /// "Turn on" on the consent card: findings go to the lab by themselves from now on, and the game's finding at hand is sent now when the
+    /// limits allow. The toast says which (<see cref="GameLab.AutoFindings.TurnedOnText"/>): a skipped finding is never silent.
+    /// </summary>
+    public async Task TurnOnAutoFindingsAsync(string gameId, string name)
     {
         AutoFindings = true;
         await SaveAsync(s => { s.GameLabAutoFindings = true; s.GameLabAutoFindingsAsked = true; }); // saved before the pass reads the settings
-        _main.Notify("Findings now go to the game lab by themselves. You can turn this off in Settings, Game lab.");
-        await AutoFindingsAsync([gameId]);
+        var result = await AutoFindingsAsync([gameId]);
+        _main.Notify(GameLab.AutoFindings.TurnedOnText(name, gameId, result));
     }
 
     /// <summary>After a library scan: look for findings in every managed, installed game (one may have updated since its presets worked).</summary>
@@ -873,21 +920,35 @@ public sealed class GameLabViewModel : ObservableObject
             .Where(e => e.Game is not null && e.Detected is not null && !e.OptedOut && e.SetInGame is null && e.Status != LibraryStatus.NeedsPresets)
             .Select(e => e.Game!.Id).ToList());
 
+    private void SetRepoPrivate(bool isPrivate)
+    {
+        if (_repoPrivate == isPrivate) return;
+        _repoPrivate = isPrivate;
+        OnPropertyChanged(nameof(AutoFindingsText));
+    }
+
     /// <summary>
     /// Sends what the evidence of these games warrants to the lab (<see cref="GameLab.AutoFindings.RunAsync"/>), only with the user's consent
-    /// (<see cref="AutoFindings"/>) and within its limits; offline, a request waits in the outbox. Says so in a toast, never a dialog. Runs one
-    /// pass at a time; never throws.
+    /// (<see cref="GameLab.AutoFindings.ConsentFrom"/>: this setting and "check presets after each session"), only to a private config repo,
+    /// and within its limits. The lab's requests are read again first, so an open request of any kind (also one filed from another device)
+    /// blocks a new one; when they can't be read and none were read in this run, nothing is sent. Offline, a request waits in the outbox.
+    /// Says so in a toast, never a dialog. Runs one pass at a time; never throws. Returns what happened (<see cref="AutoFindingsResult.None"/>
+    /// when the pass did not run, with a reason per game when one is known).
     /// </summary>
-    public async Task AutoFindingsAsync(IReadOnlyList<string> gameIds)
+    public async Task<AutoFindingsResult> AutoFindingsAsync(IReadOnlyList<string> gameIds)
     {
         var session = _main.Session;
-        if (session is null || !IsReady || !AutoFindings || gameIds.Count == 0 || _findingsBudget.Remaining == 0) return;
+        if (session is null || !IsReady || !AutoFindings || !WatchSessions || gameIds.Count == 0) return AutoFindingsResult.None;
+        if (_findingsBudget.Remaining == 0)
+            return new AutoFindingsResult([], gameIds.Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(id => id, _ => $"at most {GameLab.AutoFindings.MaxPerStart} automatic requests per start", StringComparer.OrdinalIgnoreCase), []);
         await _findingsGate.WaitAsync();
         try
         {
-            // what the app already holds (UI thread): the game's snapshot (run history, presets, flag, cloud sync), its install and lab request
+            // what the app already holds (UI thread): the game's snapshot (run history, presets, flag, cloud sync) and its install
             var detected = _main.Library.Detected;
-            var issues = Issues;
+            var heldIssues = _issuesRead ? Issues : null; // only a list that was really read stands in when GitHub can't be asked now
+            var heldPrivate = _repoPrivate;
             var picked = new List<(AutoFindingCandidate Candidate, LabTarget Target, DetectedGame Install)>();
             foreach (var id in gameIds.Distinct(StringComparer.OrdinalIgnoreCase))
             {
@@ -895,26 +956,50 @@ public sealed class GameLabViewModel : ObservableObject
                 if (snap?.Context is not { } ctx || snap.Health is not { } inputs) continue;
                 if (LibraryService.FindInstall(ctx.Game, detected) is not { } install) continue;
                 var target = TargetFor(ctx.Game, install, snap.Name);
-                var candidate = new AutoFindingCandidate(target.Key, ctx.Game.Id, snap.Name,
-                    inputs with { LabReady = true, CanLaunch = true, LabRequest = LabStatusIndex.For(issues, target.Key, ctx.Game.Id) });
+                // the open request is set from the lab's requests as read in the pass (AutoFindings.RunAsync)
+                var candidate = new AutoFindingCandidate(target.Key, ctx.Game.Id, snap.Name, inputs with { LabReady = true, CanLaunch = true });
                 picked.Add((candidate, target, install));
             }
-            if (picked.Count == 0) return;
+            if (picked.Count == 0) return AutoFindingsResult.None;
 
             var s = await SettingsStore.LoadAsync();
             var store = _main.Outbox.Store;
-            var result = await Task.Run(async () =>
+            var (result, issuesRead, isPrivate) = await Task.Run(async () =>
             {
                 var conn = _service.Connect(s, session.Paths, out _);
-                if (conn is null) return AutoFindingsResult.None;
+                if (conn is null) return (AutoFindingsResult.None, (IReadOnlyList<LabIssue>?)null, (bool?)null);
+                IReadOnlyList<LabIssue>? fresh = null;
+                try { fresh = await _service.ListIssuesAsync(conn).ConfigureAwait(false); }
+                catch (Exception ex) { Log.Warn($"Game lab: could not read the requests before automatic findings: {ex.Message}"); }
+                var repoPrivate = await _service.IsRepoPrivateAsync(conn).ConfigureAwait(false) ?? heldPrivate;
+                // opted out in library.yaml: the user told Optimus-Vibe to leave the game alone (also when it is launched through the wrapper)
+                IReadOnlySet<string> optedOut;
+                try { optedOut = LibraryService.OptedOutKeys(session.Store); }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Game lab: could not read the opted-out games, so no automatic findings now: {ex.Message}");
+                    return (AutoFindingsResult.None, fresh, repoPrivate);
+                }
                 var targets = picked.ToDictionary(p => p.Candidate.GameId, p => p.Target, StringComparer.OrdinalIgnoreCase);
                 // the installed build and the mapping run are read here, off the UI thread
-                var candidates = picked.Select(p => p.Candidate with { Inputs = p.Candidate.Inputs.WithInstall(GameBuild.Of(p.Install), StoredMappingOrNull(session, p.Target)) })
+                var candidates = picked.Select(p => p.Candidate with
+                    {
+                        Inputs = p.Candidate.Inputs.WithInstall(GameBuild.Of(p.Install), StoredMappingOrNull(session, p.Target)),
+                        OptedOut = optedOut.Contains(p.Target.Key),
+                    })
                     .ToList();
-                return await GameLab.AutoFindings.RunAsync(candidates, s.GameLabAutoFindings, labReady: true, _findingsBudget,
-                    (c, f, ct) => _service.FileOrQueueAsync(conn, session, store, f.Kind, targets[c.GameId], ct: ct),
-                    new LabStateStore(session.Paths.DataDir), GameLab.AutoFindings.QueuedKeys(store.List())).ConfigureAwait(false);
+                var r = await GameLab.AutoFindings.RunAsync(candidates, GameLab.AutoFindings.ConsentFrom(s), labReady: true, _findingsBudget,
+                    (c, f, ct) => _service.FileOrQueueAsync(conn, session, store, f.Kind, targets[c.GameId], ct: ct, automatic: true),
+                    new LabStateStore(session.Paths.DataDir), fresh ?? heldIssues, repoPrivate, GameLab.AutoFindings.QueuedKeys(store.List())).ConfigureAwait(false);
+                return (r, fresh, repoPrivate);
             });
+            if (issuesRead is not null)
+            {
+                Issues = issuesRead;
+                _issuesRead = true;
+            }
+            if (isPrivate is { } p) SetRepoPrivate(p);
+            foreach (var (id, why) in result.Skipped) Log.Info($"game lab: no automatic request for {id}: {why}");
 
             foreach (var f in result.Filed)
             {
@@ -930,10 +1015,12 @@ public sealed class GameLabViewModel : ObservableObject
                 }
             }
             if (result.Filed.Any(f => !f.Queued)) TriggerCycle(force: true); // the chip shows the request
+            return result;
         }
         catch (Exception ex)
         {
             Log.Error("Automatic game-lab findings failed", ex);
+            return AutoFindingsResult.None;
         }
         finally
         {
@@ -986,7 +1073,11 @@ public sealed class GameLabViewModel : ObservableObject
 
     private async Task OnCycleDone(LabCycleResult r)
     {
-        if (r.Issues.Count > 0 || r.Errors.Count == 0) Issues = r.Issues;
+        if (r.Issues.Count > 0 || r.Errors.Count == 0)
+        {
+            Issues = r.Issues;
+            _issuesRead = true;
+        }
         if (r.Errors.Any(e => e.Contains("Sign in to GitHub again", StringComparison.OrdinalIgnoreCase)))
         {
             IsReady = false;

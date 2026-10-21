@@ -342,6 +342,9 @@ public static class LibraryService
         return games;
     }
 
+    /// <summary>The "store:id" keys of config/library.yaml optOut (case-insensitive).</summary>
+    public static IReadOnlySet<string> OptedOutKeys(ConfigStore store) => OptOutSet(LoadLibrary(store));
+
     private static HashSet<string> OptOutSet(LibraryFile lib) =>
         lib.OptOut.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

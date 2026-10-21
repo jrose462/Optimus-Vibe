@@ -816,7 +816,10 @@ public sealed class LabGameViewModel : ObservableObject
             case PostSessionAction.AskLab: Run(RefreshPresetsCommand); break;
             case PostSessionAction.MapGame: Run(MapCommand); break;
             case PostSessionAction.TurnOnAutoFindings:
-                if (Ctx.GameId is { } gameId) await _lab.TurnOnAutoFindingsAsync(gameId);
+#if DEBUG
+                if (_demo) break; // a debug scene never turns on a real setting or files a real request
+#endif
+                if (Ctx.GameId is { } gameId) await _lab.TurnOnAutoFindingsAsync(gameId, Ctx.Name);
                 break;
         }
 
@@ -856,7 +859,9 @@ public sealed class LabGameViewModel : ObservableObject
         }
 #endif
         if (card is null || Ctx.GameId is not { } id) return;
-        _lab.DismissSession(id, snooze && card.CanSnooze ? card.Kind : null); // its panels refresh through SessionsChanged
+        // the consent card is answered by any button (it asks once) and leaves the session pending: the session's own card shows next
+        if (PostSession.KeepsSession(card.Kind)) _lab.AnswerConsent(id, snooze && card.CanSnooze);
+        else _lab.DismissSession(id, snooze && card.CanSnooze ? card.Kind : null); // its panels refresh through SessionsChanged
     }
 
     private void RaisePost()

@@ -71,8 +71,8 @@ public sealed class AutoFindingBudget(int max)
 /// Consent-gated automatic lab findings ("Send findings to the game lab automatically", off by default): when a game updated after its presets
 /// worked, or keeps overriding them, ask the lab to research it again (Refresh); when the local cloud-sync check stays unsure, ask it once to
 /// re-check sync. Never launches anything and never flags a game. Limits: one automatic Refresh per game every <see cref="RefreshMemory"/>,
-/// one automatic sync re-check per game ever, at most <see cref="MaxPerStart"/> per app start, never while a request for the game is open
-/// or waiting in the outbox, never within <see cref="LabRouter.RequestMemory"/> of any request for it, never for a flagged or opted-out game.
+/// one automatic sync re-check per game ever, at most <see cref="MaxPerStart"/> per app start, never while a request of any kind for the
+/// game is open (read fresh from the lab) or waiting in the outbox, never to a config repo that is not private, never within <see cref="LabRouter.RequestMemory"/> of any request for it, never for a flagged or opted-out game.
 /// The workflow's daily cap still applies on the lab's side. <see cref="Detect"/> is pure; <see cref="RunAsync"/> files through a delegate.
 /// </summary>
 public static class AutoFindings
@@ -88,14 +88,83 @@ public static class AutoFindings
 
     public const string WatchSessionsTitle = "Let Optimus-Vibe check presets after each session";
     public const string WatchSessionsText =
-        "After you play, Optimus-Vibe reads the game's settings files and tells you when the game changed the preset. Nothing leaves this PC and nothing is launched.";
+        "After you play, show a card when the game changed the preset, and let what your sessions show go to the game lab when " +
+        "\"Send findings to the game lab automatically\" is on. Off: no card and nothing is sent from your sessions (the game's page still " +
+        "shows how its settings held). Nothing is launched.";
 
     public const string SettingTitle = "Send findings to the game lab automatically";
 
-    /// <summary>The setting's description; <paramref name="repo"/> names the private config repo when known.</summary>
-    public static string SettingText(string? repo) =>
-        "When a game updates or keeps resetting your presets, ask the game lab to look again. At most one request per game every 2 weeks. " +
-        $"Evidence goes only to your private config repo{(repo is { Length: > 0 } r ? $" ({r})" : "")}.";
+    /// <summary>
+    /// The setting's description; <paramref name="repo"/> names the config repo when known. Only a repo GitHub reported as private
+    /// (<paramref name="repoPrivate"/>) is called private; a public one is named as the reason nothing is sent.
+    /// </summary>
+    public static string SettingText(string? repo, bool? repoPrivate = null)
+    {
+        var named = repo is { Length: > 0 } r ? $" ({r})" : "";
+        const string what = "When a game updates or keeps resetting your presets, ask the game lab to look again. At most one request per game " +
+                            "every 2 weeks. Needs \"check presets after each session\" on. ";
+        return repoPrivate switch
+        {
+            true => what + $"Evidence goes only to your private config repo{named}.",
+            false => what + $"Your config repo{named} is public, so nothing is sent by itself: make it private on GitHub first.",
+            _ => what + $"Sent only while your config repo{named} is private.",
+        };
+    }
+
+    /// <summary>
+    /// Why nothing may be sent automatically to a repo of this visibility, or null when it may: evidence (settings files, folder listings, run
+    /// history) is posted without a preview, so only a repo GitHub reports as private qualifies. Unknown (not checked yet) is refused too.
+    /// </summary>
+    public static string? RepoBlockReason(bool? repoPrivate) => repoPrivate switch
+    {
+        true => null,
+        false => "the config repo is public",
+        _ => "could not confirm the config repo is private",
+    };
+
+    /// <summary>Why nothing may be sent when the lab's requests could not be read: an open request of another kind could be missed.</summary>
+    public const string RequestsUnknownReason = "the lab's requests could not be read";
+
+    /// <summary>
+    /// Findings may go out by themselves: the user turned on "Send findings to the game lab automatically" and still lets Optimus-Vibe check
+    /// presets after each session (the findings come from what those sessions show).
+    /// </summary>
+    public static bool ConsentFrom(OptimusVibe.Config.AppSettings s) => s.GameLabAutoFindings && s.GameLabWatchSessions;
+
+    /// <summary>
+    /// Consent was withdrawn: removes every automatic request still waiting in the outbox (one the user filed by hand stays). Returns how many.
+    /// </summary>
+    public static int WithdrawQueued(OutboxStore store)
+    {
+        var removed = 0;
+        foreach (var item in store.List())
+        {
+            if (item.Kind != OutboxKind.LabRequest) continue;
+            try
+            {
+                if (item.LabRequest.Automatic && store.Remove(item.Id)) removed++;
+            }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or NullReferenceException)
+            {
+                Log.Warn($"outbox: could not read lab request {item.Id}: {ex.Message}");
+            }
+        }
+        if (removed > 0) Log.Info($"game lab: automatic findings are off; withdrew {removed} waiting request(s)");
+        return removed;
+    }
+
+    /// <summary>
+    /// The toast after "Turn on" on the consent card: findings go by themselves from now on, plus what happened to the finding at hand
+    /// (<paramref name="gameId"/> in <paramref name="result"/>): sent (its own toast follows, so nothing more is said) or why nothing went now.
+    /// </summary>
+    public static string TurnedOnText(string name, string gameId, AutoFindingsResult result)
+    {
+        const string on = "Findings now go to the game lab by themselves. You can turn this off in Settings, Game lab.";
+        if (result.Filed.Any(f => string.Equals(f.GameId, gameId, StringComparison.OrdinalIgnoreCase))) return on;
+        if (result.Skipped.TryGetValue(gameId, out var why)) return $"{on} Nothing was sent for {name} now: {why}.";
+        if (result.Errors.Count > 0) return $"{on} Sending the finding for {name} failed.";
+        return $"{on} Nothing was sent for {name} now.";
+    }
 
     /// <summary>The dim line of the post-session card that asks for consent once.</summary>
     public const string ConsentQuestion = "Send findings like this to the game lab by itself from now on? At most one request per game every 2 weeks.";
@@ -162,11 +231,18 @@ public static class AutoFindings
     /// <see cref="SkipReason"/> and <paramref name="budget"/>. Remembers each one in <paramref name="state"/> (also a reused or queued one), so it
     /// is not asked again. Consent off sends nothing. Never throws except on cancellation.
     /// </summary>
+    /// <param name="issues">
+    /// The lab's requests as just read (open and closed, any kind): each candidate's open request comes from here, not from what the app held
+    /// before. Null when they could not be read: nothing is sent then (an open request of another kind could be missed).
+    /// </param>
+    /// <param name="repoPrivate">Whether GitHub reports the config repo as private; anything but true sends nothing (<see cref="RepoBlockReason"/>).</param>
     public static async Task<AutoFindingsResult> RunAsync(IReadOnlyList<AutoFindingCandidate> candidates, bool consent, bool labReady,
         AutoFindingBudget budget, Func<AutoFindingCandidate, AutoFinding, CancellationToken, Task<LabRequestOutcome>> file, LabStateStore state,
-        IReadOnlySet<string>? queued = null, Func<DateTime>? now = null, CancellationToken ct = default)
+        IReadOnlyList<LabIssue>? issues, bool? repoPrivate, IReadOnlySet<string>? queued = null, Func<DateTime>? now = null,
+        CancellationToken ct = default)
     {
         if (!consent || !labReady || candidates.Count == 0) return AutoFindingsResult.None;
+        var blocked = RepoBlockReason(repoPrivate) ?? (issues is null ? RequestsUnknownReason : null);
         now ??= () => DateTime.UtcNow;
         queued ??= new HashSet<string>();
         var filed = new List<AutoFindingFiled>();
@@ -185,6 +261,12 @@ public static class AutoFindings
                 continue;
             }
             if (f is null) continue;
+            if (blocked is not null)
+            {
+                skipped[c.GameId] = blocked;
+                continue;
+            }
+            var current = c with { Inputs = c.Inputs with { LabRequest = LabStatusIndex.For(issues!, c.Key, c.GameId) } };
 
             // read the state again for every game: another pass (or the user) may have filed meanwhile
             if (state.TryLoad() is not { } s)
@@ -193,7 +275,7 @@ public static class AutoFindings
                 continue;
             }
             var at = now();
-            if (SkipReason(c, f, s, queued, at) is { } why)
+            if (SkipReason(current, f, s, queued, at) is { } why)
             {
                 skipped[c.GameId] = why;
                 continue;

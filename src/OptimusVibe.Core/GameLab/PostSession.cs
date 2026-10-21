@@ -97,6 +97,13 @@ public static class PostSession
     public static string SnoozeKey(string gameId, PostSessionKind kind) => $"{gameId}|{kind}";
 
     /// <summary>
+    /// Answering this card (any button, or "Not now") leaves the session pending, so the session's own card (<see cref="For"/> again, now
+    /// with <c>askConsent</c> false) shows next. Only the consent card does this: it is about the setting, not about the session, and must not
+    /// take away the session's "Keep these" or "See which".
+    /// </summary>
+    public static bool KeepsSession(PostSessionKind kind) => kind == PostSessionKind.Consent;
+
+    /// <summary>
     /// The card actions that ask on the card itself before they run (the others open their own command's confirm card): "Keep these" writes a
     /// manual save of what the game's files hold now and makes it active.
     /// </summary>
@@ -166,7 +173,8 @@ public static class PostSession
     /// <list type="number">
     /// <item><see cref="PostSessionKind.NeedsMapping"/>: an open lab request needs evidence, nothing is mapped and the game can be launched;</item>
     /// <item><see cref="PostSessionKind.Consent"/>: <paramref name="askConsent"/> (automatic findings are off and were never answered), the lab
-    /// can be asked, and the evidence holds a finding (<see cref="AutoFindings.Detect"/>);</item>
+    /// can be asked, and the evidence holds a finding (<see cref="AutoFindings.Detect"/>). Answering it keeps the session pending
+    /// (<see cref="KeepsSession"/>), so the card below that the session brings up still follows;</item>
     /// <item><see cref="PostSessionKind.Recurring"/>: this session was passively overridden and so were the ones before it, enough to suggest the
     /// "set in-game" flag (<see cref="GameFlags.SuggestsFromPassive"/>);</item>
     /// <item><see cref="PostSessionKind.Updated"/>: the health says the game updated since its presets, and the lab can be asked;</item>

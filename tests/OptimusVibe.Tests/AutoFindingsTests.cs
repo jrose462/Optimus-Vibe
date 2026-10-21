@@ -152,10 +152,18 @@ public sealed class AutoFindingsTests : IDisposable
         }
     }
 
+    private static readonly IReadOnlyList<LabIssue> NoRequests = [];
+
     private Task<AutoFindingsResult> Run(IReadOnlyList<AutoFindingCandidate> candidates, Filer filer, DateTime now, bool consent = true,
-        AutoFindingBudget? budget = null, IReadOnlySet<string>? queued = null, bool labReady = true) =>
+        AutoFindingBudget? budget = null, IReadOnlySet<string>? queued = null, bool labReady = true, IReadOnlyList<LabIssue>? issues = null,
+        bool readFailed = false, bool? repoPrivate = true) =>
         AutoFindings.RunAsync(candidates, consent, labReady, budget ?? new AutoFindingBudget(AutoFindings.MaxPerStart), filer.File,
-            new LabStateStore(_data.Path), queued, () => now);
+            new LabStateStore(_data.Path), readFailed ? null : issues ?? NoRequests, repoPrivate, queued, () => now);
+
+    /// <summary>A lab request for steam:<paramref name="id"/>, as the lab's issue list reads it.</summary>
+    private static LabIssue Request(int number, LabKind kind, bool open, LabStatus status, string id = "g") =>
+        new(number, $"[game-lab] Game {id}", $"https://github.com/o/r/issues/{number}", open, [], status,
+            new GameLabContract.RequestInfo(kind, id, $"Game {id}", "steam", id, "laptop", "1.0"), null, null);
 
     [Fact]
     public async Task ConsentOff_SendsNothing()
@@ -241,10 +249,110 @@ public sealed class AutoFindingsTests : IDisposable
     public async Task AnOpenRequest_IsNeverDuplicated()
     {
         var filer = new Filer();
-        var open = new LabIssue(12, "[game-lab] Game g - new", "https://github.com/o/r/issues/12", true, [], LabStatus.Researching, null, null, null);
-        var r = await Run([Candidate(inputs: Updated() with { LabRequest = open })], filer, T0);
+        var r = await Run([Candidate()], filer, T0, issues: [Request(12, LabKind.New, open: true, LabStatus.Researching)]);
         Assert.Empty(filer.Calls);
         Assert.Contains("#12", r.Skipped["g"]);
+    }
+
+    [Fact]
+    public async Task AnOpenRequestOfAnotherKind_FromAnotherDevice_BlocksAFinding_EvenWhenTheAppHeldNoList()
+    {
+        // device A filed a Refresh 10 days ago and it still needs evidence; this device starts with an empty list (no lab check yet) and its
+        // evidence says sync is unsure: the open request comes from the fresh read, so no SyncCheck is filed beside the Refresh
+        var filer = new Filer();
+        var unsure = Candidate(inputs: In() with { CloudSync = ChangedWhileClosed(clean: 6), LabRequest = null });
+        var r = await Run([unsure], filer, T0, issues: [Request(31, LabKind.Refresh, open: true, LabStatus.NeedsEvidence)]);
+        Assert.Empty(filer.Calls);
+        Assert.Contains("#31", r.Skipped["g"]);
+    }
+
+    [Fact]
+    public async Task AClosedRequest_InTheList_DoesNotBlock()
+    {
+        var filer = new Filer();
+        await Run([Candidate()], filer, T0, issues: [Request(5, LabKind.New, open: false, LabStatus.Done)]);
+        Assert.Single(filer.Calls);
+    }
+
+    [Fact]
+    public async Task TheLabsRequestsCouldNotBeRead_NothingIsSent()
+    {
+        var filer = new Filer();
+        var budget = new AutoFindingBudget(AutoFindings.MaxPerStart);
+        var r = await Run([Candidate()], filer, T0, readFailed: true, budget: budget);
+        Assert.Empty(filer.Calls);
+        Assert.Equal(AutoFindings.RequestsUnknownReason, r.Skipped["g"]);
+        Assert.Equal(AutoFindings.MaxPerStart, budget.Remaining);
+        Assert.Empty(new LabStateStore(_data.Path).Load().AutoRefresh); // asked again next time
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task ARepoNotKnownToBePrivate_GetsNothingAutomatically(bool? repoPrivate)
+    {
+        var filer = new Filer();
+        var r = await Run([Candidate()], filer, T0, repoPrivate: repoPrivate);
+        Assert.Empty(filer.Calls);
+        Assert.Equal(AutoFindings.RepoBlockReason(repoPrivate), r.Skipped["g"]);
+    }
+
+    [Fact]
+    public void SettingText_CallsTheRepoPrivate_OnlyWhenGitHubSaidSo()
+    {
+        Assert.Contains("private config repo (me/cfg)", AutoFindings.SettingText("me/cfg", repoPrivate: true));
+        var pub = AutoFindings.SettingText("me/cfg", repoPrivate: false);
+        Assert.Contains("is public", pub);
+        Assert.DoesNotContain("private config repo", pub);
+        Assert.DoesNotContain("goes only to your private", AutoFindings.SettingText("me/cfg"));
+        Assert.Null(AutoFindings.RepoBlockReason(true));
+    }
+
+    [Fact]
+    public void Consent_NeedsTheSessionCheckToo()
+    {
+        Assert.True(AutoFindings.ConsentFrom(new AppSettings { GameLabAutoFindings = true, GameLabWatchSessions = true }));
+        Assert.False(AutoFindings.ConsentFrom(new AppSettings { GameLabAutoFindings = true, GameLabWatchSessions = false }));
+        Assert.False(AutoFindings.ConsentFrom(new AppSettings { GameLabAutoFindings = false, GameLabWatchSessions = true }));
+    }
+
+    [Fact]
+    public void WithdrawingConsent_RemovesOnlyTheAutomaticRequestsWaitingInTheOutbox()
+    {
+        var store = new OutboxStore(_data.Path);
+        var info = new GameLabContract.RequestInfo(LabKind.Refresh, "g", "Game g", "steam", "g", "desktop", "1.0");
+        var auto = store.Add(OutboxItem.ForLabRequest("o/r", "main", new PreparedLabRequest(info, ["e"]), automatic: true));
+        var byHand = store.Add(OutboxItem.ForLabRequest("o/r", "main", new PreparedLabRequest(info with { GameId = "h", StoreId = "h" }, ["e"])));
+        store.Add(OutboxItem.ForBugReport(new OptimusVibe.Feedback.BugReportDraft("t", "b", []), asSignedInUser: false));
+
+        Assert.True(store.Get(auto.Id)!.LabRequest.Automatic);
+        Assert.Equal(1, AutoFindings.WithdrawQueued(store));
+        Assert.Null(store.Get(auto.Id));
+        Assert.NotNull(store.Get(byHand.Id));
+        Assert.Equal(2, store.Count);
+        Assert.Equal(0, AutoFindings.WithdrawQueued(store));
+    }
+
+    [Fact]
+    public void AQueuedRequestStoredBeforeTheAutomaticMark_ReadsAsByHand()
+    {
+        var item = new OutboxItem("x", OutboxKind.LabRequest, T0, 0, null, null,
+            """{"repo":"o/r","branch":"main","kind":"refresh","name":"G","store":"steam","storeId":"1","gameId":"g","device":"d","appVersion":"1","evidenceParts":["e"]}""");
+        Assert.False(item.LabRequest.Automatic);
+    }
+
+    [Fact]
+    public void TurnedOnText_SaysWhyTheFindingAtHandWasNotSent()
+    {
+        var skipped = new AutoFindingsResult([], new Dictionary<string, string> { ["g"] = "requested recently" }, []);
+        var text = AutoFindings.TurnedOnText("Hades", "g", skipped);
+        Assert.Contains("by themselves", text);
+        Assert.Contains("Nothing was sent for Hades now: requested recently.", text);
+
+        var sent = new AutoFindingsResult([new AutoFindingFiled("g", "Hades", new AutoFinding(LabKind.Refresh, AutoFindingReason.GameUpdated), 4, "u", false, false)],
+            new Dictionary<string, string>(), []);
+        Assert.DoesNotContain("Nothing was sent", AutoFindings.TurnedOnText("Hades", "g", sent));
+        Assert.Contains("Nothing was sent for Hades now.", AutoFindings.TurnedOnText("Hades", "g", AutoFindingsResult.None));
     }
 
     [Fact]
@@ -321,6 +429,25 @@ public sealed class AutoFindingsTests : IDisposable
 
     private static HealthInputs UpdatedAfterSession() =>
         Updated() with { Recent = [Run(-1, build: "steam:1"), Run(0, drifted: 3, build: "steam:2")] }; // a held run on the new build would settle it
+
+    [Fact]
+    public void ConsentCard_LeavesTheSessionPending_SoItsKeepTheseStillFollows()
+    {
+        // two overridden tests in a row (a finding), then a normal --no-prompt session where the game changed most settings
+        var session = Run(1, drifted: 8, capture: CaptureAnswer.NotAsked);
+        var i = In() with { OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true), Recent = [session] };
+        Assert.Equal(AutoFindingReason.TestsOverridden, AutoFindings.Detect(i)?.Reason);
+
+        var consent = Card(i, askConsent: true);
+        Assert.Equal(PostSessionKind.Consent, consent?.Kind);
+        Assert.True(PostSession.KeepsSession(consent!.Kind)); // answering it does not dismiss the session
+
+        var next = Card(i, askConsent: false);                 // answered: asked once, so the session's own card shows
+        Assert.Equal(PostSessionKind.Changed, next?.Kind);
+        Assert.Equal(PostSessionAction.KeepThese, next!.Primary);
+        Assert.Equal(PostSessionAction.SeeWhich, next.Secondary);
+        Assert.False(PostSession.KeepsSession(next.Kind));
+    }
 
     [Fact]
     public void ConsentCard_AsksOnce_OnTheFirstFinding_WithoutTakingFocus()

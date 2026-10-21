@@ -141,6 +141,7 @@ public sealed class LibraryServiceTests : IDisposable
         LibraryService.SetOptOut(_store, "epic:Fortnite", true);
         Assert.StartsWith("#", File.ReadAllText(_store.Paths.LibraryFile));
         Assert.Equal(["epic:Fortnite", "steam:1285190"], LibraryService.LoadLibrary(_store).OptOut);
+        Assert.Contains("Steam:1285190", LibraryService.OptedOutKeys(_store)); // what automatic findings check after a session
 
         var entries = LibraryService.Build(_store, Desktop, Detected).ToDictionary(e => e.Key);
         Assert.Equal(LibraryStatus.OptedOut, entries["steam:1285190"].Status);

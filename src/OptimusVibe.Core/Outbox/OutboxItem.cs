@@ -21,9 +21,11 @@ public sealed record BugReportPayload(string Title, string Body, IReadOnlyList<s
 /// <summary>
 /// The stored form of a game-lab request: where to file it, the request header and the evidence parts exactly as the user confirmed
 /// them (the request body is rebuilt from these by <see cref="GameLabClient.FilePreparedAsync"/>, so what is posted is what was reviewed).
+/// <see cref="Automatic"/>: an automatic finding (<see cref="AutoFindings"/>), withdrawn from the outbox when that consent is turned off.
+/// Missing in items stored before it existed (false).
 /// </summary>
 public sealed record LabRequestPayload(string Repo, string Branch, LabKind Kind, string Name, string Store, string StoreId, string GameId,
-    string Device, string AppVersion, IReadOnlyList<string> EvidenceParts)
+    string Device, string AppVersion, IReadOnlyList<string> EvidenceParts, bool Automatic = false)
 {
     public PreparedLabRequest ToPrepared() =>
         new(new GameLabContract.RequestInfo(Kind, GameId, Name, Store, StoreId, Device, AppVersion), EvidenceParts);
@@ -47,12 +49,13 @@ public sealed record OutboxItem(string Id, OutboxKind Kind, DateTime CreatedUtc,
         New(OutboxKind.BugReport, new BugReportPayload(draft.Title, draft.Body, draft.Labels.ToList(), asSignedInUser), nowUtc);
 
     /// <summary>A lab request with the evidence already collected (see <see cref="GameLabClient.PrepareRequest"/>).</summary>
-    public static OutboxItem ForLabRequest(string repo, string branch, PreparedLabRequest request, DateTime? nowUtc = null)
+    /// <param name="automatic">Sent by <see cref="AutoFindings"/>, not by the user's press.</param>
+    public static OutboxItem ForLabRequest(string repo, string branch, PreparedLabRequest request, DateTime? nowUtc = null, bool automatic = false)
     {
         var i = request.Info;
         return New(OutboxKind.LabRequest,
             new LabRequestPayload(repo, string.IsNullOrWhiteSpace(branch) ? "main" : branch, i.Kind, i.Name, i.Store, i.StoreId, i.GameId, i.Device, i.AppVersion,
-                request.EvidenceParts.ToList()), nowUtc);
+                request.EvidenceParts.ToList(), automatic), nowUtc);
     }
 
     private static OutboxItem New<T>(OutboxKind kind, T payload, DateTime? nowUtc) =>

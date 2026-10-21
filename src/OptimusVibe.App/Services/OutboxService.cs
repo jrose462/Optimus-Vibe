@@ -95,6 +95,13 @@ public sealed class OutboxService : IDisposable
         }
         try
         {
+            // automatic findings wait here only while the user still allows them: consent withdrawn since, they are not sent
+            try
+            {
+                if (!AutoFindings.ConsentFrom(await SettingsStore.LoadAsync()) && AutoFindings.WithdrawQueued(Store) > 0) RaiseChanged();
+            }
+            catch (Exception ex) { Log.Warn($"outbox: could not check the waiting automatic requests: {ex.Message}"); }
+            if (Store.Count == 0) return;
             var send = OutboxFlow.CreateSender(SafeToken, LabClientFor);
             var result = await Task.Run(() => new OutboxSender(Store).DrainAsync(send)).ConfigureAwait(true);
             RaiseChanged();

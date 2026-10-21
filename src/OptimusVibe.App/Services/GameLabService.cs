@@ -154,11 +154,25 @@ public sealed class GameLabService
     /// Files the request, or - when GitHub can't be reached because we are offline - stores it (with the evidence as collected now) in
     /// the outbox to be sent later. An already open request is reused as before.
     /// </summary>
+    /// <param name="automatic">An automatic finding: a queued copy is withdrawn when that consent is turned off.</param>
     public async Task<LabRequestOutcome> FileOrQueueAsync(Connection c, AppSession session, OutboxStore store, LabKind kind, LabTarget target,
-        string? verifyRun = null, CancellationToken ct = default)
+        string? verifyRun = null, CancellationToken ct = default, bool automatic = false)
     {
         if (IsDemo) return new LabRequestOutcome(await FileRequestAsync(c, session, kind, target, ct).ConfigureAwait(false), null);
-        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session, verifyRun), ct).ConfigureAwait(false);
+        return await OutboxFlow.FileLabRequestAsync(store, ClientFor(c), kind, target, session.Device.Name, CollectorFor(session, verifyRun), ct,
+            automatic).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether GitHub reports the config repo as private; null when it can't be read now (offline, signed out).</summary>
+    public async Task<bool?> IsRepoPrivateAsync(Connection c, CancellationToken ct = default)
+    {
+        if (IsDemo) return true;
+        try { return (await c.Api.GetRepoAsync(c.Repo.Repo, ct).ConfigureAwait(false)).Private; }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Log.Warn($"Game lab: could not read whether {c.Repo.Repo} is private: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>
