@@ -343,6 +343,86 @@ public sealed class PostSessionTests
         Assert.Equal(PostSessionKind.Changed, Card(In(Run(0), run), run)?.Kind);
     }
 
+    [Theory]
+    [InlineData(CaptureAnswer.Off)]
+    [InlineData(CaptureAnswer.DontAskAgain)]
+    [InlineData(CaptureAnswer.NotAsked)]
+    public void Recurring_AlsoWithTheCapturePromptOff(CaptureAnswer answer)
+    {
+        // the same values after every session, never asked about: the game's doing, so the recurring card still comes up
+        var run = Run(2, drifted: 10, capture: answer);
+        var card = Card(In(Run(0, drifted: 10, capture: answer), Run(1, drifted: 10, capture: answer), run), run)!;
+        Assert.Equal(PostSessionKind.Recurring, card.Kind);
+        Assert.Equal(PostSessionAction.FlagSetInGame, card.Primary);
+    }
+
+    // ---------------------------------------------------------------- the lab was asked automatically
+
+    private static AutoFindingFiled Filed(int? issue = 14, bool queued = false, bool reused = false, LabKind kind = LabKind.Refresh,
+        AutoFindingReason reason = AutoFindingReason.GameUpdated) =>
+        new("g", Name, new AutoFinding(kind, reason), issue, issue is null ? null : $"https://github.com/owner/config/issues/{issue}", reused, queued);
+
+    [Fact]
+    public void AskedAutomatically_SaysSo_WithOpenIssue_InsteadOfOfferingToAsk()
+    {
+        var run = Run(1, sec: 30);
+        var i = In(run) with { Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:100" }, CurrentBuild = "steam:200" };
+        var card = PostSession.For(i, GameHealth.Evaluate(i), run, Name, asked: Filed())!;
+        Assert.Equal(PostSessionKind.AskedLab, card.Kind);
+        Assert.Equal("Hades updated. Asked the game lab to re-check it (#14).", card.Text);
+        Assert.Equal(PostSessionAction.OpenIssue, card.Primary);
+        Assert.Equal(PostSessionAction.None, card.Secondary);
+        Assert.False(card.Offers(HealthAction.RefreshPresets)); // nothing to ask again
+        Assert.False(card.CanSnooze);   // a one-off note: B is OK
+        Assert.False(card.TakesFocus);  // A on the way back from the game never opens a browser
+    }
+
+    [Fact]
+    public void AskedAutomatically_Queued_OrReused_SaysWhichWithoutAnIssueButtonWhenThereIsNone()
+    {
+        var run = Run(1, sec: 30);
+        var i = In(run);
+        var queued = PostSession.For(i, GameHealth.Evaluate(i), run, Name, asked: Filed(issue: null, queued: true, reason: AutoFindingReason.KeepsResetting))!;
+        Assert.Equal("Hades keeps resetting the preset's settings. Saved a request for the game lab to re-check it.", queued.Text);
+        Assert.Equal(PostSessionAction.None, queued.Primary);
+
+        var reused = PostSession.For(i, GameHealth.Evaluate(i), run, Name, asked: Filed(reused: true))!;
+        Assert.Equal("Hades updated. The game lab is already looking at it (#14).", reused.Text);
+
+        var sync = PostSession.For(i, GameHealth.Evaluate(i), run, Name, asked: Filed(kind: LabKind.SyncCheck, reason: AutoFindingReason.SyncUnsure))!;
+        Assert.Contains("re-check its settings sync (#14)", sync.Text);
+    }
+
+    [Fact]
+    public void AskedAutomatically_ForAnotherGame_IsIgnored()
+    {
+        var run = Run(1, sec: 30);
+        var i = In(run) with { Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:100" }, CurrentBuild = "steam:200" };
+        var other = Filed() with { GameId = "other" };
+        Assert.Equal(PostSessionKind.Updated, PostSession.For(i, GameHealth.Evaluate(i), run, Name, asked: other)!.Kind);
+    }
+
+    // ---------------------------------------------------------------- don't ask again
+
+    [Fact]
+    public void Muted_KeepsEveryCardAway_UntilTurnedBackOn()
+    {
+        using var tmp = new TempDir();
+        var store = new LabStateStore(tmp.Path);
+        Assert.True(store.SetMuted("g", true, T0));
+        var state = store.Load();
+        Assert.True(state.IsMuted("g"));
+        Assert.Equal(Enum.GetValues<PostSessionKind>().ToHashSet(), state.SnoozedFor("g", T0).ToHashSet());
+        Assert.Empty(state.SnoozedFor("h", T0)); // per game
+
+        var run = Overridden(1);
+        Assert.Null(Card(In(Overridden(0), run), run, state.SnoozedFor("g", T0)));
+
+        Assert.True(store.SetMuted("g", false));
+        Assert.False(store.Load().IsMuted("g"));
+        Assert.NotNull(Card(In(Overridden(0), run), run, store.Load().SnoozedFor("g", T0)));
+    }
+
     // ---------------------------------------------------------------- updated
 
     [Fact]

@@ -100,6 +100,9 @@ public sealed record HealthInputs
     /// <summary>The game is installed here and can be launched (Test preset, Map this game are possible).</summary>
     public bool CanLaunch { get; init; }
 
+    /// <summary>"Also check presets on my next launch" is on for the game on this device (<see cref="LabState.VerifyNext"/>).</summary>
+    public bool VerifyNextLaunch { get; init; }
+
     // ---------------------------------------------------------------- derived
 
     /// <summary>The passive verdict of every normal run in <see cref="Recent"/>, oldest first.</summary>
@@ -155,6 +158,7 @@ public sealed record HealthInputs
     {
         var dataDir = ctx.Paths.DataDir;
         var gameId = ctx.Game.Id;
+        var lab = new LabStateStore(dataDir).Load();
         return FromRuns(dataDir, gameId, ctx.Device.Name) with
         {
             HasConfig = true,
@@ -164,7 +168,8 @@ public sealed record HealthInputs
             CurrentPreset = ctx.Profile.IsEmpty ? null : ctx.Preset?.ToString(),
             ConfiguredFiles = ctx.Game.Files.Select(f => f.Path).Where(p => p.Length > 0).ToList(),
             CloudSync = cloudSync,
-            Presets = new LabStateStore(dataDir).Load().PresetsFor(gameId),
+            Presets = lab.PresetsFor(gameId),
+            VerifyNextLaunch = lab.VerifiesNext(gameId),
         };
     }
 

@@ -15,6 +15,12 @@ public enum PostSessionKind
     /// </summary>
     Consent,
 
+    /// <summary>
+    /// "Send findings to the game lab automatically" is on and this session's finding was just sent (or saved to the outbox): says so, with
+    /// the request number, instead of offering to ask again.
+    /// </summary>
+    AskedLab,
+
     /// <summary>The game passively overrode the preset in a row: it may not accept settings from outside.</summary>
     Recurring,
 
@@ -51,6 +57,9 @@ public enum PostSessionAction
 
     /// <summary>Turn on "Send findings to the game lab automatically" (<see cref="AutoFindings"/>); the finding at hand is sent right after.</summary>
     TurnOnAutoFindings,
+
+    /// <summary>Open the lab request the app just filed by itself (<see cref="PostSessionKind.AskedLab"/>).</summary>
+    OpenIssue,
 }
 
 /// <summary>The inline card on the game page after a session: one line, one dim line, at most two actions, and "Not now" (B).</summary>
@@ -63,8 +72,11 @@ public sealed record PostSessionCard
     public PostSessionAction Primary { get; init; }
     public PostSessionAction Secondary { get; init; }
 
-    /// <summary>"Not now" snoozes this kind of card for the game (<see cref="PostSession.SnoozeDays"/>); the one-off "kept all" card just closes.</summary>
-    public bool CanSnooze => Kind != PostSessionKind.Held;
+    /// <summary>
+    /// "Not now" snoozes this kind of card for the game (<see cref="PostSession.SnoozeDays"/>), and "Don't ask again" mutes the game's cards
+    /// (<see cref="LabState.Muted"/>); the one-off cards ("kept all", "asked the lab") just close.
+    /// </summary>
+    public bool CanSnooze => Kind is not (PostSessionKind.Held or PostSessionKind.AskedLab);
 
     /// <summary>
     /// The card asks for something, so it takes focus when the player comes back to the game's page. The "kept all" card never does, and neither
@@ -72,7 +84,7 @@ public sealed record PostSessionCard
     /// land on it. Nor does the consent card: its first button turns on a setting that sends requests to GitHub.
     /// </summary>
     public bool TakesFocus => Kind != PostSessionKind.Held &&
-                              Primary is not (PostSessionAction.None or PostSessionAction.KeepThese or PostSessionAction.TurnOnAutoFindings);
+                              Primary is not (PostSessionAction.None or PostSessionAction.KeepThese or PostSessionAction.TurnOnAutoFindings or PostSessionAction.OpenIssue);
 
     /// <summary>
     /// The card has a button for this health action (<see cref="PostSession.AsHealthAction"/>), so the panel's own button for it (the suggested
@@ -172,6 +184,8 @@ public static class PostSession
     /// first, a run of another preset, a flagged game, a card kind snoozed). In order:
     /// <list type="number">
     /// <item><see cref="PostSessionKind.NeedsMapping"/>: an open lab request needs evidence, nothing is mapped and the game can be launched;</item>
+    /// <item><see cref="PostSessionKind.AskedLab"/>: the app just sent this session's finding to the lab by itself (<paramref name="asked"/>,
+    /// consent on): it says so, with Open issue, instead of offering to ask;</item>
     /// <item><see cref="PostSessionKind.Consent"/>: <paramref name="askConsent"/> (automatic findings are off and were never answered), the lab
     /// can be asked, and the evidence holds a finding (<see cref="AutoFindings.Detect"/>). Answering it keeps the session pending
     /// (<see cref="KeepsSession"/>), so the card below that the session brings up still follows;</item>
@@ -184,8 +198,9 @@ public static class PostSession
     /// Nothing here files, flags, saves or launches: every action is the player's press, with its usual confirm card ("Keep these" asks on the
     /// card itself, <see cref="Confirms"/>).
     /// </summary>
+    /// <param name="asked">The finding the app just sent to the lab by itself for this session (consent on), if any.</param>
     public static PostSessionCard? For(HealthInputs i, GameHealth health, RunResult run, string name, IReadOnlySet<PostSessionKind>? snoozed = null,
-        bool askConsent = false)
+        bool askConsent = false, AutoFindingFiled? asked = null)
     {
         if (i.Flag is not null || health.State == HealthState.Flagged || run.IsVerify) return null;
         bool Off(PostSessionKind k) => snoozed?.Contains(k) == true;
@@ -200,8 +215,17 @@ public static class PostSession
             };
 
         if (!i.HasPresets || !GameHealth.CountsForCurrentPreset(i, run)) return null;
-        var canAsk = i.LabReady && i.HasConfig && open is null;
         var verdict = VerdictOf(i, run);
+
+        // the app just asked the lab by itself (consent on): say so instead of offering to ask, which would only find that request open
+        if (asked is not null && string.Equals(asked.GameId, run.Game, StringComparison.OrdinalIgnoreCase) && !Off(PostSessionKind.AskedLab))
+            return new PostSessionCard
+            {
+                Kind = PostSessionKind.AskedLab, Run = run, Text = AskedText(asked, name),
+                Why = asked.Queued ? "It goes to the game lab when you're back online." : "The presets arrive by themselves when the lab is done.",
+                Primary = asked.Queued || asked.Url is null ? PostSessionAction.None : PostSessionAction.OpenIssue,
+            };
+        var canAsk = i.LabReady && i.HasConfig && open is null;
 
         // 2. a finding the lab could act on, the first time: ask once whether to send such findings by itself
         if (askConsent && canAsk && !Off(PostSessionKind.Consent) && AutoFindings.Detect(i) is { } finding)
@@ -269,8 +293,25 @@ public static class PostSession
         PostSessionAction.AskLab => "Ask the game lab to re-check",
         PostSessionAction.MapGame => "Map it",
         PostSessionAction.TurnOnAutoFindings => "Turn on",
+        PostSessionAction.OpenIssue => "Open issue",
         _ => "",
     };
+
+    /// <summary>"Hades updated. Asked the game lab to re-check it (#14)."</summary>
+    public static string AskedText(AutoFindingFiled f, string name)
+    {
+        var what = f.Finding.Reason switch
+        {
+            AutoFindingReason.GameUpdated => $"{name} updated",
+            AutoFindingReason.TestsOverridden => $"{name} overrode the preset in your tests",
+            AutoFindingReason.KeepsResetting => $"{name} keeps resetting the preset's settings",
+            _ => $"Something keeps changing {name}'s settings",
+        };
+        var ask = f.Finding.Kind == LabKind.SyncCheck ? "re-check its settings sync" : "re-check it";
+        if (f.Queued) return $"{what}. Saved a request for the game lab to {ask}.";
+        var number = f.Issue is { } n ? $" (#{n})" : "";
+        return f.Reused ? $"{what}. The game lab is already looking at it{number}." : $"{what}. Asked the game lab to {ask}{number}.";
+    }
 
     /// <summary>The consent card's line: what was found, in the player's words.</summary>
     private static string ConsentText(AutoFinding finding, string name, HealthInputs i) => finding.Reason switch

@@ -45,6 +45,15 @@ public enum HealthAction
     MapGame,
     FlagSetInGame,
     ManageAgain,
+
+    /// <summary>Re-check settings sync: the game lab looks again at whether the settings travel between devices.</summary>
+    SyncCheck,
+
+    /// <summary>
+    /// "Also check presets on my next launch": the player's own next launch runs as a test of the preset (no capture prompt), so the preset is
+    /// checked without an extra launch. A manual opt-in per game, never turned on by itself.
+    /// </summary>
+    VerifyNextLaunch,
 }
 
 /// <summary>
@@ -70,6 +79,12 @@ public sealed record GameHealth
     /// <summary>A lab request for the game is open (a secondary chip unless presets are missing).</summary>
     public bool LabWorking { get; init; }
 
+    /// <summary>
+    /// The run behind <see cref="HealthState.GameChangedSettings"/> (the last launch or test that found changed settings), so the page can list
+    /// every setting it changed ("See which"); null in every other state.
+    /// </summary>
+    public RunResult? ChangedRun { get; init; }
+
     /// <summary>States worth a chip on the library tile.</summary>
     public bool NeedsAttention => State is HealthState.GameUpdated or HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside;
 
@@ -83,6 +98,12 @@ public sealed record GameHealth
         HealthState.GameChangedSettings or HealthState.CantBeSetFromOutside => ChangedByGameChip,
         _ => null,
     };
+
+    /// <summary>
+    /// The Play button's secondary line when the preset is known to hold here ("Presets held on your last 3 launches."), null otherwise: only
+    /// the Working state says something worth hearing before every launch.
+    /// </summary>
+    public string? PlayLine => State == HealthState.Working ? Headline.Replace("Working. ", "", StringComparison.Ordinal) : null;
 
     public const string GameUpdatedChip = "Game updated";
     public const string ChangedByGameChip = "Changed by game";
@@ -109,11 +130,35 @@ public sealed record GameHealth
         HealthAction.MapGame => "Map this game",
         HealthAction.FlagSetInGame => "Flag as set in-game",
         HealthAction.ManageAgain => "Manage settings again",
+        HealthAction.SyncCheck => "Re-check settings sync",
+        HealthAction.VerifyNextLaunch => "Check presets on my next launch",
         _ => "",
     };
 
-    /// <summary>The health of a game on a device: the first state that matches, in the order of <see cref="HealthState"/>.</summary>
+    /// <summary>The dim line while "check presets on my next launch" is on for the game.</summary>
+    public const string VerifyNextLine = "Your next launch checks the preset: change nothing in-game that time, play a minute, quit.";
+
+    /// <summary>
+    /// The health of a game on a device: the first state that matches, in the order of <see cref="HealthState"/>. An open lab request that
+    /// needs evidence nothing on this PC has sent yet makes "Map this game" the suggestion in any state with presets, unless the state
+    /// suggests flagging the game (<see cref="HealthState.CantBeSetFromOutside"/>).
+    /// </summary>
     public static GameHealth Evaluate(HealthInputs i)
+    {
+        var h = EvaluateState(i);
+        if (h.State is HealthState.Flagged or HealthState.NoPresets or HealthState.CantBeSetFromOutside) return h;
+        if (i.LabRequest is { IsOpen: true, Status: LabStatus.NeedsEvidence } && i.Mapping is null && i.CanLaunch)
+            return h with { Suggested = HealthAction.MapGame, Why = $"The game lab needs to know where this game keeps its settings: {i.MapEffort}." };
+        return h;
+    }
+
+    /// <summary>
+    /// What to suggest when the passive evidence can't tell whether the game keeps the preset: the player's own next launch as a test (no extra
+    /// launch) while it isn't on yet; nothing while it is (the dim line says so).
+    /// </summary>
+    private static HealthAction CheckNextLaunch(HealthInputs i) => !i.CanLaunch || i.VerifyNextLaunch ? HealthAction.None : HealthAction.VerifyNextLaunch;
+
+    private static GameHealth EvaluateState(HealthInputs i)
     {
         var open = i.LabRequest is { IsOpen: true } issue ? issue : null;
         var flagReason = FlagSuggestion(i);
@@ -187,12 +232,13 @@ public sealed record GameHealth
             var fromTest = changed.IsVerify;
             return new GameHealth
             {
-                State = HealthState.GameChangedSettings, LabWorking = labWorking,
+                State = HealthState.GameChangedSettings, LabWorking = labWorking, ChangedRun = changed,
                 Headline = $"The game changed some settings ({changed.Drift.Count} of {changed.Applied})",
-                Why = $"{(fromTest ? "Last test" : "Last launch")}, {Day(changed.Utc)}: {RunResults.Names(changed, 3)}",
+                Why = !fromTest && i.VerifyNextLaunch ? VerifyNextLine : $"{(fromTest ? "Last test" : "Last launch")}, {Day(changed.Utc)}: {RunResults.Names(changed, 3)}",
+                // a normal launch can't tell the game's doing from the player's: check it on the next launch (Test preset stays under More)
                 Suggested = fromTest
                     ? (i.LabReady && i.HasConfig && !labWorking ? HealthAction.RefreshPresets : HealthAction.None)
-                    : (i.CanLaunch ? HealthAction.TestPreset : HealthAction.None),
+                    : CheckNextLaunch(i),
             };
         }
 
@@ -212,6 +258,7 @@ public sealed record GameHealth
                 Why = syncContradiction is not null ? Sentence(syncContradiction)
                     : runs.LastPassive == PassiveVerdict.SyncSuspect ? "A launcher's cloud sync rewrote the settings during your last launch."
                     : "The settings changed while Optimus-Vibe wasn't running.",
+                Suggested = i.LabReady && i.HasConfig && !labWorking ? HealthAction.SyncCheck : HealthAction.None,
             };
 
         // 7. working
@@ -235,9 +282,9 @@ public sealed record GameHealth
             State = HealthState.NotChecked, Headline = "Not checked on this device yet", LabWorking = labWorking,
             Why = runs.HeldStreak > 0
                 ? $"The preset held on your last {(runs.HeldStreak == 1 ? "launch" : $"{runs.HeldStreak} launches")}. {WorkingAfter - runs.HeldStreak} more to be sure."
-                : ambiguous ? "Your last launches didn't show clearly whether the game keeps the preset."
+                : ambiguous ? (i.VerifyNextLaunch ? VerifyNextLine : "Your last launches didn't show clearly whether the game keeps the preset.")
                 : ChecksAfterPlayLine,
-            Suggested = ambiguous ? HealthAction.TestPreset : HealthAction.None,
+            Suggested = ambiguous ? CheckNextLaunch(i) : HealthAction.None,
         };
     }
 

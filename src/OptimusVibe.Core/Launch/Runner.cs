@@ -112,6 +112,11 @@ public static class Runner
             if (options?.Verify == true) Log.Info("Test preset: nothing to test, this game's settings are left to the game");
         }
 
+        // "Also check presets on my next launch" (the game page, a manual opt-in per game): this launch is a Test preset run, so no capture prompt.
+        var verifyNext = inGame is null && options?.Verify != true && VerifyNextArmed(ctx);
+        var verify = options?.Verify == true || verifyNext;
+        if (verifyNext) Log.Info("Checking the preset on this launch (asked on the game page): no capture prompt, the result is stored as a test");
+
         // Did the settings change while we were not running (launcher cloud sync)? Before anything is applied; never throws.
         if (inGame is null) SyncObserver.BeforeRun(ctx);
 
@@ -180,9 +185,11 @@ public static class Runner
         // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
         if (inGame is null) AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
 
+        // the check asked for "my next launch" is done once the game was seen (a test of it counts too); a launch that never started keeps it
+        if (inGame is null && verify && processSeen && options?.Cancel.IsCancellationRequested != true) ClearVerifyNext(ctx);
+
         if (applied is not null)
         {
-            var verify = options?.Verify == true;
             details.Build = RunBuild(ctx.Game, InstallDir(ctx.Game, options), options?.FindInstall);
             if (inGame is null) ObservePresetsBuild(ctx, details.Build);
             var (drift, result) = MeasureResult(ctx, applied, verify, processSeen, details);
@@ -198,6 +205,30 @@ public static class Runner
         JoinPassiveWatch(endWatch);
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
+    }
+
+    /// <summary>The player asked the game page to check the preset on this launch (<see cref="GameLab.LabState.VerifyNext"/>). Never throws.</summary>
+    internal static bool VerifyNextArmed(GameContext ctx)
+    {
+        try { return new GameLab.LabStateStore(ctx.Paths.DataDir).VerifiesNext(ctx.Game.Id); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read whether to check the preset on this launch: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static void ClearVerifyNext(GameContext ctx)
+    {
+        try
+        {
+            var store = new GameLab.LabStateStore(ctx.Paths.DataDir);
+            if (store.VerifiesNext(ctx.Game.Id)) store.SetVerifyNext(ctx.Game.Id, false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not clear the check on next launch: {ex.Message}");
+        }
     }
 
     /// <summary>Waits for a background passive-watch step; its result, or null when there was none or it failed. Never throws.</summary>

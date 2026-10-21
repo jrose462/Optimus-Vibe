@@ -160,26 +160,47 @@ public sealed class RunHistoryRulesTests : IDisposable
         Assert.Equal(PassiveVerdict.Overridden, RunResults.Passive(keyed, keyedBefore));
     }
 
-    // ---------------------------------------------------------------- only asked-and-declined drift counts
+    // ---------------------------------------------------------------- unasked drift counts only when it recurs
 
     [Theory]
     [InlineData(CaptureAnswer.Off)]
     [InlineData(CaptureAnswer.DontAskAgain)]
     [InlineData(CaptureAnswer.NotAsked)]
-    [InlineData(null)]
-    public void DriftThePlayerWasNotAskedAbout_NeverCountsAgainstThePreset(CaptureAnswer? answer)
+    public void UnaskedDrift_ToTheSameValueTwice_IsOverridden(CaptureAnswer answer)
     {
-        // same value twice
-        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: answer, minute: 1), Normal(capture: answer, minute: 0)));
-        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: answer, minute: 1), Normal(capture: CaptureAnswer.DontSave, minute: 0)));
-        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: CaptureAnswer.DontSave, minute: 1), Normal(capture: answer, minute: 0)));
-        // most of the preset in a short session
+        // the capture prompt turned off (or --no-prompt) must not hide a game that keeps resetting the preset: same value twice counts
+        Assert.Equal(PassiveVerdict.Overridden, RunResults.Passive(Normal(capture: answer, minute: 1), Normal(capture: answer, minute: 0)));
+        Assert.Equal(PassiveVerdict.Overridden, RunResults.Passive(Normal(capture: answer, minute: 1), Normal(capture: CaptureAnswer.DontSave, minute: 0)));
+        Assert.Equal(PassiveVerdict.Overridden, RunResults.Passive(Normal(capture: CaptureAnswer.DontSave, minute: 1), Normal(capture: answer, minute: 0)));
+        // another value the second time: no pattern, the player's own most likely
+        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: answer, minute: 1, now: "Medium"), Normal(capture: answer, minute: 0)));
+        // once only: the first unasked drift proves nothing
+        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: answer, minute: 0), null));
+        // a run kept as a save breaks the recurrence (it is the player's tuning)
+        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: answer, minute: 1), Normal(capture: CaptureAnswer.Saved, minute: 0)));
+
+        for (var i = 0; i < 3; i++) RunResults.Record(_tmp.Path, Normal(capture: answer, minute: i));
+        Assert.Equal(2, RunResults.PassiveOverriddenStreak(_tmp.Path, "g", "desktop"));
+    }
+
+    [Theory]
+    [InlineData(CaptureAnswer.Off)]
+    [InlineData(CaptureAnswer.DontAskAgain)]
+    [InlineData(CaptureAnswer.NotAsked)]
+    public void UnaskedDrift_OfMostOfThePresetInAShortSession_IsNotEnough(CaptureAnswer answer)
+    {
+        // without the answer, trying many settings in one short session may be the player's own: only the recurrence rule speaks for it
         Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(6, capture: answer, sec: 120), null));
         // held is still held: no drift says the game kept everything whatever the player did
         Assert.Equal(PassiveVerdict.Held, RunResults.Passive(Normal(0, capture: answer), null));
+    }
 
-        for (var i = 0; i < 3; i++) RunResults.Record(_tmp.Path, Normal(capture: answer ?? CaptureAnswer.NotAsked, minute: i));
-        Assert.Equal(0, RunResults.PassiveOverriddenStreak(_tmp.Path, "g", "desktop"));
+    [Fact]
+    public void APendingAnswer_NeverCounts()
+    {
+        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(capture: null, minute: 1), Normal(minute: 0)));
+        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(minute: 1), Normal(capture: null, minute: 0)));
+        Assert.Equal(PassiveVerdict.Unknown, RunResults.Passive(Normal(6, capture: null, sec: 120), null));
     }
 
     [Fact]

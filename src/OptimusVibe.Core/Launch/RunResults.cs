@@ -539,13 +539,15 @@ public static class RunResults
     /// <item>no drift in a session of at least <see cref="PassiveHeldMinSec"/>: <see cref="PassiveVerdict.Held"/>;</item>
     /// <item>only files written again because a launcher's cloud sync changed them after the pre-launch apply
     /// (<see cref="RunResult.SyncReapplied"/>) drifted: <see cref="PassiveVerdict.SyncSuspect"/>;</item>
-    /// <item>the player was asked about the drift and answered Don't save (<see cref="CaptureAnswer.DontSave"/>), and either a setting drifted
-    /// to the same value as in the previous normal run (answered Don't save there too; whole files never count, what they became is not
-    /// known), or at least <see cref="HintRatio"/> of the preset drifted in a session shorter than <see cref="ShortSessionSec"/>:
-    /// <see cref="PassiveVerdict.Overridden"/>;</item>
-    /// <item>anything else, including drift the player was never asked about (the question turned off, <c>--no-prompt</c>, an answer still
-    /// pending), a verify run, an unseen game or nothing applied: <see cref="PassiveVerdict.Unknown"/>. The player may have made unasked
-    /// changes on purpose.</item>
+    /// <item>a setting drifted to the same value as in the previous normal run, and neither drift was kept as a save (answered Don't save, or
+    /// never asked: the question turned off with Don't ask again / Off, or <c>--no-prompt</c>): <see cref="PassiveVerdict.Overridden"/>. The
+    /// preset is written again before every launch, so a player's own edit only comes back when they make it again every session, while a
+    /// game that rewrites its own value does it every time. Whole files never count (what they became is not known);</item>
+    /// <item>the player was asked about the drift and answered Don't save (<see cref="CaptureAnswer.DontSave"/>), and at least
+    /// <see cref="HintRatio"/> of the preset drifted in a session shorter than <see cref="ShortSessionSec"/>: <see cref="PassiveVerdict.Overridden"/>.
+    /// This one needs the answer: a player who turned the question off may well try many settings in one short session;</item>
+    /// <item>anything else, including an answer still pending, one-off drift the player was never asked about, a verify run, an unseen game
+    /// or nothing applied: <see cref="PassiveVerdict.Unknown"/>. The player may have made unasked changes on purpose.</item>
     /// </list>
     /// </summary>
     public static PassiveVerdict Passive(RunResult r, RunResult? previous)
@@ -555,9 +557,11 @@ public static class RunResults
         if (r.Drift.Count == 0) return r.DurationSec >= PassiveHeldMinSec ? PassiveVerdict.Held : PassiveVerdict.Unknown;
         var sync = r.SyncReapplied ?? [];
         if (sync.Count > 0 && r.Drift.All(d => sync.Contains(d.FileId, StringComparer.OrdinalIgnoreCase))) return PassiveVerdict.SyncSuspect;
-        if (r.Capture != CaptureAnswer.DontSave) return PassiveVerdict.Unknown; // never asked (or no answer): the drift may be the player's own
+        if (r.Capture is null) return PassiveVerdict.Unknown; // the answer is still pending
         if (Recurs(r, previous)) return PassiveVerdict.Overridden;
-        if (DriftRatio(r) >= HintRatio && r.DurationSec is { } sec && sec < ShortSessionSec) return PassiveVerdict.Overridden;
+        // most of the preset in one short session counts only when the player was asked and declined: unasked, it may be their own tuning
+        if (r.Capture == CaptureAnswer.DontSave && DriftRatio(r) >= HintRatio && r.DurationSec is { } sec && sec < ShortSessionSec)
+            return PassiveVerdict.Overridden;
         return PassiveVerdict.Unknown;
     }
 
@@ -575,15 +579,20 @@ public static class RunResults
     }
 
     /// <summary>
-    /// A setting drifted to the same value in the previous normal run too, where the player was also asked and chose not to keep it. Whole-file
-    /// drift never counts: only "differs from the save" is known, not what the file became.
+    /// A setting drifted to the same value in the previous normal run too, where it was not kept as a save either (<see cref="NotKept"/>: declined,
+    /// or never asked). Whole-file drift never counts: only "differs from the save" is known, not what the file became.
     /// </summary>
     private static bool Recurs(RunResult r, RunResult? previous)
     {
-        if (previous is null || previous.IsVerify || !previous.ProcessSeen || previous.Capture != CaptureAnswer.DontSave || previous.Drift.Count == 0) return false;
+        if (!NotKept(r.Capture) || previous is null || previous.IsVerify || !previous.ProcessSeen || !NotKept(previous.Capture) || previous.Drift.Count == 0)
+            return false;
         var before = previous.Drift.Where(d => !d.IsWholeFile).Select(DriftSignature).ToHashSet(StringComparer.Ordinal);
         return r.Drift.Any(d => !d.IsWholeFile && before.Contains(DriftSignature(d)));
     }
+
+    /// <summary>A final capture answer that did not keep the drift: declined, or never asked (the question off, or <c>--no-prompt</c>).</summary>
+    private static bool NotKept(CaptureAnswer? answer) =>
+        answer is CaptureAnswer.DontSave or CaptureAnswer.DontAskAgain or CaptureAnswer.Off or CaptureAnswer.NotAsked;
 
     private static string DriftSignature(RunDrift d) => $"{d.FileId.ToLowerInvariant()}\n{d.Key}\n{d.Now}";
 

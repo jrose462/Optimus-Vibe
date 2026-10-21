@@ -150,9 +150,27 @@ public sealed class LabState
     /// <summary>"game id|card kind" → until when that post-session card stays away ("Not now", <see cref="PostSession.SnoozeDays"/>).</summary>
     public Dictionary<string, DateTime> Snoozed { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The post-session card kinds snoozed for a game at <paramref name="nowUtc"/>.</summary>
+    /// <summary>The post-session card kinds snoozed for a game at <paramref name="nowUtc"/>; every kind while the game's cards are muted.</summary>
     public IReadOnlySet<PostSessionKind> SnoozedFor(string gameId, DateTime nowUtc) =>
-        Enum.GetValues<PostSessionKind>().Where(k => Snoozed.TryGetValue(PostSession.SnoozeKey(gameId, k), out var until) && until > nowUtc).ToHashSet();
+        IsMuted(gameId)
+            ? Enum.GetValues<PostSessionKind>().ToHashSet()
+            : Enum.GetValues<PostSessionKind>().Where(k => Snoozed.TryGetValue(PostSession.SnoozeKey(gameId, k), out var until) && until > nowUtc).ToHashSet();
+
+    /// <summary>
+    /// Game id → when the player chose "Don't ask again" on a post-session card: no post-session card for that game on this device until they
+    /// turn the cards back on (the game page's More). The game stays managed and its health keeps updating.
+    /// </summary>
+    public Dictionary<string, DateTime> Muted { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsMuted(string gameId) => Muted.ContainsKey(gameId);
+
+    /// <summary>
+    /// Game id → when the player asked to check the preset on their own next launch ("Also check presets on my next launch", a manual opt-in per
+    /// game). The wrapper treats that launch as a Test preset run (no capture prompt) and clears the entry once the game was seen.
+    /// </summary>
+    public Dictionary<string, DateTime> VerifyNext { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool VerifiesNext(string gameId) => VerifyNext.ContainsKey(gameId);
 
     /// <summary>
     /// Game id → when the app last asked the lab to re-research the game by itself (<see cref="AutoFindings"/>): at most one automatic Refresh
@@ -261,6 +279,31 @@ public sealed class LabStateStore(string dataDir)
         return (fresh, saved);
     }
 
+    /// <summary>Turns "check presets on my next launch" on or off for a game. False when it could not be saved. Never throws.</summary>
+    public bool SetVerifyNext(string gameId, bool on, DateTime? nowUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return false;
+        return Update(s =>
+        {
+            if (on) s.VerifyNext[gameId] = nowUtc ?? DateTime.UtcNow;
+            else s.VerifyNext.Remove(gameId);
+        });
+    }
+
+    /// <summary>Whether the next launch of the game checks the preset; false when it can't be read. Never throws.</summary>
+    public bool VerifiesNext(string gameId) => !string.IsNullOrWhiteSpace(gameId) && Load().VerifiesNext(gameId);
+
+    /// <summary>"Don't ask again" on a post-session card (<paramref name="on"/>), or the cards turned back on. False when it could not be saved. Never throws.</summary>
+    public bool SetMuted(string gameId, bool on, DateTime? nowUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return false;
+        return Update(s =>
+        {
+            if (on) s.Muted[gameId] = nowUtc ?? DateTime.UtcNow;
+            else s.Muted.Remove(gameId);
+        });
+    }
+
     /// <summary>Records that a game's presets just arrived (made against <paramref name="build"/>, null when unknown). Never throws.</summary>
     public void MarkPresets(string gameId, DateTime utc, string? build, int? issue = null, LabKind? kind = null)
     {
@@ -301,6 +344,8 @@ public sealed class LabStateStore(string dataDir)
             s.Snoozed = new Dictionary<string, DateTime>(s.Snoozed ?? [], StringComparer.OrdinalIgnoreCase);
             s.AutoRefresh = new Dictionary<string, DateTime>(s.AutoRefresh ?? [], StringComparer.OrdinalIgnoreCase);
             s.AutoSyncCheck = new Dictionary<string, DateTime>(s.AutoSyncCheck ?? [], StringComparer.OrdinalIgnoreCase);
+            s.Muted = new Dictionary<string, DateTime>(s.Muted ?? [], StringComparer.OrdinalIgnoreCase);
+            s.VerifyNext = new Dictionary<string, DateTime>(s.VerifyNext ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
