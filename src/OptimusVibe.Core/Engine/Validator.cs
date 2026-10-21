@@ -111,6 +111,7 @@ public static class Validator
             report.Warnings.Add($"{where}: non-Steam game without launch.exe/launch.uri — `shortcut` will have nothing to start");
 
         CheckLaunchFields(game, where, report);
+        CheckFlagged(game, where, report);
 
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in game.Files)
@@ -226,6 +227,24 @@ public static class Validator
                 report.Warnings.Add($"{where}: launch.args entries are single tokens: write [\"+cvar\", \"value\"], not [\"+cvar value\"]");
             if (launch.Args.Count > 0 && launch.Exe is null && launch.Uri is not null && !launch.Uri.StartsWith("steam://", StringComparison.OrdinalIgnoreCase))
                 report.Warnings.Add($"{where}: launch.args are ignored for this launch.uri (only Steam games and exe launches take arguments)");
+        }
+    }
+
+    private static void CheckFlagged(GameDef game, string where, ValidationReport report)
+    {
+        if (game.Flagged is { } flag)
+        {
+            if (string.IsNullOrWhiteSpace(flag.Reason))
+                report.Errors.Add($"{where}: flagged needs a reason (one line the app shows: why the game ignores the settings)");
+            if (flag.Issue is <= 0)
+                report.Errors.Add($"{where}: flagged.issue must be a positive issue number");
+            if (flag.Since is { Length: > 0 } since && !System.DateTime.TryParseExact(since, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out _))
+                report.Warnings.Add($"{where}: flagged.since '{since}' is not a yyyy-MM-dd date");
+        }
+        else if (game.Mappable == false)
+        {
+            report.Warnings.Add($"{where}: mappable is false but the game is not flagged: presets still get written; add flagged: to stop writing them");
         }
     }
 

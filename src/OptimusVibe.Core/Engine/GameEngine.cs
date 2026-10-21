@@ -42,6 +42,12 @@ public static class GameEngine
     public static List<FilePlan> Plan(GameContext ctx)
     {
         var plans = new List<FilePlan>();
+        if (ctx.InGame is { } flag)
+        {
+            // "set in-game": nothing is written, restored or re-applied, whatever calls the plan
+            var why = $"set in-game: {Library.GameFlags.ReasonText(flag)}";
+            return ctx.Files.Select(f => new FilePlan { File = f, Skip = why }).ToList();
+        }
         foreach (var f in ctx.Files)
         {
             if (f.Path is null)

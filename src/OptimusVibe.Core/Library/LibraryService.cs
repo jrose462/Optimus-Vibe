@@ -14,7 +14,8 @@ public static class LibraryService
         "# Optimus-Vibe library choices, shared by every device (git-synced). Written by Optimus-Vibe.\n" +
         "# optOut: detected games (\"store:id\", e.g. steam:1285190) that Optimus-Vibe leaves alone —\n" +
         "# no settings are applied and they launch plainly (the Steam launch option is removed).\n" +
-        "# steamLaunchOptionsSkip: Steam games (\"steam:appid\") whose Steam launch option Optimus-Vibe never touches.\n";
+        "# steamLaunchOptionsSkip: Steam games (\"steam:appid\") whose Steam launch option Optimus-Vibe never touches.\n" +
+        "# setInGame: games (by game id) flagged \"set in-game\": Optimus-Vibe still sets display and NVIDIA but never writes their settings.\n";
 
     private const string RequestsHeader =
         "# Games detected on a device that have no Optimus-Vibe presets yet (or none for that device).\n" +
@@ -57,6 +58,7 @@ public static class LibraryService
                 Status = status,
                 OptedOut = opted,
                 SteamLaunchOptionSkipped = skips.Contains(d.Key),
+                SetInGame = game is null ? null : GameFlags.Effective(game, lib),
                 CloudSync = CheckSync(cloudSync, game),
             });
         }
@@ -72,6 +74,7 @@ public static class LibraryService
                 Status = LibraryStatus.NotInstalled,
                 OptedOut = optOut.Contains(key),
                 SteamLaunchOptionSkipped = skips.Contains(key),
+                SetInGame = GameFlags.Effective(game, lib),
                 CloudSync = CheckSync(cloudSync, game),
             });
         }
@@ -105,6 +108,8 @@ public static class LibraryService
             var lib = Yaml.Load<LibraryFile>(file);
             lib.OptOut ??= new();
             lib.SteamLaunchOptionsSkip ??= new();
+            lib.SetInGame = new Dictionary<string, FlagDef>(
+                (lib.SetInGame ?? new()).Where(kv => kv.Value is not null), StringComparer.OrdinalIgnoreCase);
             return lib;
         }
         catch (Exception ex)
@@ -126,6 +131,30 @@ public static class LibraryService
         lib.OptOut = lib.OptOut.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
         Write(store.Paths.LibraryFile, LibraryHeader, lib);
     }
+
+    /// <summary>
+    /// Flag a game as "set in-game" in config/library.yaml (<paramref name="flag"/>), or clear its flag (null). Keyed by game id, like the
+    /// game's file name. Returns true when the file changed.
+    /// </summary>
+    public static bool SetInGame(ConfigStore store, string gameId, FlagDef? flag)
+    {
+        gameId = gameId.Trim();
+        if (gameId.Length == 0) throw new ConfigException("Empty game id");
+        if (flag is not null && string.IsNullOrWhiteSpace(flag.Reason)) throw new ConfigException("A set-in-game flag needs a reason");
+        var lib = LoadLibrary(store);
+        var had = lib.SetInGame.TryGetValue(gameId, out var before);
+        if (flag is null && !had) return false; // nothing to clear
+        if (flag is not null && had && Same(before!, flag)) return false; // nothing changed
+        lib.SetInGame.Remove(gameId);
+        if (flag is not null) lib.SetInGame[gameId] = flag;
+        lib.SetInGame = lib.SetInGame.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        Write(store.Paths.LibraryFile, LibraryHeader, lib);
+        return true;
+    }
+
+    private static bool Same(FlagDef a, FlagDef b) =>
+        a.Reason == b.Reason && a.Since == b.Since && a.Evidence == b.Evidence && a.Issue == b.Issue;
 
     /// <summary>Keys ("steam:appid") in config/library.yaml steamLaunchOptionsSkip (case-insensitive).</summary>
     public static HashSet<string> SteamLaunchOptionSkips(ConfigStore store) =>

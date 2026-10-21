@@ -90,6 +90,7 @@ public static class SyncObserver
     /// <summary>Compare with the last recorded state. Call before applying settings. Returns the change recorded, if any.</summary>
     public static ExternalChangeRecord? BeforeRun(GameContext ctx, DateTime? nowUtc = null)
     {
+        if (ctx.InGame is not null) return null; // set in-game: the settings are the game's, there is nothing to compare
         try
         {
             var store = SyncObservationStore.For(ctx.Paths);
@@ -134,6 +135,7 @@ public static class SyncObserver
     /// <summary>Record the current fingerprints as the baseline for the next launch. Call after the game exited (and after the capture prompt).</summary>
     public static void AfterRun(GameContext ctx, DateTime? nowUtc = null)
     {
+        if (ctx.InGame is not null) return;
         try
         {
             var store = SyncObservationStore.For(ctx.Paths);

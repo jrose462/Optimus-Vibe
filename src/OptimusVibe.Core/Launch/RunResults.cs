@@ -95,6 +95,12 @@ public sealed class RunResultEntry
 {
     public RunResult? Last { get; set; }
     public RunResult? LastVerify { get; set; }
+
+    /// <summary>
+    /// Consecutive verify runs whose verdict was <see cref="RunVerdict.Overridden"/>: a held verify resets it, an unclear one (game never seen,
+    /// nothing applied) leaves it alone. Two in a row is what suggests flagging the game "set in-game" (<see cref="Library.GameFlags.SuggestsFromVerify"/>).
+    /// </summary>
+    public int OverriddenStreak { get; set; }
 }
 
 /// <summary>
@@ -129,8 +135,51 @@ public static class RunResults
                 if (!m.Games.TryGetValue(result.Game, out var devices)) m.Games[result.Game] = devices = new(StringComparer.OrdinalIgnoreCase);
                 if (!devices.TryGetValue(result.Device, out var entry)) devices[result.Device] = entry = new RunResultEntry();
                 entry.Last = result;
-                if (result.IsVerify) entry.LastVerify = result;
+                if (result.IsVerify)
+                {
+                    entry.LastVerify = result;
+                    entry.OverriddenStreak = NextStreak(entry.OverriddenStreak, Verdict(result));
+                }
                 Directory.CreateDirectory(dataDir);
+                var tmp = FileFor(dataDir) + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(m, Opts), new UTF8Encoding(false));
+                File.Move(tmp, FileFor(dataDir), overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Could not save {FileFor(dataDir)}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>The streak after one more verify run: overridden adds one, held starts over, an unclear verdict changes nothing.</summary>
+    public static int NextStreak(int streak, RunVerdict verdict) => verdict switch
+    {
+        RunVerdict.Overridden => streak + 1,
+        RunVerdict.Held => 0,
+        _ => streak,
+    };
+
+    /// <summary>Consecutive overridden verify runs of a game on a device (0 when none recorded).</summary>
+    public static int OverriddenStreak(string dataDir, string gameId, string device)
+    {
+        lock (Gate)
+        {
+            var m = Load(dataDir);
+            return m.Games.TryGetValue(gameId, out var devices) && devices.TryGetValue(device, out var e) ? e.OverriddenStreak : 0;
+        }
+    }
+
+    /// <summary>Starts the streak over (the user chose to manage the game's settings again: it must be tested again before the flag is suggested).</summary>
+    public static void ResetStreak(string dataDir, string gameId, string device)
+    {
+        lock (Gate)
+        {
+            try
+            {
+                var m = Load(dataDir);
+                if (!m.Games.TryGetValue(gameId, out var devices) || !devices.TryGetValue(device, out var e) || e.OverriddenStreak == 0) return;
+                e.OverriddenStreak = 0;
                 var tmp = FileFor(dataDir) + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(m, Opts), new UTF8Encoding(false));
                 File.Move(tmp, FileFor(dataDir), overwrite: true);

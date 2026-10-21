@@ -90,13 +90,24 @@ public sealed record ProbeDiff(IReadOnlyList<FileChange> Files, IReadOnlyList<Re
 /// <param name="StateLines">Short lines for pass A (screen).</param>
 /// <param name="SettingsLines">Short lines for pass B (screen).</param>
 /// <param name="OpaqueFiles">Tokenized paths of binary files that changed only in pass B: settings the lab cannot read key by key.</param>
+/// <param name="ReadableChanges">Pass B changes that can be read key by key: text-file keys (or new text files) and registry values.</param>
+/// <param name="PassBRan">Pass B was run (without it nothing can be said about where the settings live).</param>
 public sealed record ProbeEvidence(string Header, string PassA, string PassB, IReadOnlyList<string> StateLines, IReadOnlyList<string> SettingsLines,
-    IReadOnlyList<string> OpaqueFiles, IReadOnlyList<string> Notes)
+    IReadOnlyList<string> OpaqueFiles, IReadOnlyList<string> Notes, int ReadableChanges = 0, bool PassBRan = false)
 {
     /// <summary>The whole body of the "### Mapping run" section.</summary>
     public string Render() => $"{Header}\n\n{PassA}\n\n{PassB}".TrimEnd();
 
     public bool HasSettings => SettingsLines.Count > 0;
+
+    /// <summary>
+    /// Pass B changed only binary files (no text key, no registry value): the settings are in a store Optimus-Vibe cannot write key by key,
+    /// so flagging the game "set in-game" is worth suggesting. Never applied automatically.
+    /// </summary>
+    public bool SuggestsSetInGame => PassBRan && OpaqueFiles.Count > 0 && ReadableChanges == 0;
+
+    /// <summary>The one-line reason behind <see cref="SuggestsSetInGame"/> ("the game keeps its settings only in a binary file (system.save) Optimus-Vibe can't edit").</summary>
+    public string? SuggestionReason => SuggestsSetInGame ? Library.GameFlags.MappingSuggestionReason(OpaqueFiles) : null;
 }
 
 /// <summary>
@@ -428,6 +439,7 @@ public sealed class ProbeSession
         var stateLines = new List<string>();
         var settingsLines = new List<string>();
         var opaque = new List<string>();
+        var readable = 0; // pass B changes that can be read key by key
 
         FileChange[] Allowed(IEnumerable<FileChange> files) => files.Where(f =>
         {
@@ -477,6 +489,7 @@ public sealed class ProbeSession
                         noise += f.Keys.Count - fresh.Count;
                         if (fresh.Count == 0) { both.Add($"{f.Path} (text; only keys that also changed in pass A)"); continue; }
                         var trimmed = f with { Keys = fresh };
+                        readable += fresh.Count;
                         AppendFile(sbB, trimmed, folders);
                         settingsLines.Add(Describe(trimmed));
                         listed++;
@@ -486,12 +499,13 @@ public sealed class ProbeSession
                     continue;
                 }
                 AppendFile(sbB, f, folders);
+                if (f.IsText && f.Kind != ProbeChangeKind.Removed) readable += Math.Max(1, f.Keys.Count + f.KeysOmitted);
                 settingsLines.Add(Describe(f));
                 listed++;
                 if (f.IsBinary && f.Kind != ProbeChangeKind.Removed) opaque.Add(f.Path);
             }
             AppendRegistry(sbB, passB.Registry, aRegistry, out var bRegCount);
-            if (bRegCount > 0) { settingsLines.Add($"{bRegCount} registry value(s) changed"); listed++; }
+            if (bRegCount > 0) { settingsLines.Add($"{bRegCount} registry value(s) changed"); listed++; readable += bRegCount; }
             if (listed == 0) sbB.AppendLine("(nothing changed beyond pass A: the settings are not in the watched folders or registry keys)");
             if (both.Count > 0)
             {
@@ -513,7 +527,7 @@ public sealed class ProbeSession
 
         string S(string t) => EvidenceSanitizer.Sanitize(t, folders, _options.UserProfile, _options.UserName, _options.MachineName);
         return new ProbeEvidence(S(header.ToString().TrimEnd()), S(sbA.ToString().TrimEnd()), S(sbB.ToString().TrimEnd()),
-            stateLines.Select(S).ToList(), settingsLines.Select(S).ToList(), opaque.Select(S).ToList(), notes.Select(S).ToList());
+            stateLines.Select(S).ToList(), settingsLines.Select(S).ToList(), opaque.Select(S).ToList(), notes.Select(S).ToList(), readable, passB is not null);
     }
 
     private sealed class RegistryKeyComparer : IEqualityComparer<(string Key, string Name)>

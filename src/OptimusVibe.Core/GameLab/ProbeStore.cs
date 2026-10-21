@@ -20,6 +20,12 @@ public sealed class ProbeRecord
 
     /// <summary>Binary files changed only in pass B.</summary>
     public List<string> OpaqueFiles { get; set; } = [];
+
+    /// <summary>Pass B changed only binary files: the game keeps its settings in a store Optimus-Vibe cannot write, so "Flag as set in-game" is suggested.</summary>
+    public bool SuggestSetInGame { get; set; }
+
+    /// <summary>The one-line why of <see cref="SuggestSetInGame"/>.</summary>
+    public string? SuggestReason { get; set; }
 }
 
 /// <summary>
@@ -45,6 +51,8 @@ public static class ProbeStore
         StateLines = e.StateLines.ToList(),
         SettingsLines = e.SettingsLines.ToList(),
         OpaqueFiles = e.OpaqueFiles.ToList(),
+        SuggestSetInGame = e.SuggestsSetInGame,
+        SuggestReason = e.SuggestionReason,
     };
 
     public static void Record(string dataDir, string gameKey, ProbeRecord record)

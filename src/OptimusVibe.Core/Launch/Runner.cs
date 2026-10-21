@@ -4,6 +4,7 @@ using OptimusVibe.Config;
 using OptimusVibe.Display;
 using OptimusVibe.Driver;
 using OptimusVibe.Engine;
+using OptimusVibe.Library;
 using OptimusVibe.Logging;
 
 namespace OptimusVibe.Launch;
@@ -43,6 +44,9 @@ public sealed class RunOptions
 
     /// <summary>Stops waiting for the game (and stops managing the run) when cancelled.</summary>
     public CancellationToken Cancel { get; init; }
+
+    /// <summary>Test seam: stands in for <see cref="DisplayManager.Apply(DisplayModeDef, string?)"/> so a run can be tested without changing the screen.</summary>
+    internal Func<DisplayModeDef, string?, DisplayModeState?>? DisplayApply { get; init; }
 }
 
 /// <summary>
@@ -91,14 +95,24 @@ public static class Runner
         if (ctx.BigPictureUsed) Log.Info($"Big Picture (TV): {ctx.BigPicture!.Reason}");
         else if (ctx.BigPictureNote is { } bpNote) Log.Warn(bpNote);
 
+        // "Set in-game": settings off, rest on. Nothing below writes, restores, re-applies, captures or asks about the game's settings
+        // (and there is nothing to test); display, driver, launch args and the watchdog work as usual.
+        var inGame = ctx.InGame;
+        if (inGame is not null)
+        {
+            Log.Info(GameFlags.RunLine(inGame));
+            if (options?.Verify == true) Log.Info("Test preset: nothing to test, this game's settings are left to the game");
+        }
+
         // Did the settings change while we were not running (launcher cloud sync)? Before anything is applied; never throws.
-        SyncObserver.BeforeRun(ctx);
+        if (inGame is null) SyncObserver.BeforeRun(ctx);
 
         AppliedState? applied = null;
         var timing = LaunchPolicy.EffectiveTiming(ctx.Game);
         try
         {
-            if (LaunchPolicy.AppliesBefore(ctx.Game)) applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
+            if (inGame is not null) { /* settings are left to the game */ }
+            else if (LaunchPolicy.AppliesBefore(ctx.Game)) applied = GameEngine.Apply(ctx, GameEngine.Plan(ctx));
             else
             {
                 applied = new AppliedState();
@@ -111,7 +125,7 @@ public static class Runner
         }
         var details = new RunDetails();
 
-        SyncObserver.AfterRun(ctx); // interim baseline in case this wrapper is killed before the game exits
+        if (inGame is null) SyncObserver.AfterRun(ctx); // interim baseline in case this wrapper is killed before the game exits
 
         var state = new RunState
         {
@@ -119,7 +133,7 @@ public static class Runner
             StartedUtc = DateTime.UtcNow,
             Game = ctx.Game.Id,
         };
-        ApplyDisplay(ctx, state);
+        ApplyDisplay(ctx, state, options?.DisplayApply);
         ApplyDriver(ctx, state);
         if (!state.IsEmpty) state.Save(ctx.Paths.StateFile);
 
@@ -140,7 +154,7 @@ public static class Runner
         }
 
         // This device's own copy of cloud-synced whole files (autoSnapshot): normal and verify runs, only when the game was seen and the run was not cancelled
-        AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
+        if (inGame is null) AutoSnapshots.CaptureAfterSession(ctx, processSeen, options?.Cancel.IsCancellationRequested == true);
 
         if (applied is not null)
         {
@@ -148,7 +162,7 @@ public static class Runner
             var drift = RecordResult(ctx, applied, verify, processSeen, details);
             if (prompt && !verify) OfferCapture(ctx, applied, drift: drift);
         }
-        SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
+        if (inGame is null) SyncObserver.AfterRun(ctx); // baseline for the next launch, after the capture prompt
         Log.Info($"=== {ctx.Game.Id} exited ({exitCode}) ===");
         return exitCode;
     }
@@ -191,6 +205,7 @@ public static class Runner
     /// </summary>
     internal static List<Drift> RecordResult(GameContext ctx, AppliedState applied, bool verify, bool processSeen, RunDetails? details = null)
     {
+        if (ctx.InGame is not null) return []; // set in-game: no result, no streak, no prompt
         List<Drift> drift;
         try
         {
@@ -252,7 +267,7 @@ public static class Runner
     private static string[] LaunchCommand(RunOptions? options) =>
         string.IsNullOrWhiteSpace(options?.Launch) ? [] : [options.Launch, .. options.LaunchArgs];
 
-    private static void ApplyDisplay(GameContext ctx, RunState state)
+    private static void ApplyDisplay(GameContext ctx, RunState state, Func<DisplayModeDef, string?, DisplayModeState?>? apply = null)
     {
         if (ctx.Profile.DisplayKeep)
         {
@@ -263,7 +278,7 @@ public static class Runner
         if (wanted is null) return;
         try
         {
-            state.Display = DisplayManager.Apply(wanted, ctx.DisplayTarget);
+            state.Display = (apply ?? DisplayManager.Apply)(wanted, ctx.DisplayTarget);
             if (state.Display is not null) Log.Info($"Display set to {wanted}{(ctx.DisplayTarget is { } t ? $" on {t}" : "")}");
         }
         catch (Exception ex)
@@ -566,6 +581,7 @@ public static class Runner
     {
         try
         {
+            if (ctx.InGame is not null) return null; // set in-game: the game's settings are not ours to keep
             if (CapturePromptStore.IsSkipped(ctx.Paths.DataDir, ctx.Game.Id))
             {
                 Log.Info($"{ctx.Game.Id}: capture prompt turned off for this game");

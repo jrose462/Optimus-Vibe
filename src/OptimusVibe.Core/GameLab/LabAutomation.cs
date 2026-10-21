@@ -238,7 +238,7 @@ public static class LabRouter
         var fallback = new List<LibraryEntry>();
         foreach (var e in needs)
         {
-            if (e.Detected is null || e.OptedOut) continue;
+            if (e.Detected is null || e.OptedOut || e.SetInGame is not null) continue; // a flagged game is left to the game: no auto request
             if (known.TryGetValue(e.Key, out var at) && now() - at < RequestMemory) { reused++; continue; }
             try
             {
