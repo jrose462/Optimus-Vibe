@@ -275,6 +275,22 @@ public sealed class AppSettings
     /// </summary>
     public bool GameLabAutoRequest { get; set; } = true;
 
+    /// <summary>
+    /// Game lab (this machine): after each session, read the game's settings and show what it kept or changed (post-session card), and watch which of
+    /// its files it rewrites by itself (passive pass A of "Map this game", <see cref="GameLab.PassiveWatch"/>). Nothing is launched, and nothing
+    /// leaves the PC except with a lab request (one the player files, or an automatic one with GameLabAutoFindings on).
+    /// </summary>
+    public bool GameLabWatchSessions { get; set; } = true;
+
+    /// <summary>
+    /// Game lab (this machine): send findings (the game updated after its presets worked, keeps resetting them, cloud sync stays unsure) to the
+    /// lab by itself (<c>GameLab.AutoFindings</c>). Off until the user turns it on; the first finding asks once.
+    /// </summary>
+    public bool GameLabAutoFindings { get; set; }
+
+    /// <summary>The post-session card already asked about <see cref="GameLabAutoFindings"/> (it asks once).</summary>
+    public bool GameLabAutoFindingsAsked { get; set; }
+
     /// <summary>The last full game-lab check passed (every required setup step done). Gates the per-game actions and the background work.</summary>
     public bool GameLabReady { get; set; }
 

@@ -570,15 +570,20 @@
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
                     <Grid Background="Transparent">
-                        <StackPanel Orientation="Horizontal" Margin="6,0">
+                        <!-- a grid, not a horizontal StackPanel: a long label (a TextBlock with TextWrapping) wraps at the available width -->
+                        <Grid Margin="6,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
                             <Border x:Name="Box" Width="26" Height="26" CornerRadius="13" BorderThickness="2"
                                     BorderBrush="{DynamicResource TextFaintBrush}" Background="Transparent"
                                     VerticalAlignment="Center">
                                 <Path x:Name="Check" Data="M 5,12 L 10,17 L 19,7" Stroke="{DynamicResource OnAccentBrush}" StrokeThickness="2.5"
                                       Visibility="Collapsed" Margin="-1,-1,0,0" StrokeEndLineCap="Round" StrokeStartLineCap="Round" />
                             </Border>
-                            <ContentPresenter Margin="12,0,6,0" VerticalAlignment="Center" RecognizesAccessKey="True" />
-                        </StackPanel>
+                            <ContentPresenter Grid.Column="1" Margin="12,0,6,0" VerticalAlignment="Center" HorizontalAlignment="Left" RecognizesAccessKey="True" />
+                        </Grid>
                         <Border x:Name="Ring" Margin="-2" CornerRadius="24" BorderThickness="2"
                                 BorderBrush="{DynamicResource FocusBrush}" Effect="{DynamicResource FocusGlow}" Visibility="Collapsed" IsHitTestVisible="False" />
                     </Grid>

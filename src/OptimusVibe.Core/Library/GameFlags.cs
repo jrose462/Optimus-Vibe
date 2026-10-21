@@ -78,4 +78,10 @@ public static class GameFlags
 
     /// <summary>Whether a streak of overridden Test preset results is long enough to suggest the flag.</summary>
     public static bool SuggestsFromVerify(int overriddenStreak) => overriddenStreak >= SuggestAfterOverridden;
+
+    /// <summary>The reason normal launches suggest: "the game reset the preset's settings in 2 of your recent launches" (the overridden runs need not be adjacent: saved or unclear runs in between leave the streak alone).</summary>
+    public static string PassiveSuggestionReason(int streak) => $"the game reset the preset's settings in {streak} of your recent launches";
+
+    /// <summary>Whether a streak of passively overridden normal runs (<see cref="Launch.RunResultEntry.PassiveOverriddenStreak"/>) is long enough to suggest the flag.</summary>
+    public static bool SuggestsFromPassive(int passiveOverriddenStreak) => passiveOverriddenStreak >= SuggestAfterOverridden;
 }

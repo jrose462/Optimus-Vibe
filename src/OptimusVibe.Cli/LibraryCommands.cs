@@ -184,6 +184,8 @@ internal static class LibraryCommands
             if (pr.GetValue(issue) is <= 0) throw new ConfigException("--issue must be a positive issue number.");
             var flag = GameFlags.Create(text, pr.GetValue(issue));
             var changed = LibraryService.SetInGame(store, game.Id, flag);
+            // what led to the flag must not suggest it again once it is lifted (never throws)
+            OptimusVibe.Launch.RunResults.MarkFlagged(store.Paths.DataDir, game.Id, GameContext.SelectDevice(store, pr.GetValue<string?>("--profile")).Name);
             Console.WriteLine(changed
                 ? $"{game.Id}: flagged as set in-game ({store.Paths.LibraryFile}). Optimus-Vibe no longer writes its settings; display and NVIDIA still apply."
                 : $"{game.Id} was already flagged exactly like this.");

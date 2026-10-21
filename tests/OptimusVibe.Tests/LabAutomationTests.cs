@@ -364,4 +364,46 @@ public sealed class LabCycleTests : IDisposable
         Assert.Empty(r.NewPresets);
         Assert.Equal(0, provider.Pulls);
     }
+
+    [Fact]
+    public async Task APulledResult_MarksWhenThePresetsArrived_AndAgainstWhichBuild()
+    {
+        var t = new DateTime(2026, 10, 21, 8, 0, 0, DateTimeKind.Utc);
+        var (baseDeps, _, state) = Deps(() => t);
+        var deps = new LabCycleDeps
+        {
+            Client = baseDeps.Client, Collector = baseDeps.Collector, Paths = baseDeps.Paths, Provider = baseDeps.Provider, State = state, Now = baseDeps.Now,
+            TargetFor = i => _p.Target() with { Detected = new DetectedGame { Store = "steam", StoreId = "1285190", Name = "Borderlands 4", BuildId = "555" } },
+        };
+        await LabCycle.RunAsync(deps); // baseline: history marks nothing
+        Assert.Empty(state.Load().PresetsMade);
+
+        var fresh = _fake.Add("[game-lab] Borderlands 4 - refresh", Body(LabKind.Refresh), "game-lab", "lab:done");
+        fresh.Open = false;
+        fresh.Comments.Add(ResultComment);
+        await LabCycle.RunAsync(deps);
+
+        var mark = state.Load().PresetsFor("borderlands-4")!;
+        Assert.Equal(t, mark.MadeUtc);
+        Assert.Equal("steam:555", mark.BuildId);
+        Assert.Equal(fresh.Number, mark.Issue);
+        Assert.Equal("refresh", mark.Kind);
+    }
+
+    [Fact]
+    public async Task ASyncCheckResult_LeavesThePresetsMarkAlone()
+    {
+        var (deps, _, state) = Deps();
+        await LabCycle.RunAsync(deps);
+        var check = _fake.Add("[game-lab] Borderlands 4 - sync-check", Body(LabKind.SyncCheck), "game-lab", "lab:done");
+        check.Open = false;
+        check.Comments.Add(ResultComment);
+        Directory.CreateDirectory(deps.Paths.GamesDir);
+        File.WriteAllText(deps.Paths.GameFile("borderlands-4"), "name: Borderlands 4\n");
+
+        var r = await LabCycle.RunAsync(deps);
+
+        Assert.Equal(LabKind.SyncCheck, Assert.Single(r.NewPresets).Kind);
+        Assert.Null(state.Load().PresetsFor("borderlands-4"));
+    }
 }

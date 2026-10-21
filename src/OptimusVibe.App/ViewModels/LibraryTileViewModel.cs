@@ -4,6 +4,7 @@ using OptimusVibe.App.Services;
 using OptimusVibe.CloudSync;
 using OptimusVibe.GameLab;
 using OptimusVibe.Library;
+using OptimusVibe.Logging;
 
 namespace OptimusVibe.App.ViewModels;
 
@@ -17,6 +18,10 @@ public sealed class LibraryTileViewModel : ObservableObject
     private GameItemViewModel? _gameItem;
     private ImageSource? _art;
     private ImageSource? _icon;
+    private bool _healthLoaded;
+    private GameHealth? _health;
+    private (string? Build, ProbeRecord? Mapping) _install;
+    private int _installRead;
 
     public LibraryTileViewModel(LibraryViewModel owner, LibraryEntry entry, GameItemViewModel? gameItem)
     {
@@ -30,7 +35,8 @@ public sealed class LibraryTileViewModel : ObservableObject
         SetManagedCommand = new AsyncRelayCommand(p => owner.SetManagedAsync(this, p is true), _ => Idle() && CanToggleManaged);
         SetSteamKeepCommand = new AsyncRelayCommand(p => owner.SetSteamKeepUpToDateAsync(this, p is true), _ => Idle() && IsSteam);
         Lab = owner.Shell.Lab.ForGame(() => new LabGameContext(Name, Key, GameId, _entry.Detected is null ? null : LabTarget.From(_entry), HasConfig,
-            _entry.Status == LibraryStatus.NeedsPresets, _gameItem?.BadgeText));
+            _entry.Status == LibraryStatus.NeedsPresets, _gameItem?.BadgeText, _gameItem?.Snapshot.CloudSync, _gameItem?.Snapshot.Context));
+        _ = ReadInstallAsync();
     }
 
     public LibraryEntry Entry => _entry;
@@ -80,8 +86,82 @@ public sealed class LibraryTileViewModel : ObservableObject
         _ => "Not installed",
     };
 
-    /// <summary>Small orange dot: this game needs attention (waiting for presets, or a config problem).</summary>
+    /// <summary>Small orange dot: this game needs attention (waiting for presets, or a config problem). A health state has its chip instead.</summary>
     public bool NeedsAttention => Status is TileStatus.NeedsPresets or TileStatus.Error;
+
+    // ---------------------------------------------------------------- health chip
+
+    /// <summary>
+    /// The game's health on this device for the tile (<see cref="GameHealth.Evaluate"/> over the inputs its snapshot read once per load, plus the
+    /// installed build and stored mapping run, as the game page reads them), for managed games that are not flagged. Null otherwise. Worked out
+    /// once per update, without touching the disk (those two are read off the UI thread by <see cref="ReadInstallAsync"/>).
+    /// </summary>
+    public GameHealth? Health
+    {
+        get
+        {
+#if DEBUG
+            if (_demoHealth is not null) return _demoHealth;
+#endif
+            if (_healthLoaded) return _health;
+            _healthLoaded = true;
+            _health = null;
+            if (!WantsHealth || _gameItem?.Snapshot.Health is not { } inputs) return null;
+            try
+            {
+                _health = GameHealth.Evaluate(inputs.WithInstall(_install.Build, _install.Mapping) with { CanLaunch = CanPlay, LabReady = _owner.Shell.Lab.IsReady });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"{Name}: could not work out its health: {ex.Message}");
+            }
+            return _health;
+        }
+    }
+
+    private bool WantsHealth => Status == TileStatus.Managed && !IsSetInGame;
+
+#if DEBUG
+    private GameHealth? _demoHealth;
+
+    /// <summary>Debug scenes only: show this health on the tile (its chip and Play hint).</summary>
+    public void ShowDemoHealth(GameHealth health)
+    {
+        _demoHealth = health;
+        RefreshBadge(readInstall: false);
+    }
+#endif
+
+    /// <summary>
+    /// Reads the installed build (a directory scan for games without a store build id) and the stored mapping run off the UI thread, then
+    /// re-works the chip. The last values stay in use meanwhile; a newer read wins over an older one. Never throws.
+    /// </summary>
+    private async Task ReadInstallAsync()
+    {
+        if (!WantsHealth || _gameItem?.Snapshot.Health is not { } inputs || _owner.Shell.Session is not { } session) return;
+        var read = ++_installRead;
+        var detected = _entry.Detected;
+        var target = detected is null ? null : LabTarget.From(_entry);
+        try
+        {
+            var install = await Task.Run(() => (
+                // the build is only worth reading when something recorded the build the presets worked on
+                Build: inputs.BaselineBuild is not null && detected is not null ? GameBuild.Of(detected) : null,
+                Mapping: target is null ? null : GameLabService.StoredMapping(session, target)));
+            if (read != _installRead || install == _install) return;
+            _install = install;
+            RefreshBadge(readInstall: false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"{Name}: could not read its installed build: {ex.Message}");
+        }
+    }
+
+    /// <summary>"Game updated" / "Changed by game" (<see cref="GameHealth.TileChip"/>); null when the game needs no attention.</summary>
+    public string? AttentionChip => Health?.TileChip;
+
+    public bool HasAttentionChip => AttentionChip is not null;
 
     public bool IsInstalled => _entry.Detected is not null;
     public bool HasConfig => _entry.Game is not null;
@@ -132,8 +212,10 @@ public sealed class LibraryTileViewModel : ObservableObject
 
     public string PlayHint => Status switch
     {
-        TileStatus.Managed when IsSetInGame => "Display and NVIDIA are applied; the game's own settings are left to the game",
-        TileStatus.Managed =>"Your preset is applied, then restored after you quit",
+        TileStatus.Managed when IsSetInGame => "Display and graphics-driver settings are applied; the game's own settings are left to the game",
+        // the health's short line when the preset is known to hold here ("Presets held on your last 3 launches")
+        TileStatus.Managed when Health?.PlayLine is { } held => $"Your preset is applied, then restored after you quit. {held}",
+        TileStatus.Managed => "Your preset is applied, then restored after you quit",
         TileStatus.NeedsPresets => "Starts normally — presets aren't ready yet",
         TileStatus.OptedOut => "Starts normally — Optimus-Vibe leaves its settings alone",
         _ => "",
@@ -160,16 +242,26 @@ public sealed class LibraryTileViewModel : ObservableObject
     {
         _entry = entry;
         _gameItem = gameItem;
+        _healthLoaded = false;
         OnPropertyChanged(string.Empty);
         Lab.Refresh();
+        _ = ReadInstallAsync();
     }
 
-    /// <summary>Re-read the game list badge (after Use / Apply in the detail page).</summary>
-    public void RefreshBadge()
+    /// <summary>Re-read the game list badge (after Use / Apply in the detail page, or a reload of the game after a session).</summary>
+    public void RefreshBadge() => RefreshBadge(readInstall: true);
+
+    private void RefreshBadge(bool readInstall)
     {
+        if (readInstall) _ = ReadInstallAsync();
+        _healthLoaded = false;
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusLine));
+        OnPropertyChanged(nameof(AttentionChip));
+        OnPropertyChanged(nameof(HasAttentionChip));
+        OnPropertyChanged(nameof(PlayHint));
     }
 
-    public override string ToString() => $"{Name}, {StatusText}"; // automation name
+    // automation name: the chip is part of it, so it needs no focus stop of its own
+    public override string ToString() => AttentionChip is { } chip ? $"{Name}, {StatusText}, {chip}" : $"{Name}, {StatusText}";
 }
