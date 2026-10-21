@@ -17,6 +17,9 @@ public class AmdAdlxManagerTests
         public readonly List<string> Writes = new();
         public int Sessions;
         public bool ChillRejectsCrossing;
+
+        /// <summary>Numbers are rejected while their feature switch is off (the Ally's RIS sharpness).</summary>
+        public bool NeedsSwitchOn;
         public readonly Dictionary<AmdSettingId, int> Steps = new();
 
         /// <summary>Writing a 1 to the key switches these off (mutually exclusive features).</summary>
@@ -64,6 +67,7 @@ public class AmdAdlxManagerTests
             {
                 if (f.Unsupported.Contains(id)) return AdlxStatus.Unsupported;
                 if (f.FailWrites.Contains(id)) { LastError = "ADLX_RESULT 3"; return AdlxStatus.Error; }
+                if (f.NeedsSwitchOn && AmdSettingTable.SwitchFor(id) is { } sw && f.Values.GetValueOrDefault(sw) == 0) { LastError = "ADLX_RESULT 3"; return AdlxStatus.Error; }
                 if (f.ChillRejectsCrossing)
                 {
                     var min = id == AmdSettingId.ChillMinFps ? value : f.Values[AmdSettingId.ChillMinFps];
@@ -371,6 +375,25 @@ public class AmdAdlxManagerTests
         var real = DriverDiagnostics.TestAmd(m, applyAndRestore: true, out var passed);
         Assert.True(passed, string.Join("\n", real));
         Assert.Equal(["RisSharpness=90", "RisSharpness=80"], api.Writes);
+    }
+
+    [Fact]
+    public void Number_rejected_while_its_feature_is_off_is_written_with_the_switch_on_briefly()
+    {
+        // The Ally rejects RIS sharpness (ADLX_RESULT 3) while RIS is off; the switch must end up as it was, before and after restore.
+        var api = Ally();
+        api.NeedsSwitchOn = true;
+        api.Values[AmdSettingId.RisEnabled] = 0;
+        api.Values[AmdSettingId.RisSharpness] = 80;
+        api.Ranges[AmdSettingId.RisSharpness] = (10, 100);
+        api.Steps[AmdSettingId.RisSharpness] = 10;
+        var m = new AmdAdlxManager(api);
+
+        var real = DriverDiagnostics.TestAmd(m, applyAndRestore: true, out var passed);
+        Assert.True(passed, string.Join("\n", real));
+        Assert.Equal(0, api.Values[AmdSettingId.RisEnabled]);
+        Assert.Equal(80, api.Values[AmdSettingId.RisSharpness]);
+        Assert.Equal(["RisEnabled=1", "RisSharpness=90", "RisEnabled=0", "RisEnabled=1", "RisSharpness=80", "RisEnabled=0"], api.Writes);
     }
 
     [Fact]

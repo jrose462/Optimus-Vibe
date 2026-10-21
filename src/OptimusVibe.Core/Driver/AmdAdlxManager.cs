@@ -297,9 +297,26 @@ public sealed class AmdAdlxManager : IDriverSettings
         {
             var st = session.Write(w.Id, w.Value);
             if (st == AdlxStatus.Ok) ok.Add(w.Id);
+            else if (st == AdlxStatus.Error && WriteWhileSwitchedOn(session, w.Id, w.Key, w.Value)) ok.Add(w.Id);
             else Log.Warn($"AMD: could not write {w.Key} = {w.Text}: {session.LastError ?? "unsupported"}");
         }
         return ok;
+    }
+
+    /// <summary>
+    /// A number whose feature is off may be rejected (the Ally's RIS sharpness while RIS is off). Switches the feature on, writes the number and
+    /// switches it back off, so only the number changes. Returns false (switch left as found where possible) if that doesn't work either.
+    /// </summary>
+    private static bool WriteWhileSwitchedOn(IAdlxSession session, AmdSettingId id, string key, int value)
+    {
+        if (AmdSettingTable.SwitchFor(id) is not { } sw) return false;
+        if (session.Read(sw, out var on) != AdlxStatus.Ok || on != 0) return false;
+        if (session.Write(sw, 1) != AdlxStatus.Ok) return false;
+        var st = session.Write(id, value);
+        var off = session.Write(sw, 0);
+        if (off != AdlxStatus.Ok) Log.Warn($"AMD: switched {Label(sw)} on to change {key} but could not switch it back off; it is restored after the game exits.");
+        if (st == AdlxStatus.Ok) Log.Info($"AMD: {key} can only be changed while {Label(sw)} is on; switched it on for the change and back off.");
+        return st == AdlxStatus.Ok;
     }
 
     private static void VerifyReadBack(IAdlxSession session, Resolved r)

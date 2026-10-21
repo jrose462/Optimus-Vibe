@@ -58,7 +58,7 @@ public static class DriverDiagnostics
     }
 
     /// <summary>
-    /// Self-test of the read/apply/restore path with one harmless numeric setting (an image-sharpness value changed by 1).
+    /// Self-test of the read/apply/restore path with one harmless numeric setting (an image-sharpness value moved by one driver step).
     /// Dry run (default): reads and reports what it would do. With <paramref name="applyAndRestore"/>: applies, reads back, restores, reads back.
     /// </summary>
     internal static IReadOnlyList<string> TestAmd(AmdAdlxManager manager, bool applyAndRestore, out bool passed)

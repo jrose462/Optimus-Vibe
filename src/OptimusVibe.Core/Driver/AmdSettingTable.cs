@@ -141,6 +141,17 @@ internal static class AmdSettingTable
     /// <summary>True for on/off switches (restored after the numbers, off before on, so a conflicting feature is released first).</summary>
     internal static bool IsFlag(AmdSettingId id) => Flags.Contains(id);
 
+    /// <summary>The on/off switch a number belongs to. Some drivers reject a number while its feature is off (the Ally's RIS sharpness: ADLX_RESULT 3).</summary>
+    internal static AmdSettingId? SwitchFor(AmdSettingId id) => id switch
+    {
+        AmdSettingId.RisSharpness => AmdSettingId.RisEnabled,
+        AmdSettingId.RsrSharpness => AmdSettingId.RsrEnabled,
+        AmdSettingId.ChillMinFps or AmdSettingId.ChillMaxFps => AmdSettingId.ChillEnabled,
+        AmdSettingId.BoostMinResolution => AmdSettingId.BoostEnabled,
+        AmdSettingId.FrtcValue => AmdSettingId.FrtcEnabled,
+        _ => null,
+    };
+
     internal sealed record Entry(string Key, string Value, AmdSetting Setting);
 
     /// <summary>
