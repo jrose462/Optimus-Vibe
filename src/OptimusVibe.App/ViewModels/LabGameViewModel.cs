@@ -197,6 +197,13 @@ public sealed class LabGameViewModel : ObservableObject
 #endif
         _main.Session is { } s && Ctx.Target is { } t && GameLabService.StoredMapping(s, t) is not null;
 
+    /// <summary>Normal launches on this PC already showed what the game rewrites by itself (passive pass A): "Map this game" needs one launch.</summary>
+    public bool HasPassiveA =>
+#if DEBUG
+        !_demo &&
+#endif
+        _main.Session is { } s && Ctx.Target is { } t && GameLabService.PassiveMapping(s, t) is not null;
+
     /// <summary>The request card offers to map the game first when nothing is known about where its settings live. It never blocks the request.</summary>
     public bool ShowMapFirst => _confirming is LabKind.New or LabKind.Refresh && _verifyText is null && CanMap && !HasMapping;
 
@@ -225,7 +232,7 @@ public sealed class LabGameViewModel : ObservableObject
         }
 
         var flow = new MapGameFlow(target, session.Paths.DataDir, options, CanAct, Send, ctx.HasConfig && ctx.GameId is not null ? Keep : null,
-            _main.MinimizeForGame, _main.RestoreAfterGame);
+            _main.MinimizeForGame, _main.RestoreAfterGame, GameLabService.PassiveMapping(session, target));
         MapGameHost.Open(new MapGameModel(ctx.Name, flow));
     }
 
@@ -915,7 +922,9 @@ public sealed class LabGameViewModel : ObservableObject
     public string TestCaption => TestDisabledText ??
         "Plays the game once with the preset and tells you which settings it changed. Use after a patch, or when settings keep resetting.";
 
-    public string MapCaption => "Quick launches that show where this game stores its settings. Use when the lab says it needs evidence.";
+    public string MapCaption => HasPassiveA
+        ? "One launch where you change a few graphics options; your normal launches already showed what the game rewrites by itself."
+        : "Quick launches that show where this game stores its settings. Use when the lab says it needs evidence.";
     public string ManageAgainCaption => "Optimus-Vibe writes this game's settings again. Test the preset afterwards.";
     public string FlagCaption => "Optimus-Vibe stops writing this game's settings. It still sets the display, graphics-driver settings and launch options.";
 

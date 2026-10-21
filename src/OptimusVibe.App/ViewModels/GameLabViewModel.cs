@@ -702,7 +702,7 @@ public sealed class GameLabViewModel : ObservableObject
         }
         LabRequestOutcome? outcome = null;
         var ok = await _main.RunAsync($"Sending {target.Name} to your config repo", async () =>
-            outcome = await Task.Run(() => _service.FileOrQueueAsync(conn, session, _main.Outbox.Store, kind, target, verifyRun)));
+            outcome = await Task.Run(() => _service.FileOrQueueAsync(conn, session, _main.Outbox.Store, kind, target, verifyRun, manual: true)));
         if (!ok || outcome is null) return null;
         new LabStateStore(session.Paths.DataDir).Update(st => st.Requested[target.Key] = DateTime.UtcNow);
         if (outcome.WasQueued) _main.Outbox.Service.NotifyQueued();

@@ -126,7 +126,7 @@ public static class DebugScenes
             : [],
         settings ? ["{LocalAppData}\\Demo\\Saved\\graphics.sav"] : [], []);
 
-    /// <summary>The "Map this game" window with sample data: intro | launch2 | summary | summary-kept | summary-none | sent | failed.</summary>
+    /// <summary>The "Map this game" window with sample data: intro | launch2 | passive (one launch left, pass A from normal launches) | summary | summary-kept | summary-none | sent | failed.</summary>
     private static async Task ShowMapSceneAsync(string phase, string shot)
     {
         var model = new OptimusVibe.App.ViewModels.MapGameModel("Hades II", new DemoMapActions());
@@ -136,6 +136,7 @@ public static class DebugScenes
         switch (phase)
         {
             case "launch2": model.ShowDemo("intro2", passA); break;
+            case "passive": model.ShowDemo("intro2", passA, passiveLaunches: 3); break;
             case "summary": model.ShowDemo("summary", passA, SampleMapEvidence(true)); break;
             case "summary-kept": model.ShowDemo("summary", passA, SampleMapEvidence(true), kept: true); break;
             case "summary-none": model.ShowDemo("summary", passA, SampleMapEvidence(false)); break;
@@ -157,7 +158,7 @@ public static class DebugScenes
     /// <summary>
     /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, game-request,
     /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
-    /// map-sent | map-failed (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
+    /// map-sent | map-failed | map-passive (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
     /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
     /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data);
     /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
@@ -302,6 +303,7 @@ public static class DebugScenes
             case "map-summary-none":
             case "map-sent":
             case "map-failed":
+            case "map-passive":
                 await ShowMapSceneAsync(scene["map-".Length..], shot);
                 return;
             case "game-request":

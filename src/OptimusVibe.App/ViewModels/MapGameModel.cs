@@ -48,18 +48,23 @@ public interface IMapGameActions
     /// <summary>Called when the game starts / has exited, so the app can step aside and come back.</summary>
     void GameStarting();
     void GameExited();
+
+    /// <summary>What normal launches already showed the game rewrites by itself (passive pass A); the window then starts at launch 2.</summary>
+    PassivePassA? PassiveA => null;
 }
 
 /// <summary>
 /// The "Map this game" step card: launch 1 (change nothing), launch 2 (change many graphics options), then a summary with Send to
 /// game lab / Keep my changes as a manual save. A plain model; <see cref="Views.MapGameWindow"/> shows it full screen and maps A, Y, B to
-/// <see cref="Primary"/>, <see cref="Secondary"/> and <see cref="Back"/>.
+/// <see cref="Primary"/>, <see cref="Secondary"/> and <see cref="Back"/>. When normal launches already showed what the game rewrites
+/// (<see cref="IMapGameActions.PassiveA"/>), it starts at launch 2 and that is the only launch.
 /// </summary>
 public sealed class MapGameModel : ObservableObject
 {
     private readonly IMapGameActions _actions;
     private MapPhase _phase = MapPhase.Intro1;
     private ProbeDiff? _passA;
+    private int _passiveLaunches;
     private ProbeEvidence? _evidence;
     private string _message = "";
     private bool _busy;
@@ -69,7 +74,16 @@ public sealed class MapGameModel : ObservableObject
     {
         GameName = gameName;
         _actions = actions;
+        if (actions.PassiveA is { } passive)
+        {
+            _passA = passive.Diff;
+            _passiveLaunches = passive.Launches;
+            _phase = MapPhase.Intro2;
+        }
     }
+
+    /// <summary>Launch 1 was replaced by what the game's normal launches showed: one launch left.</summary>
+    public bool FromPassive => _passiveLaunches > 0;
 
     public string GameName { get; }
 
@@ -95,7 +109,7 @@ public sealed class MapGameModel : ObservableObject
     public string StepText => Phase switch
     {
         MapPhase.Intro1 or MapPhase.Running1 => "Launch 1 of 2",
-        MapPhase.Intro2 or MapPhase.Running2 => "Launch 2 of 2",
+        MapPhase.Intro2 or MapPhase.Running2 => FromPassive ? "One launch" : "Launch 2 of 2",
         MapPhase.Summary or MapPhase.Sent => "Done",
         _ => "",
     };
@@ -103,7 +117,7 @@ public sealed class MapGameModel : ObservableObject
     public string Title => Phase switch
     {
         MapPhase.Intro1 => $"Map {GameName}",
-        MapPhase.Intro2 => "Now change the settings",
+        MapPhase.Intro2 => FromPassive ? $"Map {GameName}" : "Now change the settings",
         MapPhase.Summary => $"{GameName} is mapped",
         MapPhase.Sent => "Sent to the game lab",
         MapPhase.Failed => "The game didn't start",
@@ -113,6 +127,8 @@ public sealed class MapGameModel : ObservableObject
     public string Lead => Phase switch
     {
         MapPhase.Intro1 => "Launch the game, change nothing, and quit at the main menu or after loading in.",
+        MapPhase.Intro2 when FromPassive =>
+            "We already watched what this game rewrites. One launch left: in the graphics menu change a few options (for example the overall preset High → Low, the resolution and the upscaler), apply, and quit.",
         MapPhase.Intro2 => "Launch again. In the graphics menu change as many options as you can (for example the overall preset High → Low, the resolution and the upscaler), apply, and quit.",
         MapPhase.Running1 => "Play until the main menu or a loaded game, then quit. Don't change any settings.",
         MapPhase.Running2 => "Change as many graphics options as you can, apply them, then quit the game.",
@@ -170,6 +186,10 @@ public sealed class MapGameModel : ObservableObject
     public bool HasPassAResult => Phase is MapPhase.Intro2 && _passA is not null;
     public string PassAResult => _passA is null
         ? ""
+        : FromPassive
+            ? _passA.IsEmpty
+                ? $"Your last {_passiveLaunches} launches: the game changed nothing on its own."
+                : $"Your last {_passiveLaunches} launches: the game rewrites {_passA.Files.Count} file(s) and {_passA.Registry.Count} registry value(s) by itself."
         : _passA.IsEmpty
             ? "Launch 1: the game changed nothing on its own."
             : $"Launch 1: the game rewrote {_passA.Files.Count} file(s) and {_passA.Registry.Count} registry value(s) by itself.";
@@ -305,9 +325,10 @@ public sealed class MapGameModel : ObservableObject
 
 #if DEBUG
     /// <summary>Debug scenes only: jump to a phase with sample data (intro1 | running | intro2 | summary | sent | failed).</summary>
-    public void ShowDemo(string phase, ProbeDiff? passA = null, ProbeEvidence? evidence = null, bool kept = false)
+    public void ShowDemo(string phase, ProbeDiff? passA = null, ProbeEvidence? evidence = null, bool kept = false, int passiveLaunches = 0)
     {
         _passA = passA;
+        _passiveLaunches = passiveLaunches;
         _evidence = evidence;
         _kept = kept;
         _message = phase switch
