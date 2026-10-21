@@ -108,6 +108,10 @@
                         Visibility="{Binding NeedsSetup, Converter={StaticResource VisibleWhen}}" />
             </Grid>
 
+            <!-- how the active preset reaches the game, and whether it was verified on this device -->
+            <TextBlock Text="{Binding ApplyStatusText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
+                       Visibility="{Binding HasApplyStatus, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="How the preset is applied" />
+
             <!-- passive hint: after a normal launch where the game changed most of the preset -->
             <TextBlock Text="{Binding HintText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,6,0,0"
                        Visibility="{Binding HasHint, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Last launch note" />

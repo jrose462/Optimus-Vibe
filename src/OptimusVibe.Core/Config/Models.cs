@@ -98,6 +98,24 @@ public sealed class GameDef
 
     public LaunchDef? Launch { get; set; }
 
+    /// <summary>
+    /// When the preset is written: <c>before</c> (default), <c>afterProcessStart</c> (once the game exe is seen, after a settle delay) or
+    /// <c>both</c> (default when <see cref="CloudSyncsSettings"/> is true: before launch, then re-checked after the launcher's cloud sync).
+    /// </summary>
+    public string? ApplyTiming { get; set; }
+
+    /// <summary>Seconds to wait after the game process appears before the re-apply (default 5).</summary>
+    public int? SettleSeconds { get; set; }
+
+    /// <summary>
+    /// How the preset reaches the game, so the app can be honest about it: plain-honoured, binary-truth, text-mirror, composite,
+    /// local-cloud-split, first-run, registry, launcher-gated or server-held. Informational.
+    /// </summary>
+    public string? Archetype { get; set; }
+
+    /// <summary>false = the settings cannot be set from outside the game (opaque or server-held); presets are advice only. Null = mappable.</summary>
+    public bool? Mappable { get; set; }
+
     /// <summary>Process names (e.g. Game.exe) the wrapper waits on; launcher stubs often exit early.</summary>
     public List<string> Processes { get; set; } = new();
 
@@ -132,7 +150,24 @@ public sealed class LaunchDef
 {
     public string? Uri { get; set; }
     public string? Exe { get; set; }
+
+    /// <summary>
+    /// Extra command-line arguments, one token per entry. For an exe launch they follow the exe; for a Steam launch they go into
+    /// the steam://rungameid/&lt;id&gt;//&lt;args&gt; URI (or after Steam's %command% when wrapped). A preset's <c>launch.args</c> is merged over these.
+    /// </summary>
     public List<string> Args { get; set; } = new();
+
+    /// <summary>
+    /// How long the wrapper waits for the game process after starting the launcher, in seconds. Default 180, or 600 for the stores
+    /// whose launchers ask questions (ea, battlenet, epic).
+    /// </summary>
+    public int? WaitSeconds { get; set; }
+
+    /// <summary>
+    /// Launcher / stub process names (e.g. EADesktop.exe, "Diablo IV Launcher.exe"). While one is running and the game is not,
+    /// the wrapper reports "waiting on launcher" instead of giving up.
+    /// </summary>
+    public List<string> LauncherProcesses { get; set; } = new();
 }
 
 public sealed class FileDef

@@ -153,6 +153,40 @@
     "notes": {
       "type": "string",
       "description": "Free-text notes (quirks, Steam Cloud, unverified keys...)."
+    },
+    "applyTiming": {
+      "type": "string",
+      "enum": [
+        "before",
+        "afterProcessStart",
+        "both"
+      ],
+      "description": "When the preset is written. before (default): before launch. afterProcessStart: once the game exe is seen plus settleSeconds, for files that do not exist before the first run. both: before launch, then re-checked after the launcher's cloud sync and re-applied once (keys that drifted; a snapshot only if the file changed). Default is both when cloudSyncsSettings is true."
+    },
+    "settleSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300,
+      "description": "Seconds to wait after the game process is seen before the re-apply (default 5)."
+    },
+    "archetype": {
+      "type": "string",
+      "enum": [
+        "plain-honoured",
+        "binary-truth",
+        "text-mirror",
+        "composite",
+        "local-cloud-split",
+        "first-run",
+        "registry",
+        "launcher-gated",
+        "server-held"
+      ],
+      "description": "How the preset reaches the game, so the app can say so honestly (informational): plain-honoured = a readable file the game reads at boot; binary-truth = an opaque save is the truth, text file derived; text-mirror = a text mirror enabled by a launch arg; composite = packed values inside a key; local-cloud-split = one local and one cloud-synced file; first-run = file created on first run; registry = PlayerPrefs / registry; launcher-gated = a stub launcher or prompt in front of the game; server-held = settings live on the server."
+    },
+    "mappable": {
+      "type": "boolean",
+      "description": "false = the game's settings cannot be set from outside the game (opaque or server-held), so its presets are advice. Omitted = mappable."
     }
   },
   "$defs": {
@@ -174,7 +208,22 @@
           "items": {
             "type": "string"
           },
-          "description": "Arguments for exe, e.g. [\"--exec=launch Pro\"]"
+          "description": "Extra command-line arguments, one token per entry ([\"+com_adaptiveTickMaxHz\",\"120\"], not one string). Exe launches: after the exe. Steam launches: in the steam://rungameid/<id>//<args> URI, or after %command% when Steam runs the wrapper. Battle.net takes no arguments (set them in Battle.net). A preset's launch.args is merged on top: the same flag appears once, the preset winning."
+        },
+        "waitSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "How long the wrapper waits for the game process after starting the launcher. Default 180, or 600 for ea, battlenet and epic games (their launchers ask questions)."
+        },
+        "launcherProcesses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": ".exe$"
+          },
+          "uniqueItems": true,
+          "description": "Launcher / stub processes (EADesktop.exe, \"Diablo IV Launcher.exe\"). While one runs and the game does not, the wrapper reports \"waiting on the launcher\" instead of giving up."
         }
       }
     },
@@ -300,7 +349,7 @@
       }
     },
     "display": {
-      "description": "inherit (or device): use the device's display from devices.yaml. none (or keep): leave the display alone (also the default when display is omitted). A map overrides parts of the device mode.",
+      "description": "inherit (or device): use the device's display from devices.yaml. none: leave the display alone (also the default when display is omitted; a Big Picture TV still gets its own mode). keep: never change the display for this preset, not even for a TV; for games that read the desktop mode or store their own resolution. A map overrides parts of the device mode.",
       "anyOf": [
         {
           "type": "string",
@@ -368,6 +417,20 @@
         "display": {
           "$ref": "#/$defs/display"
         },
+        "launch": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Launch arguments for this preset (merged over the game's launch.args; the preset wins per flag). Ignored for a game that has a file with the id 'launch'.",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "One command-line token per entry."
+            }
+          }
+        },
         "nvidia": {
           "allOf": [
             {
@@ -419,6 +482,20 @@
         },
         "display": {
           "$ref": "#/$defs/display"
+        },
+        "launch": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Launch arguments for this preset (merged over the game's launch.args; the preset wins per flag). Ignored for a game that has a file with the id 'launch'.",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "One command-line token per entry."
+            }
+          }
         },
         "nvidia": {
           "allOf": [

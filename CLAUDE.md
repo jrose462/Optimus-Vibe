@@ -158,3 +158,14 @@ screenshots showing game art, or binaries; never copy code without a compatible 
 are sanitized in `BugReport.Sanitize` (see `PRIVACY.md`); extend it and its tests when a new kind of personal data can reach a
 report. The bug-to-release loop is automated by Claude and CI: see `docs/pipeline.md`. Redistributed dependencies must be
 listed in `THIRD_PARTY_NOTICES.md` when `PackageReference`s change.
+
+## Launch reliability (Runner, LaunchPolicy, LaunchWatchdog)
+
+- The wait for the game is `LaunchWatchdog` (Launching -> WaitingOnLauncher -> GameRunning), fed by `Runner`; timeouts come from `LaunchPolicy.StartupTimeout`
+  (`launch.waitSeconds`, else 600 s for ea/battlenet/epic, else 180 s). `launch.launcherProcesses` turns "no game yet" into "waiting on the launcher". Battle.net
+  games fail early when no `LaunchBinary` line shows in `%LOCALAPPDATA%\Battle.net\Logs` within 20 s (`LauncherLogs`).
+- `applyTiming` (before | afterProcessStart | both; `both` is the default when `cloudSyncsSettings: true`): once the game exe is seen and `settleSeconds` pass,
+  `Runner.ReapplyAfterStart` writes what a launcher's cloud sync reverted (`GameEngine.PlanReapply`) and applies files that did not exist before launch.
+- `launch.args` (game) plus a preset's `launch: { args }` are merged per flag (`LaunchPolicy.MergeArgs`) and reach every route: after the exe, in the
+  `steam://rungameid/<id>//<args>` URI, or after Steam's `%command%`. The final command line, late/re-applied files and a launch note go in the run result.
+- `display: keep` in a preset skips the display change entirely (also for a Big Picture TV). `archetype` / `mappable` feed the one-line apply status on the game page.

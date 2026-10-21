@@ -70,6 +70,18 @@ public sealed class RunResult
     /// <summary>Verify run: false (the player was told to change nothing). Normal run: null, not known.</summary>
     public bool? UserChanged { get; set; }
 
+    /// <summary>The command line the wrapper started (exe, Steam URI with its arguments...). Null on results from older versions.</summary>
+    public string? LaunchCommand { get; set; }
+
+    /// <summary>How the launch went when it did not go to plan ("The game process never appeared...", "Battle.net selected the game but did not launch it..."); null when fine.</summary>
+    public string? LaunchNote { get; set; }
+
+    /// <summary>File ids written again after the game process was seen (a launcher's cloud sync had changed them, or they did not exist before launch).</summary>
+    public List<string> Reapplied { get; set; } = [];
+
+    /// <summary>File ids that only existed after the game booted: applied, but they take effect next launch.</summary>
+    public List<string> LateFiles { get; set; } = [];
+
     [JsonIgnore]
     public bool IsVerify => Mode == VerifyMode;
 
@@ -191,7 +203,7 @@ public static class RunResults
             case RunVerdict.Overridden:
                 return $"The game changed {r.Drift.Count} of {r.Applied} setting{(r.Applied == 1 ? "" : "s")}: {Names(r, maxNames)}";
             default:
-                if (!r.ProcessSeen) return "The game never started, so there is nothing to compare.";
+                if (!r.ProcessSeen) return r.LaunchNote is { Length: > 0 } note ? $"{note.TrimEnd('.')}, so there is nothing to compare." : "The game never started, so there is nothing to compare.";
                 if (r.Applied == 0) return "The preset wrote no settings, so there is nothing to compare.";
                 return $"{r.Drift.Count} of {r.Applied} settings changed while you played, so it isn't clear whether the game or you changed them.";
         }

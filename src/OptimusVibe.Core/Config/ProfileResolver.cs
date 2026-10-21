@@ -23,6 +23,15 @@ public sealed class ResolvedProfile
     /// <summary>Null = leave the display alone.</summary>
     public DisplayModeDef? Display { get; init; }
 
+    /// <summary>
+    /// <c>display: keep</c>: never change the display for this preset, not even to the Big Picture (TV) mode a preset without
+    /// <c>display:</c> would get. For games that read the desktop mode or store their own resolution.
+    /// </summary>
+    public bool DisplayKeep { get; init; }
+
+    /// <summary>Extra launch arguments from the preset's <c>launch.args</c>; merged over the game's own (the preset wins per flag).</summary>
+    public List<string> LaunchArgs { get; init; } = new();
+
     public Dictionary<string, string> Nvidia { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> Amd { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -42,6 +51,12 @@ public static class ProfileResolver
     public const string Description = "description";
     public const string TargetFps = "targetFps";
     public const string SnapshotsFrom = "snapshotsFrom";
+
+    /// <summary>
+    /// Preset/profile key <c>launch: { args: [...] }</c>. Not in <see cref="ReservedKeys"/> so a game that already has a file
+    /// with the id "launch" keeps working: the key is only the launch block when no such file exists.
+    /// </summary>
+    public const string Launch = "launch";
 
     public static readonly string[] ReservedKeys = [Extends, Display, Nvidia, Amd, Label, Description, TargetFps, SnapshotsFrom];
 
@@ -125,6 +140,8 @@ public static class ProfileResolver
             Description = description ?? body.GetValueOrDefault(Description)?.ToString(),
             TargetFps = Int(body.GetValueOrDefault(TargetFps)),
             Display = ResolveDisplay(body.GetValueOrDefault(Display), deviceDef),
+            DisplayKeep = body.GetValueOrDefault(Display) is string keep && keep.Equals("keep", StringComparison.OrdinalIgnoreCase),
+            LaunchArgs = fileIds.Contains(Launch) ? [] : LaunchArgsOf(body.GetValueOrDefault(Launch), game.Id),
             SnapshotsFrom = source.Kind == PresetKind.Recommended && body.GetValueOrDefault(SnapshotsFrom) is { } sf
                             && Values.ToScalar(sf).Trim() is { Length: > 0 } slug ? slug : null,
         };
@@ -133,12 +150,27 @@ public static class ProfileResolver
         foreach (var (key, value) in body)
         {
             if (ReservedKeys.Contains(key)) continue;
+            if (key.Equals(Launch, StringComparison.OrdinalIgnoreCase) && !fileIds.Contains(key)) continue;
             if (!fileIds.Contains(key))
                 throw new ConfigException($"{game.Id}: {source} sets '{key}', which is not a file id or a reserved key");
             if (value is Dictionary<string, object?> block)
                 result.FileBlocks[game.Files.First(f => f.Id.Equals(key, StringComparison.OrdinalIgnoreCase)).Id] = block;
         }
         return result;
+    }
+
+    /// <summary>The <c>args</c> list of a preset's <c>launch:</c> block (each entry one command-line token).</summary>
+    public static List<string> LaunchArgsOf(object? launch, string gameId)
+    {
+        if (launch is null) return [];
+        if (launch is not Dictionary<string, object?> map)
+            throw new ConfigException($"{gameId}: launch must be a map with an args list");
+        foreach (var k in map.Keys.Where(k => !k.Equals("args", StringComparison.OrdinalIgnoreCase)))
+            throw new ConfigException($"{gameId}: launch.{k} is not supported in a preset (only args)");
+        if (!map.TryGetValue("args", out var args) || args is null) return [];
+        if (args is not System.Collections.IEnumerable list || args is string)
+            throw new ConfigException($"{gameId}: launch.args must be a list of strings");
+        return list.Cast<object?>().Select(a => Values.ToScalar(a)).Where(a => a.Length > 0).ToList();
     }
 
     /// <summary>A manual save folder name: letters, digits, dot, dash, underscore; no path separators.</summary>

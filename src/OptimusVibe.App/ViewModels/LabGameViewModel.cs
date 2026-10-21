@@ -37,9 +37,12 @@ public sealed class LabGameViewModel : ObservableObject
     private string? _verifyText;
     private RunResult? _lastRun;
     private bool _lastRunLoaded;
+    private string? _applyStatus;
+    private bool _applyStatusLoaded;
 #if DEBUG
     private bool _demo;
     private RunResult? _demoHint;
+    private string? _demoStatus;
 #endif
 
     public LabGameViewModel(GameLabViewModel lab, MainViewModel main, Func<LabGameContext> context)
@@ -86,6 +89,7 @@ public sealed class LabGameViewModel : ObservableObject
     public void Refresh()
     {
         _lastRunLoaded = false;
+        _applyStatusLoaded = false;
         OnPropertyChanged(string.Empty);
     }
 
@@ -311,6 +315,7 @@ public sealed class LabGameViewModel : ObservableObject
         ClearTransient();
         _result = null;
         _demoHint = null;
+        _demoStatus = null;
         _resultSent = false;
         switch (kind)
         {
@@ -320,6 +325,7 @@ public sealed class LabGameViewModel : ObservableObject
             case "sent": _result = Sample(10); _resultSent = true; break;
             case "unknown": _result = Sample(0, seen: false); break;
             case "hint": _demoHint = Sample(10, verify: false); break;
+            case "status": _demoStatus = "Applied by file edit - verified held on 2026-10-20."; break;
             case "map-first":
                 _confirming = LabKind.New;
                 Preview = new EvidencePreview(3, 2, 1,
@@ -365,6 +371,43 @@ public sealed class LabGameViewModel : ObservableObject
     }
 
     public bool HasHint => HintText is not null;
+
+    /// <summary>
+    /// One honest line about how the active preset reaches the game and whether it was verified on this device ("Applied by file edit -
+    /// verified held on 2026-10-20", "In-game steps only: ..."). Null when the game has no config or preset yet.
+    /// </summary>
+    public string? ApplyStatusText
+    {
+        get
+        {
+#if DEBUG
+            if (_demo) return _demoStatus;
+#endif
+            if (_applyStatusLoaded) return _applyStatus;
+            _applyStatusLoaded = true;
+            _applyStatus = null;
+            try
+            {
+                if (_main.Session is { } s && Ctx.GameId is { } id && Ctx.HasConfig)
+                {
+                    var game = GameContext.Load(s.Store, id, s.Device);
+                    if (!game.Profile.IsEmpty)
+                    {
+                        var verify = RunResults.Get(s.Paths.DataDir, id, s.Device.Name, verifyOnly: true);
+                        if (verify is not null && verify.Preset != game.Preset?.ToString()) verify = null; // another preset was tested
+                        _applyStatus = LaunchPolicy.Describe(game.Game, game.Profile, verify);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not describe how the preset is applied: {ex.Message}");
+            }
+            return _applyStatus;
+        }
+    }
+
+    public bool HasApplyStatus => ApplyStatusText is not null;
 
     // ---------------------------------------------------------------- status chip
 
