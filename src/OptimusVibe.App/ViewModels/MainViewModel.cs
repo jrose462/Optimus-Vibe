@@ -324,7 +324,9 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         get => _selectedGame;
         set
         {
+            var previous = _selectedGame;
             if (!Set(ref _selectedGame, value)) return;
+            previous?.Detail?.Lab.CollapseMore(); // its page is no longer on screen
             value?.EnsureDetail(this);
             HookDetail(value?.Detail);
             OnPropertyChanged(nameof(SelectedDetail));
@@ -537,7 +539,11 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 if (!Settings.CancelTransient()) CloseSettings();
                 return true;
             case AppPage.Detail:
-                if (!((SelectedDetail?.CancelTransient(back: true) ?? false) | (DetailTile?.Lab.CancelTransient() ?? false))) CloseDetail();
+                // only the panel on screen takes B: the game's page when it has a config here, else the tile's own lab panel
+                var closed = DetailHasConfig
+                    ? SelectedDetail?.CancelTransient(back: true) ?? false
+                    : DetailTile?.Lab.CancelTransient() ?? false;
+                if (!closed) CloseDetail();
                 return true;
             case AppPage.Library:
                 return false;
@@ -606,6 +612,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Library.SelectedTile = tile;
         DetailTile = tile;
         if (tile.GameItem is { } item) SelectedGame = item;
+        tile.Lab.CollapseMore();
+        SelectedDetail?.Lab.CollapseMore();
         OnPropertyChanged(nameof(DetailHasConfig));
         Page = AppPage.Detail;
     }
@@ -613,6 +621,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public void CloseDetail()
     {
         SelectedDetail?.CancelTransient();
+        SelectedDetail?.Lab.CollapseMore();
+        DetailTile?.Lab.CollapseMore();
         Page = AppPage.Library;
     }
 

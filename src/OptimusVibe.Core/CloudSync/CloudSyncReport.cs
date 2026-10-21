@@ -32,6 +32,9 @@ public sealed record CloudSyncReport
     /// <summary>The settings changed while Optimus-Vibe was not running (any time since observing began).</summary>
     public bool HasExternalChanges { get; init; }
 
+    /// <summary>When the newest of those changes was seen; null when none (or not known).</summary>
+    public DateTime? LastExternalChangeUtc { get; init; }
+
     public int CleanLaunches { get; init; }
 
     /// <summary>Strong observation: settings arrived matching another device's preset. Null when none.</summary>
@@ -179,6 +182,7 @@ public static class CloudSyncVerdict
             Confidence = confidence,
             Evidence = evidence,
             HasExternalChanges = changed,
+            LastExternalChangeUtc = changed ? observed.Changes.Max(c => c.Utc) : null,
             CleanLaunches = clean,
             StrongChange = strong,
         };

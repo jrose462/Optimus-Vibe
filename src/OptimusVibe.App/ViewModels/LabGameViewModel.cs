@@ -16,8 +16,12 @@ namespace OptimusVibe.App.ViewModels;
 /// <param name="NeedsPresets">No presets for this device (no config, or a config without this device).</param>
 /// <param name="PresetLabel">The preset that would be applied now ("Performance", "Manual: Steady 40"); null when unknown.</param>
 /// <param name="CloudSync">The local cloud-sync check of the game on this device (from its snapshot); null when not known.</param>
+/// <param name="Game">
+/// The game's resolved context from the page's snapshot (Big Picture included, as the wrapper resolves it), so the health judges the runs of
+/// the preset the page shows; null when there is no snapshot.
+/// </param>
 public sealed record LabGameContext(string Name, string? Key, string? GameId, LabTarget? Target, bool HasConfig, bool NeedsPresets,
-    string? PresetLabel = null, CloudSyncReport? CloudSync = null);
+    string? PresetLabel = null, CloudSyncReport? CloudSync = null, GameContext? Game = null);
 
 /// <summary>
 /// The game-lab actions on one game's page: Request / Refresh presets, Re-check settings sync, the confirmation with the evidence
@@ -497,34 +501,50 @@ public sealed class LabGameViewModel : ObservableObject
         var ctx = Ctx;
         var session = _main.Session;
         var inputs = new HealthInputs { GameId = ctx.GameId ?? ctx.Key ?? ctx.Name, Device = session?.Device.Name ?? "" };
-        try
+        if (session is not null && ctx.GameId is { } id)
+            inputs = Read("run history", () => HealthInputs.FromRuns(session.Paths.DataDir, id, session.Device.Name), inputs);
+
+        // what is already known never depends on a file read below: one failed read only drops its own input
+        inputs = inputs with
         {
-            if (session is not null && ctx.GameId is { } id) inputs = HealthInputs.FromRuns(session.Paths.DataDir, id, session.Device.Name);
-            string? preset = null;
-            IReadOnlyList<string> files = [];
-            if (session is not null && ctx.GameId is { } gameId && ctx.HasConfig && !IsFlagged)
-            {
-                var game = GameContext.Load(session.Store, gameId, session.Device);
-                preset = game.Profile.IsEmpty ? null : game.Preset?.ToString();
-                files = game.Game.Files.Select(f => f.Path).Where(p => p.Length > 0).ToList();
-            }
+            HasConfig = ctx.HasConfig, HasPresets = ctx.HasConfig && !ctx.NeedsPresets,
+            Flag = _flag, FlagFromConfig = _flag is not null && _userFlag is null, HasUserFlag = _userFlag is not null,
+            ResearchFinished = _flag?.Issue is { } n && n == _researchFinishedFor,
+            LabRequest = Issue, LabReady = LabReady, CloudSync = ctx.CloudSync, CanLaunch = CanMap,
+        };
+        if (session is null) return inputs;
+
+        if (ctx.GameId is { } gameId && ctx.HasConfig && !IsFlagged)
+        {
+            // the preset the page shows: the snapshot's context (Big Picture resolved as the wrapper does), else the same load
+            var game = ctx.Game ?? Read<GameContext?>("game context",
+                () => GameContext.Load(session.Store, gameId, session.Device, bigPicture: new BigPictureOptions()), null);
+            if (game is not null)
+                inputs = inputs with
+                {
+                    CurrentPreset = game.Profile.IsEmpty ? null : game.Preset?.ToString(),
+                    ConfiguredFiles = game.Game.Files.Select(f => f.Path).Where(p => p.Length > 0).ToList(),
+                };
+        }
+        if (ctx.Target is { } t)
             inputs = inputs with
             {
-                HasConfig = ctx.HasConfig, HasPresets = ctx.HasConfig && !ctx.NeedsPresets,
-                Flag = _flag, FlagFromConfig = _flag is not null && _userFlag is null, HasUserFlag = _userFlag is not null,
-                ResearchFinished = _flag?.Issue is { } n && n == _researchFinishedFor,
-                LabRequest = Issue, LabReady = LabReady, CloudSync = ctx.CloudSync,
-                Mapping = session is not null && ctx.Target is { } t ? GameLabService.StoredMapping(session, t) : null,
-                Presets = session is not null && ctx.GameId is { } markId ? new LabStateStore(session.Paths.DataDir).Load().PresetsFor(markId) : null,
-                CurrentBuild = ctx.Target?.Detected is { } detected ? GameBuild.Of(detected) : null,
-                CurrentPreset = preset, ConfiguredFiles = files, CanLaunch = CanMap,
+                Mapping = Read("mapping run", () => GameLabService.StoredMapping(session, t), null),
+                CurrentBuild = t.Detected is { } detected ? Read("build", () => GameBuild.Of(detected), null) : null,
             };
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Could not read the game's health: {ex.Message}");
-        }
+        if (ctx.GameId is { } markId)
+            inputs = inputs with { Presets = Read("presets mark", () => new LabStateStore(session.Paths.DataDir).Load().PresetsFor(markId), null) };
         return inputs;
+
+        static T Read<T>(string what, Func<T> read, T fallback)
+        {
+            try { return read(); }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not read the game's health ({what}): {ex.Message}");
+                return fallback;
+            }
+        }
     }
 
     /// <summary>The status line: "Working. Presets held on your last 3 launches.", "Not checked on this device yet"...</summary>
@@ -1016,6 +1036,12 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>Closes confirmation cards but keeps a test result on screen (another panel on the game page is opening).</summary>
     public bool CloseCards() => ClearTransient();
+
+    /// <summary>The page is left (or opened afresh): fold "More" away so a hidden panel never keeps it open to swallow B.</summary>
+    public void CollapseMore()
+    {
+        if (_moreOpen) IsMoreOpen = false;
+    }
 
     private bool ClearTransient()
     {

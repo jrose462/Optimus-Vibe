@@ -173,9 +173,12 @@ public sealed record GameHealth
         }
 
         // 6. cloud sync may be changing them
+        // Only the contradiction that says the settings do travel counts ("probably per machine" is no doubt about this game), and changes
+        // made while Optimus-Vibe wasn't running stop counting once the preset held on a later launch or test.
         var sync = i.CloudSync;
-        var syncContradiction = sync?.Contradiction;
-        var syncExternal = sync is { HasExternalChanges: true, Confidence: <= SyncConfidence.Low };
+        var syncContradiction = sync is { Contradiction: { } contradiction, Effective: true } ? contradiction : null;
+        var syncExternal = sync is { HasExternalChanges: true, Confidence: <= SyncConfidence.Low } &&
+                           !(sync.LastExternalChangeUtc is { } changedUtc && runs.NewestHeldUtc is { } heldUtc && heldUtc > changedUtc);
         if (syncContradiction is not null || syncExternal || runs.LastPassive == PassiveVerdict.SyncSuspect)
             return new GameHealth
             {
@@ -216,16 +219,46 @@ public sealed record GameHealth
     /// Why flagging the game "set in-game" is worth suggesting (never applied on its own): two overridden Test preset results in a row, two
     /// passively overridden launches, or a mapping run whose changes were all in binary files Optimus-Vibe can't edit. A mapping run doesn't
     /// count when every such file is one the game's config already writes (an Unreal <c>.sav</c> through the <c>gvas</c> handler).
+    /// The same rules as the rest of the health apply: only evidence about the current preset counts, and newer evidence wins. The verify
+    /// streak and the mapping run stop counting once the preset held on a later launch or test, or once new presets arrived; the passive
+    /// streak is counted from the current preset's own launches (<see cref="PassiveOverridden"/>), not from the device-wide stored counter.
     /// Null when the game is flagged already, has no config, or nothing suggests it.
     /// </summary>
     public static string? FlagSuggestion(HealthInputs i)
     {
         if (i.Flag is not null || !i.HasConfig) return null;
-        if (GameFlags.SuggestsFromVerify(i.OverriddenStreak)) return GameFlags.VerifySuggestionReason(i.OverriddenStreak);
-        if (GameFlags.SuggestsFromPassive(i.PassiveOverriddenStreak)) return GameFlags.PassiveSuggestionReason(i.PassiveOverriddenStreak);
-        if (i.Mapping is { SuggestSetInGame: true } m && !AllConfigured(m.OpaqueFiles, i.ConfiguredFiles))
+        var heldUtc = Runs.NewestHeld(i);
+        var presetsUtc = i.Presets?.MadeUtc;
+        bool Stale(DateTime utc) => (heldUtc is { } h && h > utc) || (presetsUtc is { } p && p > utc);
+
+        // the stored streak is device-wide: it speaks for the current preset only through the last test, which must be of it and still the newest word
+        var verifyStands = i.LastVerify is not { } lastVerify || (Runs.CountsFor(i, lastVerify) && !Stale(lastVerify.Utc));
+        if (verifyStands && GameFlags.SuggestsFromVerify(i.OverriddenStreak)) return GameFlags.VerifySuggestionReason(i.OverriddenStreak);
+        var passive = PassiveOverridden(i);
+        if (GameFlags.SuggestsFromPassive(passive)) return GameFlags.PassiveSuggestionReason(passive);
+        if (i.Mapping is { SuggestSetInGame: true } m && !AllConfigured(m.OpaqueFiles, i.ConfiguredFiles) && !Stale(m.Utc))
             return m.SuggestReason ?? "the game keeps its settings only in a binary file Optimus-Vibe can't edit";
         return null;
+    }
+
+    /// <summary>
+    /// Passively overridden launches of the current preset, newest back (<see cref="RunResults.NextPassiveStreak"/>'s rules over the ring): an
+    /// overridden one adds one, a held one ends the count, anything else (saved, unclear, sync, another preset) is skipped. Launches from before
+    /// the presets arrived don't count.
+    /// </summary>
+    public static int PassiveOverridden(HealthInputs i)
+    {
+        var verdicts = i.PassiveVerdicts;
+        var n = 0;
+        for (var k = i.Recent.Count - 1; k >= 0; k--)
+        {
+            var r = i.Recent[k];
+            if (i.Presets is { } made && r.Utc < made.MadeUtc) break;
+            if (!Runs.CountsFor(i, r)) continue;
+            if (verdicts[k] == PassiveVerdict.Held) break;
+            if (verdicts[k] == PassiveVerdict.Overridden) n++;
+        }
+        return n;
     }
 
     /// <summary>Every opaque file of a mapping run is (by file name) one of the game's configured files.</summary>
@@ -259,9 +292,25 @@ public sealed record GameHealth
         public bool VerifyHeld => Verify is { } v && RunResults.Verdict(v) == RunVerdict.Held;
         public RunResult? Changed { get; private init; }
 
+        /// <summary>When the current preset last held: a held Test preset or a passively held launch, whichever is newer; null when never.</summary>
+        public DateTime? NewestHeldUtc { get; private init; }
+
+        /// <summary>A run (or test) of the preset that applies now; every run counts when that isn't known.</summary>
+        public static bool CountsFor(HealthInputs i, RunResult r) =>
+            i.CurrentPreset is null || string.Equals(r.Preset, i.CurrentPreset, StringComparison.OrdinalIgnoreCase);
+
+        public static DateTime? NewestHeld(HealthInputs i)
+        {
+            DateTime? newest = i.LastVerify is { } v && CountsFor(i, v) && RunResults.Verdict(v) == RunVerdict.Held ? v.Utc : null;
+            var verdicts = i.PassiveVerdicts;
+            for (var k = 0; k < i.Recent.Count; k++)
+                if (verdicts[k] == PassiveVerdict.Held && CountsFor(i, i.Recent[k]) && (newest is null || i.Recent[k].Utc > newest)) newest = i.Recent[k].Utc;
+            return newest;
+        }
+
         public static Runs Of(HealthInputs i)
         {
-            bool Counts(RunResult r) => i.CurrentPreset is null || string.Equals(r.Preset, i.CurrentPreset, StringComparison.OrdinalIgnoreCase);
+            bool Counts(RunResult r) => CountsFor(i, r);
             var verdicts = i.PassiveVerdicts;
             var verify = i.LastVerify is { } v && Counts(v) ? v : null;
 
@@ -286,7 +335,7 @@ public sealed record GameHealth
             return new Runs
             {
                 Verify = verify, LastNormal = lastNormal, LastPassive = lastPassive, HeldStreak = held, Changed = changed,
-                Counted = i.Recent.Count(Counts),
+                Counted = i.Recent.Count(Counts), NewestHeldUtc = NewestHeld(i),
             };
         }
 

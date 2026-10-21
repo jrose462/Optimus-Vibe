@@ -38,6 +38,15 @@ public sealed class GameHealthTests
 
     private static FlagDef Flag() => GameFlags.Create("the game rewrites its settings on every boot", issue: 7, today: T0);
 
+    /// <summary>Researched as per machine, but the settings travel after all (the contradiction that does doubt the presets).</summary>
+    private static CloudSyncReport SyncsAnyway(string contradiction) => new()
+    {
+        GameId = "g", Device = "desktop", Declared = false, Detected = SyncVerdict.Synced, Confidence = SyncConfidence.High, Contradiction = contradiction,
+    };
+
+    /// <summary>A launch the passive check rates overridden on its own: most of the preset drifted in a short, unsaved session.</summary>
+    private static RunResult Overridden(int day, string preset = Preset) => Run(day, drifted: 6, sec: 120, preset: preset);
+
     // ---------------------------------------------------------------- flagged
 
     [Fact]
@@ -144,9 +153,83 @@ public sealed class GameHealthTests
     [Fact]
     public void TwoPassivelyOverriddenLaunches_SuggestTheFlag()
     {
-        var h = GameHealth.Evaluate(In() with { PassiveOverriddenStreak = 2 });
+        var h = GameHealth.Evaluate(In() with { Recent = [Overridden(0), Overridden(1)], PassiveOverriddenStreak = 2 });
         Assert.Equal(HealthState.CantBeSetFromOutside, h.State);
         Assert.Equal(GameFlags.PassiveSuggestionReason(2), h.FlagReason);
+    }
+
+    [Fact]
+    public void TwoOverriddenTests_ThenThreeHeldLaunches_AreWorking()
+    {
+        // the stored verify streak is only reset by a held test: newer held launches still win
+        var h = GameHealth.Evaluate(In() with
+        {
+            OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true), Recent = [Run(1), Run(2), Run(3)],
+        });
+        Assert.Equal(HealthState.Working, h.State);
+        Assert.Null(h.FlagReason);
+    }
+
+    [Fact]
+    public void OverriddenTestsOfAnotherPreset_DoNotSuggestTheFlag()
+    {
+        var h = GameHealth.Evaluate(In() with { OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true, preset: "recommended:quality") });
+        Assert.Null(h.FlagReason);
+        Assert.Equal(HealthState.NotChecked, h.State);
+    }
+
+    [Fact]
+    public void NewPresets_AfterTheOverriddenTests_ClearTheSuggestion()
+    {
+        var inputs = In() with { OverriddenStreak = 2, LastVerify = Run(0, drifted: 3, verify: true) };
+        Assert.NotNull(GameHealth.FlagSuggestion(inputs));
+        Assert.Null(GameHealth.FlagSuggestion(inputs with { Presets = new PresetsMark { MadeUtc = T0.AddDays(1) } }));
+    }
+
+    [Fact]
+    public void PassiveOverridesOfAnotherPreset_DoNotCount_WhateverTheStoredStreak()
+    {
+        // Quality was overridden twice, then the user switched to Performance, whose launches stay unclear (short sessions)
+        const string quality = "recommended:quality";
+        var h = GameHealth.Evaluate(In() with
+        {
+            Recent = [Overridden(0, quality), Overridden(1, quality), Run(2, sec: 20), Run(3, sec: 20)], PassiveOverriddenStreak = 2,
+        });
+        Assert.Null(h.FlagReason);
+        Assert.NotEqual(HealthState.CantBeSetFromOutside, h.State);
+
+        // the same launches of the current preset do count
+        Assert.Equal(2, GameHealth.PassiveOverridden(In() with { Recent = [Overridden(0), Overridden(1), Run(2, sec: 20)] }));
+    }
+
+    [Fact]
+    public void PassiveOverrides_EndAtAHeldLaunch_AndAtNewPresets()
+    {
+        Assert.Equal(0, GameHealth.PassiveOverridden(In() with { Recent = [Overridden(0), Overridden(1), Run(2)] }));
+        Assert.Equal(1, GameHealth.PassiveOverridden(In() with
+        {
+            Recent = [Overridden(0), Overridden(2)], Presets = new PresetsMark { MadeUtc = T0.AddDays(1) },
+        }));
+        var h = GameHealth.Evaluate(In() with { Recent = [Overridden(0), Overridden(1), Run(2), Run(3), Run(4)], PassiveOverriddenStreak = 2 });
+        Assert.Equal(HealthState.Working, h.State);
+    }
+
+    [Fact]
+    public void AMappingRun_StopsCounting_OnceThePresetHeldLater_OrNewPresetsArrived()
+    {
+        var mapping = new ProbeRecord { Utc = T0, SuggestSetInGame = true, OpaqueFiles = ["{LocalAppData}/Game/system.save"] };
+        var inputs = In() with { Mapping = mapping, ConfiguredFiles = ["{Documents}/Game/settings.ini"] };
+        Assert.Equal(HealthState.CantBeSetFromOutside, GameHealth.Evaluate(inputs).State);
+
+        var tested = GameHealth.Evaluate(inputs with { LastVerify = Run(1, verify: true) });
+        Assert.Equal(HealthState.Working, tested.State);
+        Assert.Null(tested.FlagReason);
+
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(inputs with { Recent = [Run(1), Run(2), Run(3)] }).State);
+        Assert.Null(GameHealth.FlagSuggestion(inputs with { Presets = new PresetsMark { MadeUtc = T0.AddDays(1) } }));
+
+        // held evidence from before the mapping run doesn't clear it
+        Assert.NotNull(GameHealth.FlagSuggestion(inputs with { LastVerify = Run(-1, verify: true) }));
     }
 
     [Fact]
@@ -295,7 +378,7 @@ public sealed class GameHealthTests
         var h = GameHealth.Evaluate(In() with
         {
             LastVerify = Run(0, drifted: 3, verify: true),
-            CloudSync = new CloudSyncReport { GameId = "g", Device = "desktop", Contradiction = "Declared not synced, but it is" },
+            CloudSync = SyncsAnyway("Declared not synced, but it is"),
         });
         Assert.Equal(HealthState.GameChangedSettings, h.State);
     }
@@ -308,7 +391,7 @@ public sealed class GameHealthTests
         var h = GameHealth.Evaluate(In() with
         {
             Recent = [Run(0), Run(1), Run(2)],
-            CloudSync = new CloudSyncReport { GameId = "g", Device = "desktop", Contradiction = "Researched as per machine, but Steam Cloud syncs it" },
+            CloudSync = SyncsAnyway("Researched as per machine, but Steam Cloud syncs it"),
         });
         Assert.Equal(HealthState.SyncUnsure, h.State);
         Assert.Equal("Settings may be changed by cloud sync", h.Headline);
@@ -322,6 +405,49 @@ public sealed class GameHealthTests
         CloudSyncReport Report(SyncConfidence c) => new() { GameId = "g", Device = "desktop", HasExternalChanges = true, Confidence = c };
         Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(In() with { CloudSync = Report(SyncConfidence.Low) }).State);
         Assert.Equal(HealthState.NotChecked, GameHealth.Evaluate(In() with { CloudSync = Report(SyncConfidence.Medium) }).State);
+    }
+
+    [Fact]
+    public void ExternalChanges_StopCounting_OnceThePresetHeldOnLaterLaunches()
+    {
+        CloudSyncReport Changed(int day) => new()
+        {
+            GameId = "g", Device = "desktop", HasExternalChanges = true, Confidence = SyncConfidence.None, LastExternalChangeUtc = T0.AddDays(day),
+        };
+        var held = In() with { Recent = [Run(1), Run(2), Run(3)] };
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(held with { CloudSync = Changed(0) }).State);
+        Assert.Equal(HealthState.Working, GameHealth.Evaluate(In() with { LastVerify = Run(1, verify: true), CloudSync = Changed(0) }).State);
+
+        // a change after the last held launch still doubts it
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(held with { CloudSync = Changed(5) }).State);
+    }
+
+    [Fact]
+    public void TheNewestExternalChange_IsOnTheReport()
+    {
+        var observed = new ObservationSummary
+        {
+            Changes = [new ExternalChangeRecord { Utc = T0.AddDays(2) }, new ExternalChangeRecord { Utc = T0.AddDays(4) }, new ExternalChangeRecord { Utc = T0 }],
+        };
+        Assert.Equal(T0.AddDays(4), CloudSyncVerdict.Combine("g", "desktop", null, [], observed).LastExternalChangeUtc);
+        Assert.Null(CloudSyncVerdict.Combine("g", "desktop", null, [], new ObservationSummary()).LastExternalChangeUtc);
+    }
+
+    [Fact]
+    public void AContradictionSayingPerMachine_IsNoSyncDoubt()
+    {
+        // research says the settings sync, the launcher says only saves do: "probably per machine"
+        var perMachine = CloudSyncVerdict.Combine("g", "desktop", true,
+            [new LauncherEvidence { Verdict = SyncVerdict.NotSynced, Confidence = SyncConfidence.High }], new ObservationSummary());
+        Assert.NotNull(perMachine.Contradiction);
+        var h = GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)], CloudSync = perMachine });
+        Assert.Equal(HealthState.Working, h.State);
+
+        // the opposite one still is
+        var synced = CloudSyncVerdict.Combine("g", "desktop", false,
+            [new LauncherEvidence { Verdict = SyncVerdict.Synced, Confidence = SyncConfidence.High }], new ObservationSummary());
+        Assert.NotNull(synced.Contradiction);
+        Assert.Equal(HealthState.SyncUnsure, GameHealth.Evaluate(In() with { Recent = [Run(0), Run(1), Run(2)], CloudSync = synced }).State);
     }
 
     [Fact]
@@ -416,7 +542,7 @@ public sealed class GameHealthTests
             Flag = Flag(), HasUserFlag = true, HasPresets = false, OverriddenStreak = 2,
             Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2",
             LastVerify = Run(5, drifted: 3, verify: true),
-            CloudSync = new CloudSyncReport { GameId = "g", Device = "desktop", Contradiction = "x" },
+            CloudSync = SyncsAnyway("x"),
             Recent = [Run(0), Run(1), Run(2)],
         };
         Assert.Equal(HealthState.Flagged, GameHealth.Evaluate(all).State);

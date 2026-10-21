@@ -37,7 +37,10 @@ public sealed record HealthInputs
     /// <summary>Consecutive overridden Test preset results (<see cref="RunResultEntry.OverriddenStreak"/>).</summary>
     public int OverriddenStreak { get; init; }
 
-    /// <summary>Consecutive passively overridden normal runs (<see cref="RunResultEntry.PassiveOverriddenStreak"/>).</summary>
+    /// <summary>
+    /// Consecutive passively overridden normal runs (<see cref="RunResultEntry.PassiveOverriddenStreak"/>), device-wide and of any preset. The health
+    /// counts its own from <see cref="Recent"/> instead (<see cref="GameHealth.PassiveOverridden"/>).
+    /// </summary>
     public int PassiveOverriddenStreak { get; init; }
 
     /// <summary>The stored mapping run for this game, if any.</summary>

@@ -1,6 +1,8 @@
 using OptimusVibe.Config;
 using OptimusVibe.Display;
 using OptimusVibe.Engine;
+using OptimusVibe.GameLab;
+using OptimusVibe.Launch;
 
 namespace OptimusVibe.Tests;
 
@@ -131,6 +133,30 @@ public sealed class BigPictureTests : IDisposable
         Assert.True(ctx.BigPictureOptedOut);
         _f.Selections.SetNeverBigPicture("desktop", EngineFixture.GameId, false);
         Assert.True(LoadWith(Active()).BigPictureUsed);
+    }
+
+    [Fact]
+    public void Health_JudgesTheBigPictureRuns_WhenThePresetIsResolvedAsTheWrapperDoes()
+    {
+        // the wrapper records a TV session under the Big Picture preset; the page's health must filter by that same preset
+        _f.Selections.Set("desktop", EngineFixture.GameId, PresetRef.Recommended("performance"));
+        var tv = LoadWith(Active());
+        var recorded = tv.Preset!.ToString();
+        Assert.Equal("recommended:big-picture", recorded);
+        var start = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+        List<RunResult> runs = [.. Enumerable.Range(0, 3).Select(d => new RunResult
+        {
+            Utc = start.AddDays(d), Game = EngineFixture.GameId, Device = "desktop", Preset = recorded, Mode = RunResult.NormalMode,
+            AppliedKeys = 10, ProcessSeen = true, DurationSec = 1800, Capture = CaptureAnswer.NotAsked,
+        })];
+        HealthState For(GameContext ctx) => GameHealth.Evaluate(new HealthInputs
+        {
+            GameId = EngineFixture.GameId, Device = "desktop", HasConfig = true, HasPresets = true, Recent = runs, CurrentPreset = ctx.Preset?.ToString(),
+        }).State;
+
+        Assert.Equal(HealthState.Working, For(tv));
+        // resolved without Big Picture (the old health path), the same runs were all thrown away
+        Assert.Equal(HealthState.NotChecked, For(LoadWith(Active(), suppress: true)));
     }
 
     [Fact]
