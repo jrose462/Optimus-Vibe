@@ -130,8 +130,11 @@ internal static class SteamCommands
         }
 
         var closedHere = false;
+        var before = SteamUiState.NotRunning;
         if (exitSteam && SteamLaunchOptions.IsSteamRunning())
         {
+            before = SteamLaunchOptions.GetSteamUiState();
+            Log.Info($"Steam state before launch option change: {before}");
             Console.WriteLine("Asking Steam to exit…");
             if (!SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(60)))
                 throw new InvalidOperationException("Steam did not exit within 60 seconds; nothing written.");
@@ -147,8 +150,12 @@ internal static class SteamCommands
         }
         finally
         {
-            if (closedHere)
-                Console.WriteLine(SteamLaunchOptions.StartSteam() ? "Steam started again." : "Could not start Steam again; start it yourself.");
+            if (closedHere && SteamLaunchOptions.RestartArgsFor(before) is { } restartArgs)
+            {
+                var again = before == SteamUiState.Background ? "Steam started again in the background." : "Steam started again.";
+                Console.WriteLine(SteamLaunchOptions.StartSteam(args: restartArgs, allowUriFallback: before != SteamUiState.Background)
+                    ? again : "Could not start Steam again; start it yourself.");
+            }
         }
         return 0;
     }

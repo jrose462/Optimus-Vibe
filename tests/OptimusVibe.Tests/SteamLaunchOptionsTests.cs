@@ -5,6 +5,14 @@ namespace OptimusVibe.Tests;
 
 public sealed class SteamLaunchOptionsComposeTests
 {
+    [Theory]
+    [InlineData(SteamUiState.NotRunning, null)]
+    [InlineData(SteamUiState.Background, "-silent")]
+    [InlineData(SteamUiState.Window, "")]
+    [InlineData(SteamUiState.BigPicture, "-gamepadui")]
+    public void RestartArgsFor_maps_each_state(SteamUiState before, string? expected) =>
+        Assert.Equal(expected, SteamLaunchOptions.RestartArgsFor(before));
+
     private const string Exe = @"C:\Tools\Optimus-Vibe\OptimusVibe.exe";
     private const string W = "\"" + Exe + "\" run cyberpunk2077 -- %command%";
     private const string OldApp = "\"C:\\Old Place\\GameProfilesApp.exe\" run cyberpunk2077 -- %command%";

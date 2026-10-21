@@ -385,7 +385,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public bool HasSteamBanner => SteamChanges is { Count: > 0 };
 
     public string SteamBannerText => SteamChanges is { Count: var n }
-        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update so your presets are used. Optimus-Vibe closes Steam, makes the change, checks it and reopens Steam."
+        ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update so your presets are used. Optimus-Vibe closes Steam, makes the change, checks it and leaves Steam as it was."
         : "";
 
     // ---------------------------------------------------------------- launch overlay
@@ -892,19 +892,22 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     }
 
     /// <summary>
-    /// Close Steam if it runs, write <paramref name="changes"/>, read them back, then start Steam again if it was closed
-    /// here (also when the write fails). <paramref name="skipKeys"/> ("steam:appid" of the games the user unticked) go to
+    /// Close Steam if it runs, write <paramref name="changes"/>, read them back, then put Steam back the way it was (not running,
+    /// in the tray, normal window or Big Picture) if it was closed here (also when the write fails). <paramref name="skipKeys"/> ("steam:appid" of the games the user unticked) go to
     /// steamLaunchOptionsSkip afterwards, synced when AutoSync is on, so they aren't proposed again.
     /// </summary>
     public async Task<bool> ApplySteamChangesAsync(IReadOnlyList<LaunchOptionChange> changes, IReadOnlyList<string> skipKeys)
     {
         var session = Session;
         if (session is null || changes.Count == 0) return false;
+        var before = SteamUiState.NotRunning;
         var reopened = false;
-        var ok = await RunAsync("Closing Steam, updating launch options and reopening Steam", () => Task.Run(() =>
+        var ok = await RunAsync("Closing Steam, updating launch options and putting Steam back the way it was", () => Task.Run(() =>
         {
             var closedHere = false;
-            if (SteamLaunchOptions.IsSteamRunning())
+            before = SteamLaunchOptions.GetSteamUiState();
+            Log.Info($"Steam state before launch option change: {before}");
+            if (before != SteamUiState.NotRunning && SteamLaunchOptions.IsSteamRunning())
             {
                 if (!SteamLaunchOptions.ExitSteam(TimeSpan.FromSeconds(60)))
                     throw new InvalidOperationException("Steam didn't close within 60 seconds, so nothing was changed. Try again once Steam is idle (no downloads or game running).");
@@ -921,12 +924,15 @@ public sealed class MainViewModel : ObservableObject, IAppShell
             }
             finally
             {
-                if (closedHere) reopened = SteamLaunchOptions.StartSteam();
+                if (closedHere && SteamLaunchOptions.RestartArgsFor(before) is { } restartArgs)
+                    reopened = SteamLaunchOptions.StartSteam(args: restartArgs, allowUriFallback: before != SteamUiState.Background);
             }
         }));
         if (!ok) return false;
         SteamChanges = null;
-        var again = reopened ? " Steam was reopened." : "";
+        var again = !reopened ? ""
+            : before == SteamUiState.Background ? " Steam was restarted in the background."
+            : " Steam was reopened.";
         Notify(skipKeys.Count == 0
             ? $"Steam launch options updated and checked for {changes.Count} game(s).{again}"
             : $"Steam launch options updated and checked for {changes.Count} game(s); {skipKeys.Count} left as they are.{again}");

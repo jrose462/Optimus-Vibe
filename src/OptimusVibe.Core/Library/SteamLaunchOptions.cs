@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using OptimusVibe.Config;
 using OptimusVibe.Logging;
@@ -7,6 +9,9 @@ using OptimusVibe.Logging;
 namespace OptimusVibe.Library;
 
 public sealed record LaunchOptionChange(int AppId, string? GameId, string? Before, string? After);
+
+/// <summary>How Steam was running: not at all, only in the tray (no window), with its main window, or in Big Picture.</summary>
+public enum SteamUiState { NotRunning, Background, Window, BigPicture }
 
 /// <summary>
 /// Reads/writes per-game Steam launch options in
@@ -44,10 +49,77 @@ public static class SteamLaunchOptions
         return procs.Length > 0;
     }
 
+    /// <summary>
+    /// How Steam is running right now, from its visible titled top-level windows (steam.exe / steamwebhelper.exe).
+    /// Never throws; if Steam runs but the windows can't be read it answers <see cref="SteamUiState.Window"/> (the old reopen behaviour).
+    /// </summary>
+    public static SteamUiState GetSteamUiState()
+    {
+        if (!IsSteamRunning()) return SteamUiState.NotRunning;
+        try
+        {
+            var pids = new HashSet<uint>();
+            foreach (var name in new[] { "steam", "steamwebhelper" })
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    pids.Add((uint)p.Id);
+                    p.Dispose();
+                }
+
+            var state = SteamUiState.Background;
+            NativeWindows.EnumWindows((hwnd, _) =>
+            {
+                if (!NativeWindows.IsWindowVisible(hwnd)) return true;
+                NativeWindows.GetWindowThreadProcessId(hwnd, out var pid);
+                if (!pids.Contains(pid)) return true;
+                var len = NativeWindows.GetWindowTextLength(hwnd);
+                if (len <= 0) return true;
+                var sb = new StringBuilder(len + 1);
+                NativeWindows.GetWindowText(hwnd, sb, sb.Capacity);
+                var title = sb.ToString();
+                if (title.Length == 0) return true;
+                if (title.Contains("Big Picture", StringComparison.OrdinalIgnoreCase))
+                {
+                    state = SteamUiState.BigPicture;
+                    return false;
+                }
+                state = SteamUiState.Window;
+                return true;
+            }, IntPtr.Zero);
+            return state;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not read Steam's window state, assuming a normal window: {ex.Message}");
+            return SteamUiState.Window;
+        }
+    }
+
+    /// <summary>steam.exe arguments that bring Steam back as it was; null when it wasn't running (don't start it).</summary>
+    public static string? RestartArgsFor(SteamUiState before) => before switch
+    {
+        SteamUiState.Background => "-silent",
+        SteamUiState.Window => "",
+        SteamUiState.BigPicture => "-gamepadui",
+        _ => null,
+    };
+
+    private static class NativeWindows
+    {
+        public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+        [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc proc, IntPtr lParam);
+        [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+        [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+        [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hwnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
+    }
+
     /// <summary>Ask Steam to exit (steam://exit) and wait up to <paramref name="timeout"/> for it to close.</summary>
     public static bool ExitSteam(TimeSpan timeout)
     {
         if (!IsSteamRunning()) return true;
+        var started = DateTime.UtcNow;
         try
         {
             Process.Start(new ProcessStartInfo("steam://exit") { UseShellExecute = true })?.Dispose();
@@ -60,24 +132,39 @@ public static class SteamLaunchOptions
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            if (!IsSteamRunning()) return true;
+            if (!IsSteamRunning())
+            {
+                Log.Info($"Closed Steam in {(DateTime.UtcNow - started).TotalSeconds:0.0} s");
+                return true;
+            }
             Thread.Sleep(500);
         }
         return !IsSteamRunning();
     }
 
-    /// <summary>Start Steam again (after <see cref="ExitSteam"/>): steam.exe from the Steam folder, else the steam:// handler.</summary>
-    public static bool StartSteam(string? steamRoot = null)
+    /// <summary>
+    /// Start Steam again (after <see cref="ExitSteam"/>): steam.exe from the Steam folder with <paramref name="args"/>
+    /// (see <see cref="RestartArgsFor"/>), else the steam:// handler when <paramref name="allowUriFallback"/> (it always opens the window).
+    /// </summary>
+    public static bool StartSteam(string? steamRoot = null, string args = "", bool allowUriFallback = true)
     {
         if (IsSteamRunning()) return true;
         try
         {
             var root = new SteamLocator(steamRoot).SteamRoot;
             var exe = root is null ? null : Path.Combine(root, "steam.exe");
-            var psi = exe is not null && File.Exists(exe)
-                ? new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = root! }
-                : new ProcessStartInfo("steam://open/main") { UseShellExecute = true };
+            ProcessStartInfo psi;
+            if (exe is not null && File.Exists(exe))
+                psi = new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = root!, Arguments = args };
+            else if (allowUriFallback)
+                psi = new ProcessStartInfo("steam://open/main") { UseShellExecute = true };
+            else
+            {
+                Log.Warn("Could not start Steam: steam.exe not found and the steam:// handler would open its window");
+                return false;
+            }
             Process.Start(psi)?.Dispose();
+            Log.Info($"Reopened Steam ({(args.Length == 0 ? "normal" : args)})");
             return true;
         }
         catch (Exception ex)

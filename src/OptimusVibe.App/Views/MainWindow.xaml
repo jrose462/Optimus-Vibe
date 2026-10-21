@@ -367,7 +367,7 @@
                             <StackPanel DockPanel.Dock="Top">
                                 <TextBlock Text="Steam launch options" Style="{StaticResource Text.OverlayTitle}" />
                                 <TextBlock Style="{StaticResource Text.Lead}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                           Text="Pick the games whose Steam launch option should be updated. Optimus-Vibe closes Steam, makes the change, checks it and reopens Steam." />
+                                           Text="Pick the games whose Steam launch option should be updated. Optimus-Vibe closes Steam, makes the change, checks it and puts Steam back the way it was (back in the tray if it was only running in the background)." />
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
                                            Text="Games whose settings sync between devices, or might, start ticked; games confirmed (medium or high confidence) to keep their settings on this device start unticked. Unticked games keep their current Steam launch option; change this per game on its page." />
                             </StackPanel>
