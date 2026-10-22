@@ -95,7 +95,7 @@ assumption on ally-x), `targetFps`.
 
 ## ally-x / battery
 
-- Output **1280x720 @ 120** (`display: { width: 1280, height: 720, refresh: 120 }`) for every game: post-processing,
+- Output **1280x720 @ 120** (`display: { width: 1280, height: 720, refresh: 120 }`) for every game (exception: an exclusive-fullscreen game without a temporal upscaler keeps the desktop at 1080p and renders 720p + RSR, see the handheld resolution model): post-processing,
   HUD and the upscaler itself cost per output pixel, and the 7" screen hides the difference. With a good temporal
   upscaler use its **Quality** mode at 720p (~480p rendered; Balanced for very heavy games, never below ~400p); without
   one, render at 720p native. RSR only per the handheld resolution model (exclusive fullscreen, desktop at 1080p; never with a temporal upscaler).
