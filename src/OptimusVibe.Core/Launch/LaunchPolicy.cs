@@ -121,7 +121,11 @@ public static class LaunchPolicy
         if (game.Mappable == false) return "In-game steps only: the game's settings can't be set from outside, so this preset is advice.";
         if (profile.FileBlocks.Count == 0 && profile.SnapshotsFrom is null) return "No settings are written for this preset.";
 
-        var how = game.Archetype?.Trim().ToLowerInvariant() switch
+        // A preset that writes keys straight into a binary save (gvas) applies the real settings itself: the archetype's
+        // "binary-truth" warning (the binary file can't be edited, only snapshotted) no longer describes it.
+        var writesBinarySave = profile.FileBlocks.Keys.Any(id =>
+            game.Files.FirstOrDefault(f => f.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.Handler.Equals("gvas", StringComparison.OrdinalIgnoreCase) == true);
+        var how = writesBinarySave ? "Applied in the game's settings save" : game.Archetype?.Trim().ToLowerInvariant() switch
         {
             "binary-truth" => "Needs a saved snapshot - cloud sync can overwrite the text file",
             "text-mirror" => "Applied to a text mirror the game may not read back",

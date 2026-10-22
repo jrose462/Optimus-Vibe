@@ -220,6 +220,9 @@ public sealed class LaunchPolicyTests
         Assert.Contains("verified held", LaunchPolicy.Describe(new GameDef(), profile, held));
         Assert.Contains("overrode 1", LaunchPolicy.Describe(new GameDef(), profile, overridden));
         Assert.Contains("snapshot", LaunchPolicy.Describe(new GameDef { Archetype = "binary-truth" }, profile, null));
+        // Jedi: binary-truth, but the preset writes the .sav itself through the gvas handler
+        var jedi = new GameDef { Archetype = "binary-truth", Files = [new FileDef { Id = "user", Handler = "gvas", Path = "x.sav" }] };
+        Assert.StartsWith("Applied in the game's settings save - verified held on 2026-10-2", LaunchPolicy.Describe(jedi, profile, held));
         Assert.StartsWith("In-game steps only", LaunchPolicy.Describe(new GameDef { Mappable = false }, profile, held));
         Assert.StartsWith("No settings are written", LaunchPolicy.Describe(new GameDef(), new ResolvedProfile { Device = "d", Source = PresetRef.Recommended("p") }, null));
     }
