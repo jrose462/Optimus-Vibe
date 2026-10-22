@@ -66,7 +66,7 @@ public sealed record LabStep
     public required string Detail { get; init; }
     public required StepState State { get; init; }
 
-    /// <summary>One line for a done step: "Done Oct 20: played with the preset". Empty for the others.</summary>
+    /// <summary>One line for a done step that still names it: "Played once with the preset · Oct 20". Empty for the others.</summary>
     public string DoneSummary { get; init; } = "";
 
     /// <summary>The main button of the current step (the A button); <see cref="LabStepAction.None"/> for every other step.</summary>
@@ -182,7 +182,7 @@ public static class LabSteps
             return Finish(drafts, h, null, false);
         }
         drafts.Add(new Draft(LabStepId.GetPresets, GetPresetsTitle, "The game has presets for this device.", Done: true,
-            DoneSummary: i.Presets is { } made ? $"Done {Day(made.MadeUtc)}: presets for this device" : "Done: presets for this device"));
+            DoneSummary: i.Presets is { } made ? $"Got presets for this device · {Day(made.MadeUtc)}" : "Got presets for this device"));
 
         // what the newest launch says: was the game played with this preset, did it keep the settings, did it change them?
         var evidence = Evidence.Of(i);
@@ -198,7 +198,7 @@ public static class LabSteps
         // 2. play once with the preset (again after an update)
         drafts.Add(played
             ? new Draft(LabStepId.PlayOnce, PlayOnceTitle, PlayDetail, Done: true,
-                DoneSummary: evidence.Run is { } last ? $"Done {Day(last.Utc)}: played with the preset" : "Done: the game was checked on this PC")
+                DoneSummary: evidence.Run is { } last ? $"Played once with the preset · {Day(last.Utc)}" : "Played once with the preset")
             : new Draft(LabStepId.PlayOnce, updated ? PlayAfterUpdateTitle : PlayOnceTitle, updated ? UpdatedDetail : PlayDetail,
                 Detail: updated ? UpdatedDetail : wantsMap ? h.Why ?? PlayDetail : PlayDetail,
                 Primary: canPlay ? LabStepAction.Play : LabStepAction.None,
@@ -212,7 +212,7 @@ public static class LabSteps
                 Secondary: i.LabReady && i.HasConfig && !h.LabWorking ? [LabStepAction.RefreshPresets] : []));
         else if (held)
             drafts.Add(new Draft(LabStepId.ConfirmKept, ConfirmKeptTitle, ConfirmDetail, Done: true,
-                DoneSummary: $"Done {Day(GameHealth.NewestHeldUtc(i) ?? evidence.Run!.Utc)}: the game kept the settings"));
+                DoneSummary: $"The game kept the settings · {Day(GameHealth.NewestHeldUtc(i) ?? evidence.Run!.Utc)}"));
         else
             drafts.Add(new Draft(LabStepId.ConfirmKept, ConfirmKeptTitle, ConfirmDetail, Detail: played ? UnclearDetail : ConfirmDetail,
                 Primary: played && canPlay ? LabStepAction.Play : LabStepAction.None, Secondary: played ? mapSecondary : []));

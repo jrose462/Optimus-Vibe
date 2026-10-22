@@ -118,7 +118,7 @@ public sealed class LabStepsTests
         Assert.Equal("Play normally and quit when you like. Optimus-Vibe checks afterwards whether the game kept the settings.", play.Detail);
         Assert.Equal(LabStepAction.Play, play.Primary);
         Assert.Empty(play.Secondary); // Test preset stays a manual tool
-        Assert.StartsWith("Done", j.Steps[0].DoneSummary);
+        Assert.StartsWith("Got presets", j.Steps[0].DoneSummary);
         Assert.Equal("", j.Steps[1].DoneSummary);
     }
 
@@ -134,7 +134,7 @@ public sealed class LabStepsTests
     public void PresetsArrivedDate_ShowsInTheDoneSummary()
     {
         var j = LabSteps.Build(In() with { Presets = new PresetsMark { MadeUtc = T0 } });
-        Assert.Equal($"Done {Day(T0)}: presets for this device", j.Steps[0].DoneSummary);
+        Assert.Equal($"Got presets for this device · {Day(T0)}", j.Steps[0].DoneSummary);
     }
 
     [Fact]
@@ -158,8 +158,8 @@ public sealed class LabStepsTests
         Assert.Equal("All set", j.Headline);
         Assert.Equal("Working. Optimus-Vibe keeps watching for game updates.", j.Detail);
         Assert.Equal("All set", j.ProgressText);
-        Assert.Equal($"Done {Day(Run(0).Utc)}: played with the preset", j.Steps[1].DoneSummary);
-        Assert.Equal($"Done {Day(Run(0).Utc)}: the game kept the settings", j.Steps[2].DoneSummary);
+        Assert.Equal($"Played once with the preset · {Day(Run(0).Utc)}", j.Steps[1].DoneSummary);
+        Assert.Equal($"The game kept the settings · {Day(Run(0).Utc)}", j.Steps[2].DoneSummary);
         Assert.All(j.Steps, s => Assert.Equal(LabStepAction.None, s.Primary));
     }
 
@@ -524,7 +524,7 @@ public sealed class LabStepsTests
             Assert.NotEmpty(s.Title);
             Assert.NotEmpty(s.Detail);
             Assert.DoesNotContain('\n', s.Detail);
-            if (s.State == StepState.Done) Assert.StartsWith("Done", s.DoneSummary);
+            if (s.State == StepState.Done) Assert.NotEqual("", s.DoneSummary);
             else Assert.Equal("", s.DoneSummary);
             if (s.State != StepState.Current)
             {
