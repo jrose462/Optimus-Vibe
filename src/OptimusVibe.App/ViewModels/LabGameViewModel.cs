@@ -1455,6 +1455,12 @@ public sealed class LabGameViewModel : ObservableObject
                     {
                         var verify = RunResults.Get(s.Paths.DataDir, id, s.Device.Name, verifyOnly: true);
                         if (verify is not null && verify.Preset != game.Preset?.ToString()) verify = null; // another preset was tested
+                        // A newer normal launch of this preset that held counts too (the checklist's own check), so the line never says
+                        // "unverified" under "All set". A normal launch that drifted isn't used: the player may have changed things.
+                        var last = RunResults.Get(s.Paths.DataDir, id, s.Device.Name);
+                        if (last is not null && last.Preset == game.Preset?.ToString() && RunResults.Verdict(last) == RunVerdict.Held
+                            && (verify is null || last.Utc > verify.Utc))
+                            verify = last;
                         _applyStatus = LaunchPolicy.Describe(game.Game, game.Profile, verify);
                     }
                 }

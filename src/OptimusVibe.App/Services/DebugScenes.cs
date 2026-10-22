@@ -185,7 +185,10 @@ public static class DebugScenes
             vm.IsGamepadConnected = true;
             OptimusVibe.App.Input.PadState.SetIsConnected(window, true);
         }
-        var tuned = vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.Managed) ?? vm.Library.Tiles.FirstOrDefault();
+        // OPTIMUSVIBE_GAME=<game id> picks that game (to screenshot a real game page); otherwise the first managed tile.
+        var pick = Environment.GetEnvironmentVariable("OPTIMUSVIBE_GAME");
+        var tuned = (pick is { Length: > 0 } ? vm.Library.Tiles.FirstOrDefault(t => t.GameId == pick) : null)
+                    ?? vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.Managed) ?? vm.Library.Tiles.FirstOrDefault();
         switch (scene)
         {
             case "library":
