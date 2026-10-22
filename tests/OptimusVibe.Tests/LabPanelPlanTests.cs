@@ -7,7 +7,7 @@ using OptimusVibe.Library;
 namespace OptimusVibe.Tests;
 
 /// <summary>
-/// The game page's lab panel rules (<see cref="LabPanelPlan"/>, which <c>LabGameViewModel</c> reads every visibility from): for every health
+/// The game page lab panel rules (<see cref="LabPanelPlan"/>, which <c>LabGameViewModel</c> reads every visibility from): for every health
 /// state and every post-session card kind, at most one suggested action, and every action on offer on screen exactly once (suggested, under
 /// More, or on the post-session card); B closes the top layer first.
 /// </summary>
@@ -67,127 +67,219 @@ public sealed class LabPanelPlanTests
         {
             Request = !i.HasPresets || !i.HasConfig, Refresh = i.HasConfig && i.HasPresets, SyncCheck = i.HasConfig,
             Test = i.HasPresets && i.CanLaunch && !flagged, Map = i.CanLaunch, ManageAgain = i.HasUserFlag, Flag = h.FlagReason is not null,
-            VerifyNext = i.HasPresets && i.CanLaunch && !flagged,
+            VerifyNext = i.HasPresets && i.CanLaunch && !flagged, Play = true, Keep = true,
         };
     }
 
-    private static void AssertEachOnce(string name, PanelOffers offers, GameHealth h, PostSessionCard? card)
+    private static bool OnStep(HealthAction action, LabJourney journey, PanelOffers offers, PostSessionCard? card) =>
+        LabPanelPlan.ForStep(journey.Current, offers, card).All.Any(a => PanelOffers.ToHealth(a) == action) ||
+        (LabPanelPlan.ForJourneyAction(journey, offers) is var set && set != LabStepAction.None && PanelOffers.ToHealth(set) == action);
+
+    private static void AssertEachOnce(string name, PanelOffers offers, LabJourney journey, PostSessionCard? card)
     {
-        var suggested = LabPanelPlan.Suggested(h.Suggested, offers);
-        var showSuggested = LabPanelPlan.ShowSuggested(suggested, card, false, false);
         foreach (var action in LabPanelPlan.Actions)
         {
+            var place = LabPanelPlan.Place(action, journey, offers, card);
             var places = 0;
-            if (showSuggested && suggested == action) places++;
-            if (LabPanelPlan.InMore(action, offers, suggested, card)) places++;
-            if (card?.Offers(action) == true) places++;
-            Assert.True(places == (offers.Offers(action) ? 1 : 0), $"{name}: {action} is on screen {places} times");
+            if (OnStep(action, journey, offers, card)) places++;
+            if (LabPanelPlan.InTools(action, offers, journey, card)) places++;
+            if (LabPanelPlan.CardStaysSeparate(card) && card!.Offers(action)) places++;
+            Assert.True(places == (offers.Offers(action) ? 1 : 0), $"{name}: {action} is on screen {places} times ({place})");
+            Assert.Equal(offers.Offers(action), place != ActionPlace.Hidden);
         }
     }
 
     [Theory]
     [MemberData(nameof(States))]
-    public void EveryState_SuggestsAtMostOne_AndShowsEveryActionOnce(string name, HealthInputs inputs)
+    public void EveryState_ShowsEveryActionOnce(string name, HealthInputs inputs)
     {
-        var h = GameHealth.Evaluate(inputs);
-        var offers = OffersFor(inputs, h);
-        var suggested = LabPanelPlan.Suggested(h.Suggested, offers);
-        // the suggestion is the health's own when its command is on offer, otherwise none
-        Assert.True(suggested == HealthAction.None || suggested == h.Suggested, name);
-        if (h.Suggested != HealthAction.None) Assert.True(offers.Offers(h.Suggested), $"{name}: suggests {h.Suggested}, which the panel doesn't offer");
-        AssertEachOnce(name, offers, h, null);
+        var journey = LabSteps.Build(inputs);
+        var offers = OffersFor(inputs, journey.Health);
+        AssertEachOnce(name, offers, journey, null);
+
+        // the current step only shows what is on offer
+        var buttons = LabPanelPlan.ForStep(journey.Current, offers);
+        foreach (var a in buttons.All) Assert.True(offers.Offers(a), $"{name}: {a} is shown but not on offer");
+        Assert.DoesNotContain(LabStepAction.None, buttons.Secondary);
     }
 
     [Theory]
     [MemberData(nameof(States))]
-    public void EveryCardKind_KeepsEachActionOnce(string name, HealthInputs inputs)
+    public void EverySeparateCard_KeepsEachActionOnce(string name, HealthInputs inputs)
     {
-        var h = GameHealth.Evaluate(inputs);
-        var offers = OffersFor(inputs, h);
+        var journey = LabSteps.Build(inputs);
+        var offers = OffersFor(inputs, journey.Health);
         var run = Run(5, drifted: 4);
-        foreach (var (primary, secondary) in new[]
+        foreach (var (kind, primary, secondary) in new[]
                  {
-                     (PostSessionAction.MapGame, PostSessionAction.None),
-                     (PostSessionAction.TurnOnAutoFindings, PostSessionAction.AskLab),
-                     (PostSessionAction.FlagSetInGame, PostSessionAction.AskLab),
-                     (PostSessionAction.AskLab, PostSessionAction.None),
-                     (PostSessionAction.KeepThese, PostSessionAction.SeeWhich),
-                     (PostSessionAction.OpenIssue, PostSessionAction.None),
-                     (PostSessionAction.None, PostSessionAction.None),
+                     (PostSessionKind.Consent, PostSessionAction.TurnOnAutoFindings, PostSessionAction.AskLab),
+                     (PostSessionKind.Consent, PostSessionAction.TurnOnAutoFindings, PostSessionAction.None),
+                     (PostSessionKind.AskedLab, PostSessionAction.OpenIssue, PostSessionAction.None),
+                     (PostSessionKind.AskedLab, PostSessionAction.None, PostSessionAction.None),
                  })
         {
-            var card = new PostSessionCard { Kind = PostSessionKind.Changed, Run = run, Text = "", Primary = primary, Secondary = secondary };
+            var card = new PostSessionCard { Kind = kind, Run = run, Text = "", Primary = primary, Secondary = secondary };
+            Assert.True(LabPanelPlan.CardStaysSeparate(card));
             // a card only offers what the panel could run (its buttons run the panel's commands)
             var cardOffers = new[] { primary, secondary }.Select(PostSession.AsHealthAction).Where(a => a != HealthAction.None);
             if (cardOffers.Any(a => !offers.Offers(a))) continue;
-            AssertEachOnce($"{name} + {primary}/{secondary}", offers, h, card);
+            AssertEachOnce($"{name} + {kind}/{primary}/{secondary}", offers, journey, card);
         }
     }
 
     [Fact]
-    public void RealCards_FromPostSession_KeepEachActionOnce()
+    public void OnlyTheConsentQuestionAndTheAskedNote_StayAsACard()
+    {
+        foreach (var kind in Enum.GetValues<PostSessionKind>())
+        {
+            var card = new PostSessionCard { Kind = kind, Run = Run(0), Text = "" };
+            Assert.Equal(kind is PostSessionKind.Consent or PostSessionKind.AskedLab, LabPanelPlan.CardStaysSeparate(card));
+        }
+        Assert.False(LabPanelPlan.CardStaysSeparate(null));
+    }
+
+    [Fact]
+    public void RealCards_FromPostSession_NoControlIsLost()
     {
         var recurring = Run(1, drifted: 10, sec: 120);
-        var cases = new (string Name, HealthInputs Inputs, RunResult Run)[]
+        var updatedRun = Run(1, sec: 30);
+        var heldRun = Run(1);
+        var changedRun = Run(1, drifted: 10, capture: CaptureAnswer.NotAsked);
+        var cases = new (string Name, HealthInputs Inputs)[]
         {
-            ("recurring", In() with { Recent = [Run(0, drifted: 10, sec: 120), recurring] }, recurring),
-            ("updated", In() with { Recent = [Run(1, sec: 30)], Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2" }, Run(1, sec: 30)),
-            ("needs mapping", In() with { Recent = [Run(1)], LabRequest = Issue(LabStatus.NeedsEvidence) }, Run(1)),
-            ("changed", In() with { Recent = [Run(1, drifted: 10, capture: CaptureAnswer.NotAsked)] }, Run(1, drifted: 10, capture: CaptureAnswer.NotAsked)),
+            ("recurring", In() with { Recent = [Run(0, drifted: 10, sec: 120), recurring] }),
+            ("updated", In() with { Recent = [updatedRun], Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2" }),
+            ("needs mapping", In() with { Recent = [heldRun], LabRequest = Issue(LabStatus.NeedsEvidence) }),
+            ("changed", In() with { Recent = [changedRun] }),
         };
-        foreach (var (name, inputs, run) in cases)
+        foreach (var (name, inputs) in cases)
         {
-            var h = GameHealth.Evaluate(inputs);
-            var card = PostSession.For(inputs, h, inputs.Recent.Count > 0 ? inputs.Recent[^1] : run, "Hades");
+            var journey = LabSteps.Build(inputs);
+            var offers = OffersFor(inputs, journey.Health);
+            var card = PostSession.For(inputs, journey.Health, inputs.Recent[^1], "Hades");
             Assert.NotNull(card);
-            AssertEachOnce(name, OffersFor(inputs, h), h, card);
+            Assert.False(LabPanelPlan.CardStaysSeparate(card), name);
+            AssertEachOnce(name, offers, journey, card);
+
+            // everything the card offered is a button of the checklist now (or the line under "All set")
+            var shown = LabPanelPlan.ForStep(journey.Current, offers).All.ToList();
+            if (LabPanelPlan.ForJourneyAction(journey, offers) is var footer && footer != LabStepAction.None) shown.Add(footer);
+            foreach (var action in new[] { card!.Primary, card.Secondary })
+            {
+                switch (action)
+                {
+                    case PostSessionAction.KeepThese: Assert.Contains(LabStepAction.KeepAsManualSave, shown); break;
+                    case PostSessionAction.SeeWhich: Assert.True(journey.Current is { IsFix: true }, name); break;
+                    case PostSessionAction.FlagSetInGame: Assert.Contains(LabStepAction.FlagSetInGame, shown); break;
+                    case PostSessionAction.AskLab: Assert.Contains(LabStepAction.RefreshPresets, shown); break;
+                    case PostSessionAction.MapGame: Assert.Contains(LabStepAction.MapThisGame, shown); break;
+                }
+            }
+            // "Not now" / "Don't ask again" live on the fix step
+            Assert.Equal(card.Kind == PostSessionKind.Changed, LabPanelPlan.FixStepOwnsCard(journey.Current, card));
         }
     }
 
     [Fact]
     public void Flag_StepsAside_WhileItsConfirmCardOrATestResultIsOpen()
     {
-        var offers = new PanelOffers { Flag = true, Test = true, Refresh = true };
-        Assert.False(LabPanelPlan.ShowSuggested(HealthAction.FlagSetInGame, null, flagConfirming: true, resultOpen: false));
-        Assert.False(LabPanelPlan.ShowSuggested(HealthAction.FlagSetInGame, null, flagConfirming: false, resultOpen: true));
-        Assert.False(LabPanelPlan.InMore(HealthAction.FlagSetInGame, offers, HealthAction.RefreshPresets, null, flagConfirming: true));
+        var inputs = In() with { OverriddenStreak = 2 };
+        var journey = LabSteps.Build(inputs); // the confirm step's main button is "Flag as set in-game"
+        var offers = OffersFor(inputs, journey.Health);
+        Assert.Equal(LabStepAction.FlagSetInGame, LabPanelPlan.ForStep(journey.Current, offers).Primary);
+        Assert.Equal(ActionPlace.Step, LabPanelPlan.Place(HealthAction.FlagSetInGame, journey, offers));
+
+        Assert.Equal(LabStepAction.None, LabPanelPlan.ForStep(journey.Current, offers, flagConfirming: true).Primary);
+        Assert.Equal(LabStepAction.None, LabPanelPlan.ForStep(journey.Current, offers, resultOpen: true).Primary);
+        Assert.False(LabPanelPlan.InTools(HealthAction.FlagSetInGame, offers, journey, flagConfirming: true));
+        Assert.False(LabPanelPlan.InTools(HealthAction.FlagSetInGame, offers, journey, resultOpen: true));
         Assert.Equal(ActionPlace.ResultCard,
-            LabPanelPlan.Place(HealthAction.FlagSetInGame, offers, HealthAction.FlagSetInGame, null, resultOpen: true, resultOverridden: true));
-        Assert.Equal(ActionPlace.Hidden,
-            LabPanelPlan.Place(HealthAction.FlagSetInGame, offers, HealthAction.FlagSetInGame, null, flagConfirming: true));
-        // other suggestions don't step aside for a result card
-        Assert.True(LabPanelPlan.ShowSuggested(HealthAction.RefreshPresets, null, false, resultOpen: true));
+            LabPanelPlan.Place(HealthAction.FlagSetInGame, journey, offers, resultOpen: true, resultOverridden: true));
+        Assert.Equal(ActionPlace.Hidden, LabPanelPlan.Place(HealthAction.FlagSetInGame, journey, offers, flagConfirming: true));
+        // other buttons don't step aside for a result card
+        Assert.Contains(LabStepAction.RefreshPresets, LabPanelPlan.ForStep(journey.Current, offers, resultOpen: true).Secondary);
     }
 
     [Fact]
     public void Place_NamesTheOnePlace()
     {
-        var offers = new PanelOffers { Refresh = true, Test = true, Map = true, SyncCheck = true };
-        Assert.Equal(ActionPlace.Suggested, LabPanelPlan.Place(HealthAction.RefreshPresets, offers, HealthAction.RefreshPresets, null));
-        Assert.Equal(ActionPlace.More, LabPanelPlan.Place(HealthAction.TestPreset, offers, HealthAction.RefreshPresets, null));
-        Assert.Equal(ActionPlace.Hidden, LabPanelPlan.Place(HealthAction.RequestPresets, offers, HealthAction.RefreshPresets, null));
-        var card = new PostSessionCard { Kind = PostSessionKind.Updated, Run = Run(0), Text = "", Primary = PostSessionAction.AskLab };
-        Assert.Equal(ActionPlace.PostCard, LabPanelPlan.Place(HealthAction.RefreshPresets, offers, HealthAction.RefreshPresets, card));
-        // a suggestion that isn't on offer is none
-        Assert.Equal(HealthAction.None, LabPanelPlan.Suggested(HealthAction.ManageAgain, offers));
+        var inputs = In() with { Recent = [Run(0, drifted: 4), Run(1, drifted: 4)] }; // the fix step: Map this game (main), Keep my changes
+        var journey = LabSteps.Build(inputs);
+        var offers = new PanelOffers { Refresh = true, Test = true, Map = true, SyncCheck = true, Keep = true, Play = true };
+        Assert.Equal(ActionPlace.Step, LabPanelPlan.Place(HealthAction.MapGame, journey, offers));
+        Assert.Equal(ActionPlace.ManualTools, LabPanelPlan.Place(HealthAction.TestPreset, journey, offers));
+        Assert.Equal(ActionPlace.ManualTools, LabPanelPlan.Place(HealthAction.RefreshPresets, journey, offers));
+        Assert.Equal(ActionPlace.Hidden, LabPanelPlan.Place(HealthAction.RequestPresets, journey, offers));
+        var buttons = LabPanelPlan.ForStep(journey.Current, offers);
+        Assert.Equal(LabStepAction.MapThisGame, buttons.Primary);
+        Assert.Equal([LabStepAction.KeepAsManualSave], buttons.Secondary);
+
+        // a button that is not on offer is dropped, not shown dead
+        var none = LabPanelPlan.ForStep(journey.Current, new PanelOffers { Refresh = true });
+        Assert.Equal(LabStepAction.None, none.Primary);
+        Assert.Empty(none.Secondary);
+    }
+
+    [Fact]
+    public void SetInGame_ManageAgainIsTheJourneysButton_NotAlsoUnderManualTools()
+    {
+        var flag = GameFlags.Create("the game rewrites its settings", issue: 7, today: T0);
+        var inputs = In() with { Flag = flag, HasUserFlag = true, ResearchFinished = true };
+        var journey = LabSteps.Build(inputs);
+        var offers = OffersFor(inputs, journey.Health);
+        Assert.Equal(LabStepAction.ManageAgain, LabPanelPlan.ForJourneyAction(journey, offers));
+        Assert.Equal(ActionPlace.Step, LabPanelPlan.Place(HealthAction.ManageAgain, journey, offers));
+        Assert.False(LabPanelPlan.InTools(HealthAction.ManageAgain, offers, journey));
+
+        // lab not done: the same action stays a manual tool
+        var open = In() with { Flag = flag, HasUserFlag = true };
+        var openJourney = LabSteps.Build(open);
+        Assert.Equal(LabStepAction.None, LabPanelPlan.ForJourneyAction(openJourney, OffersFor(open, openJourney.Health)));
+        Assert.Equal(ActionPlace.ManualTools, LabPanelPlan.Place(HealthAction.ManageAgain, openJourney, OffersFor(open, openJourney.Health)));
+    }
+
+    [Fact]
+    public void FixStepOwnsTheSnoozeButtons_OnlyForASnoozableAbsorbedCard()
+    {
+        var fix = LabSteps.Build(In() with { Recent = [Run(0, drifted: 4), Run(1, drifted: 4)] }).Current;
+        var play = LabSteps.Build(In()).Current;
+        var changed = new PostSessionCard { Kind = PostSessionKind.Changed, Run = Run(0), Text = "" };
+        Assert.True(LabPanelPlan.FixStepOwnsCard(fix, changed));
+        Assert.False(LabPanelPlan.FixStepOwnsCard(play, changed));
+        Assert.False(LabPanelPlan.FixStepOwnsCard(fix, null));
+        Assert.False(LabPanelPlan.FixStepOwnsCard(fix, new PostSessionCard { Kind = PostSessionKind.Held, Run = Run(0), Text = "" })); // nothing to snooze
+        Assert.False(LabPanelPlan.FixStepOwnsCard(fix, new PostSessionCard { Kind = PostSessionKind.Consent, Run = Run(0), Text = "" }));
     }
 
     [Theory]
-    // confirmation first, then the result (not while testing), then the focused post card, then More
+    // confirmation first, then the result (not while testing), then the focused fix step, then Manual tools
     [InlineData(true, true, false, true, true, CancelStep.CloseConfirmation)]
     [InlineData(false, true, false, true, true, CancelStep.CloseResult)]
     [InlineData(false, true, true, true, true, CancelStep.DismissPostCard)]
     [InlineData(false, false, false, true, true, CancelStep.DismissPostCard)]
-    [InlineData(false, false, false, false, true, CancelStep.CollapseMore)]
+    [InlineData(false, false, false, false, true, CancelStep.CollapseTools)]
     [InlineData(false, false, false, false, false, CancelStep.None)]
-    public void B_ClosesTheTopLayerFirst(bool confirming, bool result, bool testing, bool postFocused, bool moreOpen, CancelStep expected)
+    public void B_ClosesTheTopLayerFirst(bool confirming, bool result, bool testing, bool postFocused, bool toolsOpen, CancelStep expected)
     {
-        Assert.Equal(expected, LabPanelPlan.NextCancel(confirming, result, testing, postFocused, moreOpen));
+        Assert.Equal(expected, LabPanelPlan.NextCancel(confirming, result, testing, postFocused, toolsOpen));
     }
 
     [Fact]
     public void EveryPlacedAction_HasButtonText()
     {
         foreach (var a in LabPanelPlan.Actions) Assert.NotEmpty(GameHealth.ActionText(a));
+    }
+
+    [Fact]
+    public void EveryStepAction_IsOnOfferOnlyWhenItsCommandIs()
+    {
+        var offers = new PanelOffers { Request = true, Play = true };
+        Assert.True(offers.Offers(LabStepAction.RequestPresets));
+        Assert.True(offers.Offers(LabStepAction.Play));
+        Assert.False(offers.Offers(LabStepAction.KeepAsManualSave));
+        Assert.False(offers.Offers(LabStepAction.MapThisGame));
+        Assert.False(offers.Offers(LabStepAction.None));
+        Assert.Equal(HealthAction.SyncCheck, PanelOffers.ToHealth(LabStepAction.RecheckSync));
+        Assert.Equal(HealthAction.None, PanelOffers.ToHealth(LabStepAction.Play));
     }
 }
