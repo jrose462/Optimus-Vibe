@@ -327,7 +327,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         {
             var previous = _selectedGame;
             if (!Set(ref _selectedGame, value)) return;
-            previous?.Detail?.Lab.CollapseMore(); // its page is no longer on screen
+            previous?.Detail?.Lab.CollapseTools(); // its page is no longer on screen
             value?.EnsureDetail(this);
             HookDetail(value?.Detail);
             OnPropertyChanged(nameof(SelectedDetail));
@@ -613,8 +613,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Library.SelectedTile = tile;
         DetailTile = tile;
         if (tile.GameItem is { } item) SelectedGame = item;
-        tile.Lab.CollapseMore();
-        SelectedDetail?.Lab.CollapseMore();
+        tile.Lab.CollapseTools();
+        SelectedDetail?.Lab.CollapseTools();
         OnPropertyChanged(nameof(DetailHasConfig));
         Page = AppPage.Detail;
     }
@@ -622,8 +622,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     public void CloseDetail()
     {
         SelectedDetail?.CancelTransient();
-        SelectedDetail?.Lab.CollapseMore();
-        DetailTile?.Lab.CollapseMore();
+        SelectedDetail?.Lab.CollapseTools();
+        DetailTile?.Lab.CollapseTools();
         Page = AppPage.Library;
     }
 

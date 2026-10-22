@@ -165,9 +165,12 @@ public static class DebugScenes
     /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data);
     /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
     /// verify-health-working | verify-health-unchecked | verify-health-changed | verify-health-updated | verify-health-sync | verify-health-nopresets |
-    /// verify-health-labworking | verify-health-more (the lab panel's status line, why line and suggested action per health state; "more" opens More),
+    /// verify-health-labworking | verify-health-more (the health states of the earlier panel, now shown as the checklist; "more" opens Manual tools),
     /// verify-health-ambiguous | verify-health-verifynext (check presets on my next launch: suggested, then on) | verify-health-changed-which
-    /// (See which, open) | verify-health-evidence (presets, the lab needs evidence) | verify-health-muted (More with "Show cards after sessions again").
+    /// (See which, open) | verify-health-evidence (presets, the lab needs evidence) | verify-health-muted (Manual tools with "Show cards after sessions again").
+    /// verify-steps-nopresets | verify-steps-labworking | verify-steps-play | verify-steps-fix | verify-steps-fix-mapped | verify-steps-sync |
+    /// verify-steps-allset | verify-steps-updated | verify-steps-setingame (the lab panel's guided "Step X of N" checklist, one scene per situation:
+    /// no presets, the lab working, play once, the fix step without and with a mapping run, settings sync, all set, game updated, set in-game).
     /// verify-post-held | verify-post-changed | verify-post-recurring | verify-post-updated | verify-post-map | verify-post-consent | verify-post-asked
     /// (the post-session card, one per kind; post-asked: the lab was asked automatically).
     /// OPTIMUSVIBE_PAD=1 pretends a gamepad is connected (button glyphs and hints show).
@@ -182,7 +185,10 @@ public static class DebugScenes
             vm.IsGamepadConnected = true;
             OptimusVibe.App.Input.PadState.SetIsConnected(window, true);
         }
-        var tuned = vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.Managed) ?? vm.Library.Tiles.FirstOrDefault();
+        // OPTIMUSVIBE_GAME=<game id> picks that game (to screenshot a real game page); otherwise the first managed tile.
+        var pick = Environment.GetEnvironmentVariable("OPTIMUSVIBE_GAME");
+        var tuned = (pick is { Length: > 0 } ? vm.Library.Tiles.FirstOrDefault(t => t.GameId == pick) : null)
+                    ?? vm.Library.Tiles.FirstOrDefault(t => t.Status == TileStatus.Managed) ?? vm.Library.Tiles.FirstOrDefault();
         switch (scene)
         {
             case "library":
@@ -309,6 +315,15 @@ public static class DebugScenes
             case "verify-health-changed-which":
             case "verify-health-evidence":
             case "verify-health-muted":
+            case "verify-steps-nopresets":
+            case "verify-steps-labworking":
+            case "verify-steps-play":
+            case "verify-steps-fix":
+            case "verify-steps-fix-mapped":
+            case "verify-steps-sync":
+            case "verify-steps-allset":
+            case "verify-steps-updated":
+            case "verify-steps-setingame":
             case "verify-post-asked":
             case "verify-post-held":
             case "verify-post-changed":

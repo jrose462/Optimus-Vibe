@@ -5,8 +5,8 @@
              xmlns:svc="clr-namespace:OptimusVibe.App.Services"
              xmlns:input="clr-namespace:OptimusVibe.App.Input"
              HorizontalContentAlignment="Left">
-    <!-- DataContext: LabGameViewModel. Request / refresh presets, re-check settings sync, the evidence preview, the request's status.
-         Compact: the title, the buttons and "Open issue" share one row. -->
+    <!-- DataContext: LabGameViewModel. The guided checklist ("Step X of N"): done steps one line, the current step expanded with its buttons,
+         upcoming steps one dim line. Manual tools (every other action, same buttons and captions as ever) sit at the bottom right. -->
     <UserControl.Resources>
         <!-- under the reason on the desktop, beside it when compact -->
         <Style x:Key="DisabledAction" TargetType="Button" BasedOn="{StaticResource Button.Quiet}">
@@ -22,31 +22,171 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- the current step's main button: filled, with the A glyph when a gamepad is connected -->
+        <DataTemplate x:Key="StepPrimaryButton">
+            <Button Style="{StaticResource Button.Primary}" Command="{Binding Command}" Margin="0,0,8,6" MinWidth="120"
+                    AutomationProperties.Name="{Binding Name}" ToolTip="{Binding Tip}">
+                <StackPanel Orientation="Horizontal">
+                    <views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" Visibility="{Binding ShowA, Converter={StaticResource VisibleWhen}}" />
+                    <TextBlock Text="{Binding Text}" />
+                </StackPanel>
+            </Button>
+        </DataTemplate>
+
+        <!-- the quieter choices (a cancel carries the B glyph) -->
+        <DataTemplate x:Key="StepQuietButton">
+            <Button Style="{StaticResource Button.Quiet}" Command="{Binding Command}" Margin="0,0,8,6"
+                    AutomationProperties.Name="{Binding Name}" ToolTip="{Binding Tip}">
+                <StackPanel Orientation="Horizontal">
+                    <views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" Visibility="{Binding ShowB, Converter={StaticResource VisibleWhen}}" />
+                    <TextBlock Text="{Binding Text}" />
+                </StackPanel>
+            </Button>
+        </DataTemplate>
+
+        <!-- one segment of the progress bar: done = filled, current = bright, upcoming = hollow -->
+        <DataTemplate x:Key="StepSegment">
+            <Border Height="6" CornerRadius="3" Margin="0,0,4,0" BorderThickness="1">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsDone}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+            </Border>
+        </DataTemplate>
+
+        <!-- one row of the checklist -->
+        <DataTemplate x:Key="StepRowTemplate">
+            <Grid Margin="{DynamicResource LabRowMargin}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- check (done), number on an accent ring (current), hollow circle (upcoming) -->
+                <Border Width="{DynamicResource LabGlyphSize}" Height="{DynamicResource LabGlyphSize}" CornerRadius="13" BorderThickness="1.5"
+                        VerticalAlignment="Top" Margin="0,0,12,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsDone}" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource OnAccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding IsDone, Converter={StaticResource VisibleWhen}}" />
+                        <TextBlock Text="{Binding Number}" FontSize="12.5" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding IsDone, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </Border>
+
+                <!-- done: one dim line -->
+                <TextBlock Grid.Column="1" Text="{Binding Summary}" Style="{StaticResource Text.Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Visibility="{Binding IsDone, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Summary}" />
+
+                <!-- upcoming: one dim line -->
+                <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource Text.Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource TextFaintBrush}" Visibility="{Binding IsUpcoming, Converter={StaticResource VisibleWhen}}"
+                           AutomationProperties.Name="{Binding Title}" />
+
+                <!-- current: title, detail, buttons -->
+                <StackPanel Grid.Column="1" Visibility="{Binding IsCurrent, Converter={StaticResource VisibleWhen}}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.Name="{Binding Title}" />
+                    <TextBlock Text="{Binding Detail}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,2,0,0" AutomationProperties.Name="{Binding Detail}" />
+
+                    <Grid Margin="0,10,0,0" Visibility="{Binding HasButtons, Converter={StaticResource VisibleWhen}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ContentControl Content="{Binding Primary}" ContentTemplate="{StaticResource StepPrimaryButton}" Focusable="False" IsTabStop="False" VerticalAlignment="Top"
+                                        Visibility="{Binding HasPrimary, Converter={StaticResource VisibleWhen}}" />
+                        <ItemsControl Grid.Column="1" ItemsSource="{Binding Secondary}" ItemTemplate="{StaticResource StepQuietButton}" Focusable="False" IsTabStop="False" VerticalAlignment="Top">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </Grid>
+
+                    <!-- the fix step: every setting the game changed (A opens the list, A again hides it), and the session card's snooze buttons -->
+                    <WrapPanel Visibility="{Binding ShowFixExtras, Converter={StaticResource VisibleWhen}}">
+                        <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,6"
+                                Command="{Binding DataContext.ToggleChangedCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                Content="{Binding DataContext.ChangedWhichText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                AutomationProperties.Name="{Binding DataContext.ChangedWhichText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                ToolTip="Every preset setting the game changed, with what it wrote and what it found afterwards." />
+                        <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,6" Visibility="{Binding ShowSnooze, Converter={StaticResource VisibleWhen}}"
+                                Command="{Binding DataContext.PostDismissCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                AutomationProperties.Name="{Binding DataContext.PostDismissText, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                            <StackPanel Orientation="Horizontal">
+                                <views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" />
+                                <TextBlock Text="{Binding DataContext.PostDismissText, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,6" Content="Don't ask again" Visibility="{Binding ShowSnooze, Converter={StaticResource VisibleWhen}}"
+                                Command="{Binding DataContext.PostMuteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                AutomationProperties.Name="Don't ask again for this game"
+                                ToolTip="No more cards after sessions of this game on this device. Manual tools on this page turn them back on." />
+                    </WrapPanel>
+                    <StackPanel Visibility="{Binding ShowFixExtras, Converter={StaticResource VisibleWhen}}">
+                        <ScrollViewer MaxHeight="{DynamicResource LabListMaxHeight}" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="2,2,0,0"
+                                      Visibility="{Binding DataContext.ShowChangedLines, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}">
+                            <ItemsControl ItemsSource="{Binding DataContext.ChangedLines, RelativeSource={RelativeSource AncestorType=UserControl}}" Focusable="False" Margin="0,0,8,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding}" Margin="0,1" Foreground="{DynamicResource TextDimBrush}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock Text="{Binding DataContext.ChangedMore, RelativeSource={RelativeSource AncestorType=UserControl}}" Style="{StaticResource Text.Caption}" Margin="2,2,0,0"
+                                   Visibility="{Binding DataContext.HasChangedMore, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
     </UserControl.Resources>
+
     <!-- Left on its own; stretched to its column when the game page puts it beside settings sync (HorizontalContentAlignment). -->
     <Border Style="{StaticResource Card}" MaxWidth="{DynamicResource LabMaxWidth}"
             HorizontalAlignment="{Binding HorizontalContentAlignment, RelativeSource={RelativeSource AncestorType=UserControl}}">
         <StackPanel>
-            <!-- ============================================================ comfortable: title, chip, Open issue -->
-            <Grid Style="{StaticResource Only.Comfortable}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal"
-                            ToolTip="Have Claude research this game's settings from evidence on this PC. It runs in your private config repo.">
-                    <TextBlock Text="Game lab" Style="{StaticResource Text.H3}" VerticalAlignment="Center" />
-                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="12,0,0,0" VerticalAlignment="Center"
-                            Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding ChipLine}">
-                        <TextBlock Text="{Binding ChipText}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
-                    </Border>
-                </StackPanel>
-                <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
-                        Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
-            </Grid>
-
-            <!-- ============================================================ compact: one row -->
-            <Grid Style="{StaticResource Only.Compact}">
+            <!-- ============================================================ header: Game lab, request chip, Step X of N -->
+            <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -54,63 +194,63 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                             ToolTip="Have Claude research this game's settings from evidence on this PC. It runs in your private config repo.">
                     <TextBlock Text="Game lab" Style="{StaticResource Text.H3}" VerticalAlignment="Center" />
-                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="10,0,0,0" VerticalAlignment="Center"
+                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="11" Padding="10,2,10,3" Margin="12,0,0,0" VerticalAlignment="Center"
                             Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding ChipLine}">
                         <TextBlock Text="{Binding ChipText}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" />
                     </Border>
                 </StackPanel>
-                <Button Grid.Column="1" Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue"
-                        Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource Button.Quiet}" Command="{Binding OpenIssueCommand}" Content="Open issue" Margin="0,0,12,0"
+                            Visibility="{Binding HasChip, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Open the request on GitHub" />
+                    <TextBlock Text="{Binding ProgressText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}"
+                               VerticalAlignment="Center" AutomationProperties.Name="{Binding ProgressText}" />
+                </StackPanel>
             </Grid>
 
-            <!-- ============================================================ health: status line, one dim why line (read-only) -->
-            <TextBlock Text="{Binding HealthText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="2,8,0,0"
-                       AutomationProperties.Name="{Binding HealthText}" />
-            <TextBlock Text="{Binding HealthWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,2,0,0"
-                       Visibility="{Binding HasHealthWhy, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding HealthWhy}" />
-            <TextBlock Text="{Binding VerifyNextLine}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,2,0,0"
+            <!-- ============================================================ progress: one segment per step -->
+            <ItemsControl ItemsSource="{Binding StepRows}" ItemTemplate="{StaticResource StepSegment}" Focusable="False" IsTabStop="False" Margin="0,8,-4,0"
+                          Visibility="{Binding ShowProgress, Converter={StaticResource VisibleWhen}}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+
+            <!-- ============================================================ the checklist -->
+            <ItemsControl x:Name="StepsHost" ItemsSource="{Binding StepRows}" ItemTemplate="{StaticResource StepRowTemplate}" Focusable="False" IsTabStop="False"
+                          Visibility="{Binding ShowSteps, Converter={StaticResource VisibleWhen}}" />
+
+            <!-- ============================================================ all set / set in-game: one headline, one dim line, at most one button -->
+            <Grid Margin="{DynamicResource LabRowMargin}" Visibility="{Binding ShowSummary, Converter={StaticResource VisibleWhen}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Width="{DynamicResource LabGlyphSize}" Height="{DynamicResource LabGlyphSize}" CornerRadius="13" Background="{DynamicResource AccentBrush}"
+                        VerticalAlignment="Top" Margin="0,0,12,0" Visibility="{Binding IsAllSet, Converter={StaticResource VisibleWhen}}">
+                    <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource OnAccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="{Binding SummaryHeadline}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap"
+                               AutomationProperties.Name="{Binding SummaryHeadline}" />
+                    <TextBlock Text="{Binding SummaryDetail}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding HasSummaryDetail, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding SummaryDetail}" />
+                    <ContentControl Content="{Binding SummaryButton}" ContentTemplate="{StaticResource StepPrimaryButton}" Focusable="False" IsTabStop="False"
+                                    HorizontalAlignment="Left" Margin="0,10,0,0" Visibility="{Binding HasSummaryButton, Converter={StaticResource VisibleWhen}}" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="{Binding VerifyNextLine}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="2,8,0,0"
                        Visibility="{Binding ShowVerifyNextLine, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding VerifyNextLine}" />
 
-            <!-- "The game changed some settings": every setting it changed, in place (A opens the list, A again hides it) -->
-            <StackPanel Visibility="{Binding ShowChangedWhich, Converter={StaticResource VisibleWhen}}" Margin="0,4,0,0">
-                <Button Style="{StaticResource Button.Quiet}" Command="{Binding ToggleChangedCommand}" Content="{Binding ChangedWhichText}" HorizontalAlignment="Left"
-                        AutomationProperties.Name="{Binding ChangedWhichText}" ToolTip="Every preset setting the game changed, with what it wrote and what it found afterwards." />
-                <ScrollViewer MaxHeight="{DynamicResource LabListMaxHeight}" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="2,4,0,0"
-                              Visibility="{Binding ShowChangedLines, Converter={StaticResource VisibleWhen}}">
-                    <ItemsControl ItemsSource="{Binding ChangedLines}" Focusable="False" Margin="0,0,8,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="12.5" TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding}" Margin="0,1" Foreground="{DynamicResource TextDimBrush}" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-                <TextBlock Text="{Binding ChangedMore}" Style="{StaticResource Text.Caption}" Margin="2,2,0,0"
-                           Visibility="{Binding HasChangedMore, Converter={StaticResource VisibleWhen}}" />
-            </StackPanel>
-
-            <!-- after a session: inline, once, no popup. One line, one dim line, at most two actions; B = Not now. It takes focus only when the
-                 player just came back from the game to this page (code-behind). -->
+            <!-- after a session: only the questions the checklist can't answer stay a card (the consent question, "asked the lab"); inline, once, no
+                 popup. It takes focus only when the player just came back from the game to this page (code-behind). -->
             <Border x:Name="PostCard" Style="{StaticResource Card.Inset}" Margin="0,10,0,0" KeyboardNavigation.DirectionalNavigation="Contained"
                     Visibility="{Binding HasPostSession, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="After your last session">
                 <StackPanel>
                     <TextBlock Text="{Binding PostSessionText}" Style="{StaticResource Text.Body}" FontWeight="SemiBold" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding PostSessionWhy}" Style="{StaticResource Text.Dim}" TextWrapping="Wrap" Margin="0,4,0,0"
                                Visibility="{Binding HasPostSessionWhy, Converter={StaticResource VisibleWhen}}" />
-                    <ScrollViewer MaxHeight="{DynamicResource LabListMaxHeight}" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,8,0,0"
-                                  Visibility="{Binding ShowPostLines, Converter={StaticResource VisibleWhen}}">
-                        <ItemsControl ItemsSource="{Binding PostLines}" Focusable="False" Margin="0,0,8,0">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding}" Style="{StaticResource Text.Mono}" FontSize="12.5" TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding}" Margin="0,1" Foreground="{DynamicResource TextDimBrush}" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-                    <TextBlock Text="{Binding PostLinesMore}" Style="{StaticResource Text.Caption}" Margin="0,2,0,0"
-                               Visibility="{Binding HasPostLinesMore, Converter={StaticResource VisibleWhen}}" />
                     <WrapPanel Margin="0,12,0,0">
                         <Button Style="{StaticResource Button.Primary}" Command="{Binding PostPrimaryCommand}" Margin="0,0,8,6"
                                 Visibility="{Binding ShowPostPrimary, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding PostPrimaryText}">
@@ -123,80 +263,10 @@
                         </Button>
                         <Button Style="{StaticResource Button.Quiet}" Command="{Binding PostMuteCommand}" Content="Don't ask again" Margin="0,0,8,6"
                                 Visibility="{Binding ShowPostMute, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Don't ask again for this game"
-                                ToolTip="No more cards after sessions of this game on this device. More on this page turns them back on." />
+                                ToolTip="No more cards after sessions of this game on this device. Manual tools on this page turn them back on." />
                     </WrapPanel>
                 </StackPanel>
             </Border>
-
-            <!-- the one suggested action (an existing command; A opens its usual confirm card), then More -->
-            <WrapPanel Margin="0,10,0,0">
-                <Button Style="{StaticResource Button.Primary}" Command="{Binding SuggestedCommand}" Content="{Binding SuggestedText}" Margin="0,0,8,6"
-                        Visibility="{Binding ShowSuggested, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding SuggestedText}" />
-                <Button x:Name="MoreButton" Style="{StaticResource Button.Quiet}" Command="{Binding ToggleMoreCommand}" Margin="0,0,8,6"
-                        Visibility="{Binding HasMore, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="More game lab actions">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding MoreText}" />
-                        <TextBlock FontFamily="{StaticResource IconFont}" FontSize="10" Margin="8,1,0,0" VerticalAlignment="Center">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Text" Value="&#xE70D;" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsMoreOpen}" Value="True">
-                                            <Setter Property="Text" Value="&#xE70E;" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                    </StackPanel>
-                </Button>
-            </WrapPanel>
-
-            <!-- More: every other action once, each with when/why. A expands in place, B collapses (focus back on More). -->
-            <StackPanel x:Name="MorePanel" Margin="0,4,0,0" KeyboardNavigation.DirectionalNavigation="Contained"
-                        Visibility="{Binding IsMoreOpen, Converter={StaticResource VisibleWhen}}">
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowRequestInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding RequestCommand}" Content="{Binding RequestText}" HorizontalAlignment="Left" AutomationProperties.Name="Request presets" />
-                    <TextBlock Text="{Binding RequestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowRefreshInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding RefreshPresetsCommand}" Content="Refresh presets" HorizontalAlignment="Left" AutomationProperties.Name="Refresh presets" />
-                    <TextBlock Text="{Binding RefreshCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowSyncCheckInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" HorizontalAlignment="Left" AutomationProperties.Name="Re-check settings sync" />
-                    <TextBlock Text="{Binding SyncCheckCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowTestInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding TestCommand}" Content="Test preset" HorizontalAlignment="Left" AutomationProperties.Name="Test preset"
-                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
-                    <TextBlock Text="{Binding TestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowVerifyNextInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding VerifyNextCommand}" Content="{Binding VerifyNextText}" HorizontalAlignment="Left" AutomationProperties.Name="{Binding VerifyNextText}" />
-                    <TextBlock Text="{Binding VerifyNextCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowMapInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding MapCommand}" Content="Map this game" HorizontalAlignment="Left" AutomationProperties.Name="Map this game"
-                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
-                    <TextBlock Text="{Binding MapCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowManageAgainInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding ManageAgainCommand}" Content="Manage settings again" HorizontalAlignment="Left" AutomationProperties.Name="Manage settings again"
-                            ToolTip="Optimus-Vibe writes this game&apos;s settings again and checks them by itself after you play (or test the preset now)." />
-                    <TextBlock Text="{Binding ManageAgainCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowFlagInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding FlagCommand}" Content="Flag as set in-game" HorizontalAlignment="Left" AutomationProperties.Name="Flag as set in-game"
-                            ToolTip="{Binding SuggestLine}" />
-                    <TextBlock Text="{Binding FlagCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowUnmuteInMore, Converter={StaticResource VisibleWhen}}">
-                    <Button Command="{Binding UnmuteCommand}" Content="Show cards after sessions again" HorizontalAlignment="Left"
-                            AutomationProperties.Name="Show cards after sessions again" />
-                    <TextBlock Text="{Binding UnmuteCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
-                </StackPanel>
-            </StackPanel>
 
             <!-- why the buttons are off -->
             <Grid Visibility="{Binding IsDisabled, Converter={StaticResource VisibleWhen}}">
@@ -411,6 +481,70 @@
                     </WrapPanel>
                 </StackPanel>
             </Border>
+
+            <!-- ============================================================ Manual tools: every other action, each once, with when/why. A expands in place, B collapses (focus back on the button). -->
+            <Button x:Name="ToolsButton" Style="{StaticResource Button.Quiet}" Command="{Binding ToggleToolsCommand}" HorizontalAlignment="Right" Margin="0,10,0,0"
+                    Visibility="{Binding HasTools, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Manual tools">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding ToolsText}" />
+                    <TextBlock FontFamily="{StaticResource IconFont}" FontSize="10" Margin="8,1,0,0" VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="&#xE70D;" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsToolsOpen}" Value="True">
+                                        <Setter Property="Text" Value="&#xE70E;" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </Button>
+            <StackPanel x:Name="ToolsPanel" Margin="0,4,0,0" KeyboardNavigation.DirectionalNavigation="Contained"
+                        Visibility="{Binding IsToolsOpen, Converter={StaticResource VisibleWhen}}">
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowRequestInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding RequestCommand}" Content="{Binding RequestText}" HorizontalAlignment="Left" AutomationProperties.Name="Request presets" />
+                    <TextBlock Text="{Binding RequestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowRefreshInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding RefreshPresetsCommand}" Content="Refresh presets" HorizontalAlignment="Left" AutomationProperties.Name="Refresh presets" />
+                    <TextBlock Text="{Binding RefreshCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowSyncCheckInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding SyncCheckCommand}" Content="Re-check settings sync" HorizontalAlignment="Left" AutomationProperties.Name="Re-check settings sync" />
+                    <TextBlock Text="{Binding SyncCheckCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowTestInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding TestCommand}" Content="Test preset" HorizontalAlignment="Left" AutomationProperties.Name="Test preset"
+                            ToolTip="Launch the game once with nothing changed and see whether it keeps the preset's settings." />
+                    <TextBlock Text="{Binding TestCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowVerifyNextInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding VerifyNextCommand}" Content="{Binding VerifyNextText}" HorizontalAlignment="Left" AutomationProperties.Name="{Binding VerifyNextText}" />
+                    <TextBlock Text="{Binding VerifyNextCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowMapInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding MapCommand}" Content="Map this game" HorizontalAlignment="Left" AutomationProperties.Name="Map this game"
+                            ToolTip="Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live." />
+                    <TextBlock Text="{Binding MapCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowManageAgainInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding ManageAgainCommand}" Content="Manage settings again" HorizontalAlignment="Left" AutomationProperties.Name="Manage settings again"
+                            ToolTip="Optimus-Vibe writes this game&apos;s settings again and checks them by itself after you play (or test the preset now)." />
+                    <TextBlock Text="{Binding ManageAgainCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowFlagInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding FlagCommand}" Content="Flag as set in-game" HorizontalAlignment="Left" AutomationProperties.Name="Flag as set in-game"
+                            ToolTip="{Binding SuggestLine}" />
+                    <TextBlock Text="{Binding FlagCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,10" Visibility="{Binding ShowUnmuteInTools, Converter={StaticResource VisibleWhen}}">
+                    <Button Command="{Binding UnmuteCommand}" Content="Show cards after sessions again" HorizontalAlignment="Left"
+                            AutomationProperties.Name="Show cards after sessions again" />
+                    <TextBlock Text="{Binding UnmuteCaption}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,4,0,0" />
+                </StackPanel>
+            </StackPanel>
         </StackPanel>
     </Border>
 </UserControl>

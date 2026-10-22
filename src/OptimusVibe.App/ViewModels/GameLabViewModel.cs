@@ -588,7 +588,7 @@ public sealed class GameLabViewModel : ObservableObject
 
     // ---------------------------------------------------------------- per-game support
 
-    public LabGameViewModel ForGame(Func<LabGameContext> context) => new(this, _main, context);
+    public LabGameViewModel ForGame(Func<LabGameContext> context, ICommand? play = null) => new(this, _main, context, play);
 
     // ---------------------------------------------------------------- post-session cards (shared by every panel of a game)
 

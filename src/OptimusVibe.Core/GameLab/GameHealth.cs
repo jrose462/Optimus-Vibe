@@ -378,6 +378,9 @@ public sealed record GameHealth
     /// </summary>
     public static bool ChangedByGame(RunResult run, PassiveVerdict verdict) => Runs.NormalChanged(run, verdict);
 
+    /// <summary>When the current preset last held (a held Test preset or a passively held launch, whichever is newer); null when never.</summary>
+    public static DateTime? NewestHeldUtc(HealthInputs i) => Runs.NewestHeld(i);
+
     /// <summary>A run (or test) of the preset that applies now (<see cref="HealthInputs.CurrentPreset"/>); every run counts when that isn't known.</summary>
     public static bool CountsForCurrentPreset(HealthInputs i, RunResult run) => Runs.CountsFor(i, run);
 
