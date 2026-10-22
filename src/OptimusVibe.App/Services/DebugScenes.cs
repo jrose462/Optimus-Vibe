@@ -161,7 +161,7 @@ public static class DebugScenes
     /// "Automatic" toggles), library-chips (tile health chips, sample health), game-request,
     /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
     /// map-sent | map-failed | map-passive (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
-    /// library, library-focus, detail, detail-saves, manage, settings, settings-appearance, report, steam-review,
+    /// library, library-focus, detail, detail-saves, detail-long-preset (long preset name in the summary row), detail-intent-focus | detail-intent-edit (the intent card focused / being edited), manage, settings, settings-appearance, report, steam-review,
     /// verify-confirm | verify-held | verify-overridden | verify-sent | verify-unknown | verify-hint  | verify-auto | verify-auto-first | verify-auto-forget| verify-status (the Test preset cards and the apply-status line, with sample data);
     /// verify-suggest | verify-suggest-map | verify-suggest-result | verify-flag-confirm | verify-flagged | verify-flagged-done | verify-flagged-config (the "set in-game" flag: suggestion, confirm card, flagged page, research finished, flag from the game config only).
     /// verify-health-working | verify-health-unchecked | verify-health-changed | verify-health-updated | verify-health-sync | verify-health-nopresets |
@@ -203,6 +203,28 @@ public static class DebugScenes
                 vm.OpenLibraryDetail(tuned);
                 await Task.Delay(800);
                 if (scene == "detail-saves" && vm.SelectedDetail is { } d) d.SelectedTabIndex = GameDetailViewModel.ManualTab;
+                break;
+            case "detail-long-preset":
+                // the summary row must stay one line with a long preset name (a manual save's date stamp, "Big Picture (TV)")
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(800);
+                window.LibraryDetail.GameDetail.ScrollToTop();
+                vm.SelectedDetail?.DebugOverride("Mapped settings Oct 21 16:59 for the living room TV", null);
+                await Task.Delay(300);
+                break;
+            case "detail-intent-focus":
+            case "detail-intent-edit":
+                // the intent card with focus (expanded over the top third) / being edited
+                if (tuned is null) break;
+                vm.OpenLibraryDetail(tuned);
+                await Task.Delay(800);
+                OptimusVibe.App.Input.FocusCue.SetShow(window, true);
+                window.LibraryDetail.GameDetail.FocusIntentCard();
+                window.LibraryDetail.GameDetail.ScrollToTop();
+                await Task.Delay(300);
+                if (scene == "detail-intent-edit" && vm.SelectedDetail is { } ed) ed.EditIntentCommand.Execute(null);
+                await Task.Delay(500);
                 break;
             case "detail-pad-down":
             case "detail-pad-up":
