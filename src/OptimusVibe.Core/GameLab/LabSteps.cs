@@ -218,7 +218,8 @@ public static class LabSteps
                 Primary: played && canPlay ? LabStepAction.Play : LabStepAction.None, Secondary: played ? mapSecondary : []));
 
         // 4. settings sync: only while it is unsure whether a launcher's cloud sync changes them
-        if (h.State == HealthState.SyncUnsure || i.CloudSync is { Effective: null })
+        // "unknown" alone only becomes a step while the game lab can be asked: without it nothing could ever complete the step
+        if (h.State == HealthState.SyncUnsure || (i.CloudSync is { Effective: null } && i.LabReady && i.HasConfig))
             drafts.Add(new Draft(LabStepId.CheckSync, CheckSyncTitle, SyncDetail,
                 Detail: h.State == HealthState.SyncUnsure ? h.Why ?? SyncDetail : SyncDetail,
                 Primary: i.LabReady && i.HasConfig && !h.LabWorking ? LabStepAction.RecheckSync : LabStepAction.None));

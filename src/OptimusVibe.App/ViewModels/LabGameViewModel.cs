@@ -120,7 +120,8 @@ public sealed class LabGameViewModel : ObservableObject
         ConfirmFlagCommand = new AsyncRelayCommand(ConfirmFlagAsync, () => Idle() && _flagConfirming);
         ManageAgainCommand = new AsyncRelayCommand(ManageAgainAsync, () => Idle() && CanManageAgain);
         ToggleToolsCommand = new RelayCommand(() => IsToolsOpen = !IsToolsOpen);
-        StepPlayCommand = new RelayCommand(() => { if (_play?.CanExecute(null) == true) _play.Execute(null); }, () => _play?.CanExecute(null) ?? DemoPlay);
+        // the game page's own Play command, and never while a Test preset launch is live
+        StepPlayCommand = new RelayCommand(() => { if (!_testing && _play?.CanExecute(null) == true) _play.Execute(null); }, () => !_testing && (_play?.CanExecute(null) ?? DemoPlay));
         KeepChangesCommand = new RelayCommand(BeginKeep, () => Idle() && FixRun is not null && CanKeep);
         ConfirmKeepCommand = new AsyncRelayCommand(ConfirmKeepAsync, () => Idle() && IsKeepConfirming);
         CancelKeepCommand = new RelayCommand(() => CancelKeepConfirm());
@@ -1181,6 +1182,9 @@ public sealed class LabGameViewModel : ObservableObject
     /// only passes through never swallows B (or snoozes itself unseen).
     /// </summary>
     public bool PostCardHasFocus { get; set; }
+
+    /// <summary>Focus is on a button of the checklist (set by the panel). B there closes "Not now" only on the fix step, which owns the session card; a separate card (consent) is never answered by B pressed elsewhere.</summary>
+    public bool StepsHaveFocus { get; set; }
     public bool HasPostSessionWhy => PostSessionWhy.Length > 0;
 
     /// <summary>"See which" was pressed: the card lists the settings the game changed.</summary>
@@ -1823,7 +1827,7 @@ public sealed class LabGameViewModel : ObservableObject
     {
         // only while focus is in the post-session card: one the player has not reached (below the fold, an old session) never takes B or snoozes unseen
         var confirming = IsConfirming || _testConfirming || _forgetConfirming || _flagConfirming || IsKeepConfirming;
-        switch (LabPanelPlan.NextCancel(confirming, _result is not null, _testing, (HasPostSession || LabPanelPlan.FixStepOwnsCard(Journey.Current, PostCard)) && PostCardHasFocus, _toolsOpen))
+        switch (LabPanelPlan.NextCancel(confirming, _result is not null, _testing, (HasPostSession && PostCardHasFocus) || (LabPanelPlan.FixStepOwnsCard(Journey.Current, PostCard) && (PostCardHasFocus || StepsHaveFocus)), _toolsOpen))
         {
             case CancelStep.CloseConfirmation:
                 ClearTransient();

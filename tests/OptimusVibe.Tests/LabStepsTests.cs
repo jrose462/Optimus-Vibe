@@ -384,6 +384,14 @@ public sealed class LabStepsTests
     }
 
     [Fact]
+    public void SyncUnknown_WithoutAReadyLab_LeavesTheStepOut_SoNoStepCanNeverComplete()
+    {
+        var j = LabSteps.Build(Held() with { CloudSync = UnknownSync(), LabReady = false });
+        Assert.Equal(LabJourneyKind.AllSet, j.Kind);
+        Assert.DoesNotContain(j.Steps, s => s.Id == LabStepId.CheckSync);
+    }
+
+    [Fact]
     public void SyncUnsure_IsTheLastStep_WithItsReason()
     {
         var j = LabSteps.Build(Held() with { CloudSync = ChangedBehindOurBack() });

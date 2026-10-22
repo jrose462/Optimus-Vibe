@@ -36,6 +36,7 @@ public partial class LabGamePanel : UserControl
                 _vm.PropertyChanged -= OnVmChanged;
                 _vm.PostSessionFocusRequested -= FocusPostCardSoon;
                 _vm.PostCardHasFocus = false;
+                _vm.StepsHaveFocus = false;
             }
             _vm = DataContext as LabGameViewModel;
             _lastRows = null;
@@ -50,7 +51,9 @@ public partial class LabGamePanel : UserControl
 
     private void UpdateCardFocus()
     {
-        if (_vm is not null) _vm.PostCardHasFocus = PostCard.IsKeyboardFocusWithin || StepsHost.IsKeyboardFocusWithin;
+        if (_vm is null) return;
+        _vm.PostCardHasFocus = PostCard.IsKeyboardFocusWithin;
+        _vm.StepsHaveFocus = StepsHost.IsKeyboardFocusWithin;
     }
 
     /// <summary>
