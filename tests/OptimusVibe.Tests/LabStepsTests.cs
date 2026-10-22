@@ -48,7 +48,7 @@ public sealed class LabStepsTests
 
     private static HealthInputs Held() => In() with { Recent = [Run(0), Run(1), Run(2)] };
 
-    private static void AssertStates(LabJourney j, params LabStepState[] expected) =>
+    private static void AssertStates(LabJourney j, params StepState[] expected) =>
         Assert.Equal(expected, j.Steps.Select(s => s.State).ToArray());
 
     private static void AssertIds(LabJourney j, params LabStepId[] expected) =>
@@ -62,7 +62,7 @@ public sealed class LabStepsTests
         var j = LabSteps.Build(In() with { HasConfig = false, HasPresets = false });
         Assert.Equal(LabJourneyKind.Steps, j.Kind);
         AssertIds(j, LabStepId.GetPresets, LabStepId.PlayOnce, LabStepId.ConfirmKept);
-        AssertStates(j, LabStepState.Current, LabStepState.Upcoming, LabStepState.Upcoming);
+        AssertStates(j, StepState.Current, StepState.Upcoming, StepState.Upcoming);
         Assert.Equal(0, j.CurrentIndex);
         Assert.Equal(3, j.Count);
         Assert.Equal("Step 1 of 3", j.ProgressText);
@@ -77,7 +77,7 @@ public sealed class LabStepsTests
     public void NoPresets_WithoutTheLab_HasNoButton()
     {
         var j = LabSteps.Build(In() with { HasPresets = false, LabReady = false });
-        Assert.Equal(LabStepState.Current, j.Steps[0].State);
+        Assert.Equal(StepState.Current, j.Steps[0].State);
         Assert.Equal(LabStepAction.None, j.Steps[0].Primary);
     }
 
@@ -110,7 +110,7 @@ public sealed class LabStepsTests
     {
         var j = LabSteps.Build(In());
         AssertIds(j, LabStepId.GetPresets, LabStepId.PlayOnce, LabStepId.ConfirmKept);
-        AssertStates(j, LabStepState.Done, LabStepState.Current, LabStepState.Upcoming);
+        AssertStates(j, StepState.Done, StepState.Current, StepState.Upcoming);
         Assert.Equal(1, j.CurrentIndex);
         Assert.Equal("Step 2 of 3", j.ProgressText);
         var play = j.Steps[1];
@@ -142,7 +142,7 @@ public sealed class LabStepsTests
     {
         var j = LabSteps.Build(In() with { Recent = [Run(0, preset: "recommended:quality")] });
         Assert.Equal(LabStepId.PlayOnce, j.Current!.Id);
-        AssertStates(j, LabStepState.Done, LabStepState.Current, LabStepState.Upcoming);
+        AssertStates(j, StepState.Done, StepState.Current, StepState.Upcoming);
     }
 
     // ---------------------------------------------------------------- step 3: confirm the game kept them
@@ -152,7 +152,7 @@ public sealed class LabStepsTests
     {
         var j = LabSteps.Build(In() with { Recent = [Run(0)] });
         Assert.Equal(LabJourneyKind.AllSet, j.Kind);
-        AssertStates(j, LabStepState.Done, LabStepState.Done, LabStepState.Done);
+        AssertStates(j, StepState.Done, StepState.Done, StepState.Done);
         Assert.Equal(-1, j.CurrentIndex);
         Assert.Null(j.Current);
         Assert.Equal("All set", j.Headline);
@@ -181,7 +181,7 @@ public sealed class LabStepsTests
     {
         var j = LabSteps.Build(In() with { Recent = [Run(0, sec: 20)] });
         Assert.Equal(LabJourneyKind.Steps, j.Kind);
-        AssertStates(j, LabStepState.Done, LabStepState.Done, LabStepState.Current);
+        AssertStates(j, StepState.Done, StepState.Done, StepState.Current);
         Assert.Equal("Step 3 of 3", j.ProgressText);
         Assert.Equal("Confirm the game kept them", j.Current!.Title);
         Assert.Equal(LabStepAction.Play, j.Current.Primary);
@@ -203,7 +203,7 @@ public sealed class LabStepsTests
         var run = Run(1, drifted: 4);
         var j = LabSteps.Build(In() with { Recent = [Run(0, drifted: 4), run] });
         AssertIds(j, LabStepId.GetPresets, LabStepId.PlayOnce, LabStepId.ConfirmKept);
-        AssertStates(j, LabStepState.Done, LabStepState.Done, LabStepState.Current);
+        AssertStates(j, StepState.Done, StepState.Done, StepState.Current);
         var fix = j.Current!;
         Assert.True(fix.IsFix);
         Assert.Equal("Fix: the game changed 4 of 10 settings", fix.Title);
@@ -304,7 +304,7 @@ public sealed class LabStepsTests
     {
         var j = LabSteps.Build(Held() with { Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2" });
         Assert.Equal(HealthState.GameUpdated, j.Health.State);
-        AssertStates(j, LabStepState.Done, LabStepState.Current, LabStepState.Upcoming); // step 1 stays done
+        AssertStates(j, StepState.Done, StepState.Current, StepState.Upcoming); // step 1 stays done
         Assert.Equal("Play once after the update", j.Current!.Title);
         Assert.Equal(LabStepAction.Play, j.Current.Primary);
         Assert.Equal([LabStepAction.RefreshPresets], j.Current.Secondary);
@@ -331,7 +331,7 @@ public sealed class LabStepsTests
             Presets = new PresetsMark { MadeUtc = T0, BuildId = "steam:1" }, CurrentBuild = "steam:2", Recent = [Overridden(1, build: "steam:2")],
         });
         Assert.Equal(HealthState.GameUpdated, j.Health.State);
-        AssertStates(j, LabStepState.Done, LabStepState.Done, LabStepState.Current);
+        AssertStates(j, StepState.Done, StepState.Done, StepState.Current);
         Assert.True(j.Current!.IsFix);
     }
 
@@ -365,7 +365,7 @@ public sealed class LabStepsTests
         var j = LabSteps.Build(Held() with { CloudSync = UnknownSync() });
         Assert.Equal(LabJourneyKind.Steps, j.Kind);
         AssertIds(j, LabStepId.GetPresets, LabStepId.PlayOnce, LabStepId.ConfirmKept, LabStepId.CheckSync);
-        AssertStates(j, LabStepState.Done, LabStepState.Done, LabStepState.Done, LabStepState.Current);
+        AssertStates(j, StepState.Done, StepState.Done, StepState.Done, StepState.Current);
         Assert.Equal(4, j.Count);
         Assert.Equal(3, j.CurrentIndex);
         Assert.Equal("Step 4 of 4", j.ProgressText);
@@ -392,7 +392,7 @@ public sealed class LabStepsTests
         Assert.Equal(LabStepId.CheckSync, j.Current!.Id);
         Assert.Equal("The settings changed while Optimus-Vibe wasn't running.", j.Current.Detail);
         Assert.Equal(LabStepAction.RecheckSync, j.Current.Primary);
-        AssertStates(j, LabStepState.Done, LabStepState.Done, LabStepState.Done, LabStepState.Current);
+        AssertStates(j, StepState.Done, StepState.Done, StepState.Done, StepState.Current);
     }
 
     [Fact]
@@ -400,7 +400,7 @@ public sealed class LabStepsTests
     {
         var j = LabSteps.Build(In() with { CloudSync = UnknownSync() });
         Assert.Equal(4, j.Count);
-        AssertStates(j, LabStepState.Done, LabStepState.Current, LabStepState.Upcoming, LabStepState.Upcoming);
+        AssertStates(j, StepState.Done, StepState.Current, StepState.Upcoming, StepState.Upcoming);
         Assert.Equal(LabStepAction.None, j.Steps[3].Primary); // upcoming: no button yet
     }
 
@@ -495,14 +495,14 @@ public sealed class LabStepsTests
         {
             case LabJourneyKind.Steps:
                 Assert.True(j.CurrentIndex >= 0 && j.CurrentIndex < j.Count, name);
-                Assert.Equal(1, j.Steps.Count(s => s.State == LabStepState.Current));
+                Assert.Equal(1, j.Steps.Count(s => s.State == StepState.Current));
                 // done before the current one, upcoming after it
                 for (var k = 0; k < j.Count; k++)
-                    Assert.Equal(k < j.CurrentIndex ? LabStepState.Done : k == j.CurrentIndex ? LabStepState.Current : LabStepState.Upcoming, j.Steps[k].State);
+                    Assert.Equal(k < j.CurrentIndex ? StepState.Done : k == j.CurrentIndex ? StepState.Current : StepState.Upcoming, j.Steps[k].State);
                 Assert.Equal($"Step {j.CurrentIndex + 1} of {j.Count}", j.ProgressText);
                 break;
             case LabJourneyKind.AllSet:
-                Assert.All(j.Steps, s => Assert.Equal(LabStepState.Done, s.State));
+                Assert.All(j.Steps, s => Assert.Equal(StepState.Done, s.State));
                 Assert.Equal(LabSteps.AllSetHeadline, j.Headline);
                 break;
             case LabJourneyKind.SetInGame:
@@ -516,9 +516,9 @@ public sealed class LabStepsTests
             Assert.NotEmpty(s.Title);
             Assert.NotEmpty(s.Detail);
             Assert.DoesNotContain('\n', s.Detail);
-            if (s.State == LabStepState.Done) Assert.StartsWith("Done", s.DoneSummary);
+            if (s.State == StepState.Done) Assert.StartsWith("Done", s.DoneSummary);
             else Assert.Equal("", s.DoneSummary);
-            if (s.State != LabStepState.Current)
+            if (s.State != StepState.Current)
             {
                 Assert.Equal(LabStepAction.None, s.Primary);
                 Assert.Empty(s.Secondary);

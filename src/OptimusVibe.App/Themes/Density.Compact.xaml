@@ -114,6 +114,8 @@
     <Thickness x:Key="DetailTextMargin">20,0,0,0</Thickness>
     <Thickness x:Key="BlockGapLg">0,10,0,0</Thickness>
     <Thickness x:Key="LabGap">0,8,0,0</Thickness>
+    <Thickness x:Key="LabRowMargin">0,7,0,0</Thickness>
+    <sys:Double x:Key="LabGlyphSize">22</sys:Double>
     <sys:Double x:Key="PresetCardWidth">NaN</sys:Double>
     <sys:Double x:Key="PresetCardMinHeight">0</sys:Double>
     <Thickness x:Key="PresetCardMargin">0,0,8,8</Thickness>

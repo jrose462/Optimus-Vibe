@@ -35,7 +35,7 @@ public sealed class LibraryTileViewModel : ObservableObject
         SetManagedCommand = new AsyncRelayCommand(p => owner.SetManagedAsync(this, p is true), _ => Idle() && CanToggleManaged);
         SetSteamKeepCommand = new AsyncRelayCommand(p => owner.SetSteamKeepUpToDateAsync(this, p is true), _ => Idle() && IsSteam);
         Lab = owner.Shell.Lab.ForGame(() => new LabGameContext(Name, Key, GameId, _entry.Detected is null ? null : LabTarget.From(_entry), HasConfig,
-            _entry.Status == LibraryStatus.NeedsPresets, _gameItem?.BadgeText, _gameItem?.Snapshot.CloudSync, _gameItem?.Snapshot.Context));
+            _entry.Status == LibraryStatus.NeedsPresets, _gameItem?.BadgeText, _gameItem?.Snapshot.CloudSync, _gameItem?.Snapshot.Context), PlayCommand);
         _ = ReadInstallAsync();
     }
 

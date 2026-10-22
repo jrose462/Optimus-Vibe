@@ -1,11 +1,13 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace OptimusVibe.Tests;
 
 /// <summary>
-/// The game page's lab panel (<c>Views/LabGamePanel.xaml</c>) after it was reorganised around the health status line: no action was removed
-/// or duplicated. Every command the panel bound before is still bound, the actions under "More" are there exactly once (shared by both
-/// layouts), and the controller rules hold (More is a contained focus scope, the title row keeps one Open issue per layout).
+/// The game page's lab panel (<c>Views/LabGamePanel.xaml</c>) after it was reorganised into the guided "Step X of N" checklist: no action was
+/// removed or duplicated. Every command the panel bound before is still bound (the step buttons through the view model's rows, the rest where
+/// they were), the actions under "Manual tools" are there exactly once, and the controller rules hold (Manual tools is a contained focus scope,
+/// the header keeps one Open issue, the checklist comes before the cards and Manual tools sits last).
 /// </summary>
 public sealed class LabPanelLayoutTests
 {
@@ -20,14 +22,20 @@ public sealed class LabPanelLayoutTests
         return XDocument.Load(Path.Combine(dir!.FullName, "src", "OptimusVibe.App", "Views", "LabGamePanel.xaml"));
     }
 
-    private static List<XElement> Bound(XContainer root, string command) =>
-        root.Descendants().Where(e => (string?)e.Attribute("Command") == $"{{Binding {command}}}").ToList();
+    /// <summary>A command bound directly (<c>{Binding X}</c>) or through the panel's data context from inside a row template (<c>{Binding DataContext.X, ...}</c>).</summary>
+    private static bool IsBoundTo(XElement e, string command) =>
+        e.Attribute("Command")?.Value is { } v && Regex.IsMatch(v, $@"^\{{Binding (DataContext\.)?{command}(,.*)?\}}$");
 
-    private static XElement More(XDocument doc) =>
-        doc.Descendants(Wpf + "StackPanel").Single(e => (string?)e.Attribute(X + "Name") == "MorePanel");
+    private static List<XElement> Bound(XContainer root, string command) => root.Descendants().Where(e => IsBoundTo(e, command)).ToList();
+
+    private static XElement Tools(XDocument doc) =>
+        doc.Descendants(Wpf + "StackPanel").Single(e => (string?)e.Attribute(X + "Name") == "ToolsPanel");
+
+    private static XElement Resource(XDocument doc, string key) =>
+        doc.Descendants().Single(e => (string?)e.Attribute(X + "Key") == key);
 
     [Theory]
-    // the panel's actions: once each, under More (or in the suggested slot through SuggestedCommand)
+    // the panel's actions: once each under Manual tools (the step buttons are the view model's rows, bound through StepButton.Command)
     [InlineData("RequestCommand", 1)]
     [InlineData("RefreshPresetsCommand", 1)]
     [InlineData("SyncCheckCommand", 1)]
@@ -36,13 +44,13 @@ public sealed class LabPanelLayoutTests
     [InlineData("ManageAgainCommand", 1)]
     [InlineData("VerifyNextCommand", 1)]
     [InlineData("UnmuteCommand", 1)]
-    [InlineData("SuggestedCommand", 1)]
+    [InlineData("ToggleToolsCommand", 1)]
+    // the fix step's "See which"
     [InlineData("ToggleChangedCommand", 1)]
-    [InlineData("ToggleMoreCommand", 1)]
-    // under More, and the test result card's own button
+    // under Manual tools, and the test result card's own button
     [InlineData("FlagCommand", 2)]
-    // one per layout (title row)
-    [InlineData("OpenIssueCommand", 2)]
+    // the header
+    [InlineData("OpenIssueCommand", 1)]
     // the cards, untouched
     [InlineData("OpenSettingsCommand", 1)]
     [InlineData("ConfirmFlagCommand", 1)]
@@ -54,58 +62,123 @@ public sealed class LabPanelLayoutTests
     [InlineData("DismissResultCommand", 1)]
     [InlineData("ConfirmCommand", 1)]
     [InlineData("MapFirstCommand", 1)]
-    // the post-session card's own buttons (they run the commands above through the view model, never a second bound copy)
+    // "Not now" and "Don't ask again": on the fix step and on the card that stayed a card (they run through the view model, never a second bound copy)
+    [InlineData("PostDismissCommand", 2)]
+    [InlineData("PostMuteCommand", 2)]
+    // the card that stayed a card
     [InlineData("PostPrimaryCommand", 1)]
     [InlineData("PostSecondaryCommand", 1)]
-    [InlineData("PostDismissCommand", 1)]
-    [InlineData("PostMuteCommand", 1)]
-    public void EveryCommand_IsBound_AsOftenAsBefore(string command, int times)
+    public void EveryCommand_IsBound_AsOftenAsExpected(string command, int times)
     {
         Assert.Equal(times, Bound(Panel(), command).Count);
     }
 
     [Theory]
-    [InlineData("RequestCommand", "ShowRequestInMore", "RequestCaption")]
-    [InlineData("RefreshPresetsCommand", "ShowRefreshInMore", "RefreshCaption")]
-    [InlineData("SyncCheckCommand", "ShowSyncCheckInMore", "SyncCheckCaption")]
-    [InlineData("TestCommand", "ShowTestInMore", "TestCaption")]
-    [InlineData("MapCommand", "ShowMapInMore", "MapCaption")]
-    [InlineData("ManageAgainCommand", "ShowManageAgainInMore", "ManageAgainCaption")]
-    [InlineData("FlagCommand", "ShowFlagInMore", "FlagCaption")]
-    [InlineData("VerifyNextCommand", "ShowVerifyNextInMore", "VerifyNextCaption")]
-    [InlineData("UnmuteCommand", "ShowUnmuteInMore", "UnmuteCaption")]
-    public void EveryAction_IsUnderMore_WithItsCaption(string command, string visibleWhen, string caption)
+    [InlineData("RequestCommand", "ShowRequestInTools", "RequestCaption")]
+    [InlineData("RefreshPresetsCommand", "ShowRefreshInTools", "RefreshCaption")]
+    [InlineData("SyncCheckCommand", "ShowSyncCheckInTools", "SyncCheckCaption")]
+    [InlineData("TestCommand", "ShowTestInTools", "TestCaption")]
+    [InlineData("MapCommand", "ShowMapInTools", "MapCaption")]
+    [InlineData("ManageAgainCommand", "ShowManageAgainInTools", "ManageAgainCaption")]
+    [InlineData("FlagCommand", "ShowFlagInTools", "FlagCaption")]
+    [InlineData("VerifyNextCommand", "ShowVerifyNextInTools", "VerifyNextCaption")]
+    [InlineData("UnmuteCommand", "ShowUnmuteInTools", "UnmuteCaption")]
+    public void EveryAction_IsUnderManualTools_WithItsCaption(string command, string visibleWhen, string caption)
     {
-        var button = Assert.Single(Bound(More(Panel()), command));
+        var button = Assert.Single(Bound(Tools(Panel()), command));
         var row = button.Parent!;
         Assert.Contains(visibleWhen, (string?)row.Attribute("Visibility"));
         Assert.Contains(row.Elements(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == $"{{Binding {caption}}}");
     }
 
     [Fact]
-    public void More_IsAContainedFocusScope_ShownOnlyWhenOpen()
+    public void ManualTools_KeepTheirButtonTexts()
     {
-        var more = More(Panel());
-        Assert.Equal("Contained", (string?)more.Attribute("KeyboardNavigation.DirectionalNavigation"));
-        Assert.Contains("IsMoreOpen", (string?)more.Attribute("Visibility"));
+        var buttons = Tools(Panel()).Descendants(Wpf + "Button").ToList();
+        var texts = buttons.Select(b => (string?)b.Attribute("Content") ?? "").ToList();
+        foreach (var text in new[]
+                 {
+                     "Refresh presets", "Re-check settings sync", "Test preset", "Map this game", "Manage settings again", "Flag as set in-game",
+                     "Show cards after sessions again", "{Binding RequestText}", "{Binding VerifyNextText}",
+                 })
+            Assert.Contains(text, texts);
     }
 
     [Fact]
-    public void TheStatusLine_AndWhyLine_AreReadOnlyText_BeforeTheSuggestedAction()
+    public void ManualTools_IsAContainedFocusScope_ShownOnlyWhenOpen_AtTheBottomRight()
+    {
+        var doc = Panel();
+        var tools = Tools(doc);
+        Assert.Equal("Contained", (string?)tools.Attribute("KeyboardNavigation.DirectionalNavigation"));
+        Assert.Contains("IsToolsOpen", (string?)tools.Attribute("Visibility"));
+
+        var toggle = Assert.Single(Bound(doc, "ToggleToolsCommand"));
+        Assert.Equal("Right", (string?)toggle.Attribute("HorizontalAlignment"));
+        Assert.Equal("Manual tools", (string?)toggle.Attribute("AutomationProperties.Name"));
+
+        // last in the panel: after the checklist and the cards, its list right under its button
+        var all = doc.Descendants().ToList();
+        Assert.True(all.IndexOf(toggle) > all.FindIndex(e => (string?)e.Attribute(X + "Name") == "StepsHost"));
+        Assert.True(all.IndexOf(toggle) > all.FindLastIndex(e => (string?)e.Attribute("Command") == "{Binding ConfirmCommand}"));
+        Assert.True(all.IndexOf(tools) > all.IndexOf(toggle));
+        Assert.Same(toggle.NextNode, tools);
+        Assert.Null(tools.NextNode);
+    }
+
+    [Fact]
+    public void TheChecklist_ComesFirst_ThenTheCardThatStayedACard()
     {
         var doc = Panel();
         var all = doc.Descendants().ToList();
-        var status = all.FindIndex(e => (string?)e.Attribute("Text") == "{Binding HealthText}");
-        var why = all.FindIndex(e => (string?)e.Attribute("Text") == "{Binding HealthWhy}");
-        var suggested = all.FindIndex(e => (string?)e.Attribute("Command") == "{Binding SuggestedCommand}");
-        var toggle = all.FindIndex(e => (string?)e.Attribute("Command") == "{Binding ToggleMoreCommand}");
-        Assert.True(status >= 0 && why > status && suggested > why && toggle > suggested, "focus order: status, why, suggested, More");
-        Assert.Equal(Wpf + "TextBlock", all[status].Name);
-        Assert.Equal(Wpf + "TextBlock", all[why].Name);
+        var header = all.FindIndex(e => (string?)e.Attribute("Text") == "{Binding ProgressText}");
+        var bar = all.FindIndex(e => e.Name == Wpf + "ItemsControl" && (string?)e.Attribute("ItemTemplate") == "{StaticResource StepSegment}");
+        var steps = all.FindIndex(e => (string?)e.Attribute(X + "Name") == "StepsHost");
+        var summary = all.FindIndex(e => (string?)e.Attribute("Text") == "{Binding SummaryHeadline}");
+        var card = all.FindIndex(e => (string?)e.Attribute(X + "Name") == "PostCard");
+        Assert.True(header >= 0 && bar > header && steps > bar && summary > steps && card > summary, "order: Step X of N, progress, steps, summary, card");
     }
 
     [Fact]
-    public void ThePostSessionCard_IsInline_Contained_WithItsActionsAndBForNotNow()
+    public void TheHeader_SaysGameLab_AndStepXOfN()
+    {
+        var doc = Panel();
+        Assert.Contains(doc.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "Game lab");
+        Assert.Contains(doc.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding ProgressText}");
+    }
+
+    [Fact]
+    public void TheStepButtons_AreFocusableButtons_TheMainOneWithTheAGlyph_ACancelWithB()
+    {
+        var doc = Panel();
+        var primary = Resource(doc, "StepPrimaryButton").Descendants(Wpf + "Button").Single();
+        Assert.Equal("{StaticResource Button.Primary}", (string?)primary.Attribute("Style"));
+        Assert.Equal("{Binding Command}", (string?)primary.Attribute("Command"));
+        Assert.NotEqual("False", (string?)primary.Attribute("Focusable"));
+        Assert.Contains(primary.Descendants(), e => e.Name.LocalName == "ButtonGlyph" && (string?)e.Attribute("Kind") == "A");
+
+        var quiet = Resource(doc, "StepQuietButton").Descendants(Wpf + "Button").Single();
+        Assert.Equal("{StaticResource Button.Quiet}", (string?)quiet.Attribute("Style"));
+        Assert.Equal("{Binding Command}", (string?)quiet.Attribute("Command"));
+        Assert.Contains(quiet.Descendants(), e => e.Name.LocalName == "ButtonGlyph" && (string?)e.Attribute("Kind") == "B");
+
+        // the template hosts are not tab stops of their own: focus lands on the buttons
+        var row = Resource(doc, "StepRowTemplate");
+        foreach (var host in row.Descendants(Wpf + "ContentControl").Concat(row.Descendants(Wpf + "ItemsControl")))
+            Assert.Equal("False", (string?)host.Attribute("Focusable"));
+    }
+
+    [Fact]
+    public void TheFixStep_OffersSeeWhich_AndNotNow_AndDontAskAgain_WithBForNotNow()
+    {
+        var row = Resource(Panel(), "StepRowTemplate");
+        Assert.Single(Bound(row, "ToggleChangedCommand"));
+        var notNow = Assert.Single(Bound(row, "PostDismissCommand"));
+        Assert.Contains(notNow.Descendants(), e => e.Name.LocalName == "ButtonGlyph" && (string?)e.Attribute("Kind") == "B");
+        Assert.Single(Bound(row, "PostMuteCommand"));
+    }
+
+    [Fact]
+    public void ThePostSessionCard_StaysInline_Contained_WithItsActionsAndBForNotNow()
     {
         var doc = Panel();
         var card = doc.Descendants(Wpf + "Border").Single(e => (string?)e.Attribute(X + "Name") == "PostCard");
@@ -119,30 +192,15 @@ public sealed class LabPanelLayoutTests
         Assert.Contains(dismiss.Descendants(), e => e.Name.LocalName == "ButtonGlyph" && (string?)e.Attribute("Kind") == "B");
         // no existing game-page command is bound in it a second time: its actions go through the view model to the existing commands
         Assert.All(card.Descendants().Select(e => (string?)e.Attribute("Command")).OfType<string>(), c => Assert.StartsWith("{Binding Post", c));
-
-        // the card sits under the status and why lines, before the suggested action
-        var all = doc.Descendants().ToList();
-        var why = all.FindIndex(e => (string?)e.Attribute("Text") == "{Binding HealthWhy}");
-        var suggested = all.FindIndex(e => (string?)e.Attribute("Command") == "{Binding SuggestedCommand}");
-        Assert.True(all.IndexOf(card) > why && all.IndexOf(card) < suggested, "order: why line, post-session card, suggested action");
     }
 
     [Fact]
-    public void OpenIssue_IsOncePerLayout()
-    {
-        var layouts = Bound(Panel(), "OpenIssueCommand")
-            .Select(b => b.Ancestors().Select(a => (string?)a.Attribute("Style")).FirstOrDefault(s => s?.Contains("Only.") == true))
-            .ToList();
-        Assert.Equal(["{StaticResource Only.Comfortable}", "{StaticResource Only.Compact}"], layouts);
-    }
-
-    [Fact]
-    public void TheOldButtonRowsAndSuggestionBlock_AreGone()
+    public void TheOldStatusLineSuggestedActionAndMore_AreGone()
     {
         var doc = Panel();
-        // the hint moved into the status line, the separate set-in-game and suggestion blocks into the why line, Suggested and More
-        Assert.DoesNotContain(doc.Descendants(), e => ((string?)e.Attribute("Text"))?.Contains("HintText") == true);
-        Assert.DoesNotContain(doc.Descendants(), e => (string?)e.Attribute("Visibility") == "{Binding ShowSuggest, Converter={StaticResource VisibleWhen}}");
-        Assert.DoesNotContain(doc.Descendants(), e => (string?)e.Attribute("Visibility") == "{Binding IsFlagged, Converter={StaticResource VisibleWhen}}");
+        var text = doc.ToString();
+        foreach (var gone in new[] { "HealthText", "HealthWhy", "SuggestedCommand", "SuggestedText", "ToggleMoreCommand", "IsMoreOpen", "MorePanel", "MoreButton", "MoreText" })
+            Assert.DoesNotContain(gone, text);
+        Assert.DoesNotContain(doc.Descendants(), e => (string?)e.Attribute("Style") is "{StaticResource Only.Comfortable}" or "{StaticResource Only.Compact}");
     }
 }

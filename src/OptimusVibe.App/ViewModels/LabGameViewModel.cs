@@ -63,7 +63,12 @@ public sealed class LabGameViewModel : ObservableObject
     private bool _healthLoaded;
     private GameHealth? _health;
     private HealthInputs? _inputs;
-    private bool _moreOpen;
+    private bool _toolsOpen;
+    private readonly ICommand? _play;
+    private LabJourney? _journey;
+    private HealthInputs? _journeyInputs;
+    private IReadOnlyList<StepRow> _rows = [];
+    private string _rowsKey = "";
     private bool _postLoaded;
     private PostSessionCard? _post;
     private DateTime? _postDetailsFor;
@@ -88,11 +93,12 @@ public sealed class LabGameViewModel : ObservableObject
     private HealthInputs? _demoInputs;
 #endif
 
-    public LabGameViewModel(GameLabViewModel lab, MainViewModel main, Func<LabGameContext> context)
+    public LabGameViewModel(GameLabViewModel lab, MainViewModel main, Func<LabGameContext> context, ICommand? play = null)
     {
         _lab = lab;
         _main = main;
         _context = context;
+        _play = play;
         bool Idle() => !main.IsBusy;
         RequestCommand = new AsyncRelayCommand(() => BeginAsync(Ctx.HasConfig ? LabKind.Refresh : LabKind.New), () => Idle() && CanAct && CanRequestPresets);
         RefreshPresetsCommand = new AsyncRelayCommand(() => BeginAsync(LabKind.Refresh), () => Idle() && CanAct && CanRefreshPresets);
@@ -113,10 +119,14 @@ public sealed class LabGameViewModel : ObservableObject
         FlagCommand = new RelayCommand(BeginFlag, () => Idle() && SuggestionReason is not null && !_flagConfirming);
         ConfirmFlagCommand = new AsyncRelayCommand(ConfirmFlagAsync, () => Idle() && _flagConfirming);
         ManageAgainCommand = new AsyncRelayCommand(ManageAgainAsync, () => Idle() && CanManageAgain);
-        ToggleMoreCommand = new RelayCommand(() => IsMoreOpen = !IsMoreOpen);
+        ToggleToolsCommand = new RelayCommand(() => IsToolsOpen = !IsToolsOpen);
+        StepPlayCommand = new RelayCommand(() => { if (_play?.CanExecute(null) == true) _play.Execute(null); }, () => _play?.CanExecute(null) ?? DemoPlay);
+        KeepChangesCommand = new RelayCommand(BeginKeep, () => Idle() && FixRun is not null && CanKeep);
+        ConfirmKeepCommand = new AsyncRelayCommand(ConfirmKeepAsync, () => Idle() && IsKeepConfirming);
+        CancelKeepCommand = new RelayCommand(() => CancelKeepConfirm());
         PostPrimaryCommand = new AsyncRelayCommand(() => RunPostAsync(PostCard?.Primary ?? PostSessionAction.None), () => Idle() && CanRunPost(PostCard?.Primary));
         PostSecondaryCommand = new AsyncRelayCommand(() => RunPostAsync(PostCard?.Secondary ?? PostSessionAction.None), () => Idle() && CanRunPost(PostCard?.Secondary));
-        PostDismissCommand = new RelayCommand(DismissPost, () => HasPostSession);
+        PostDismissCommand = new RelayCommand(DismissPost, () => PostCard is not null);
         PostMuteCommand = new RelayCommand(MutePost, () => ShowPostMute);
         UnmuteCommand = new RelayCommand(Unmute, () => IsMuted);
         VerifyNextCommand = new RelayCommand(ToggleVerifyNext, () => Idle() && CanVerifyNext);
@@ -160,7 +170,11 @@ public sealed class LabGameViewModel : ObservableObject
     public ICommand FlagCommand { get; }
     public ICommand ConfirmFlagCommand { get; }
     public ICommand ManageAgainCommand { get; }
-    public ICommand ToggleMoreCommand { get; }
+    public ICommand ToggleToolsCommand { get; }
+    public ICommand StepPlayCommand { get; }
+    public ICommand KeepChangesCommand { get; }
+    public ICommand ConfirmKeepCommand { get; }
+    public ICommand CancelKeepCommand { get; }
     public ICommand PostPrimaryCommand { get; }
     public ICommand PostSecondaryCommand { get; }
     public ICommand PostDismissCommand { get; }
@@ -190,10 +204,26 @@ public sealed class LabGameViewModel : ObservableObject
     // ---------------------------------------------------------------- what is offered
 
     public bool LabReady => _lab.IsReady;
-    public bool CanAct => LabReady && Ctx.Target is not null;
-    public bool CanRequestPresets => Ctx.NeedsPresets || !Ctx.HasConfig;
-    public bool CanRefreshPresets => Ctx.HasConfig && !Ctx.NeedsPresets;
-    public bool CanSyncCheck => Ctx.HasConfig;
+    public bool CanAct =>
+#if DEBUG
+        _demo && LabReady ||
+#endif
+        LabReady && Ctx.Target is not null;
+    public bool CanRequestPresets =>
+#if DEBUG
+        _demo ? DemoInput is { } r && (!r.HasPresets || !r.HasConfig) :
+#endif
+        Ctx.NeedsPresets || !Ctx.HasConfig;
+    public bool CanRefreshPresets =>
+#if DEBUG
+        _demo ? DemoInput is { } r && r.HasConfig && r.HasPresets :
+#endif
+        Ctx.HasConfig && !Ctx.NeedsPresets;
+    public bool CanSyncCheck =>
+#if DEBUG
+        _demo ||
+#endif
+        Ctx.HasConfig;
     public bool ShowRequest => CanRequestPresets;
     public bool ShowRefresh => CanRefreshPresets;
     public bool ShowSyncCheck => CanSyncCheck;
@@ -406,6 +436,21 @@ public sealed class LabGameViewModel : ObservableObject
         GameId = "demo", Device = "desktop", HasConfig = true, HasPresets = true, LabReady = true, CanLaunch = true, CurrentPreset = "recommended:performance",
     };
 
+    private HealthInputs DemoInput => _demoInputs ?? DemoInputs();
+
+    /// <summary>What a debug scene offers: the sample inputs decide (the real game behind the page may be anything).</summary>
+    private PanelOffers DemoOffers()
+    {
+        var i = DemoInput;
+        var flagged = i.Flag is not null;
+        return new PanelOffers
+        {
+            Request = !i.HasPresets || !i.HasConfig, Refresh = i.HasConfig && i.HasPresets, SyncCheck = i.HasConfig,
+            Test = i.HasPresets && i.CanLaunch && !flagged, Map = i.CanLaunch, ManageAgain = i.HasUserFlag, Flag = SuggestionReason is not null,
+            VerifyNext = CanVerifyNext, Play = true, Keep = true,
+        };
+    }
+
     /// <summary>Debug scenes only: show a card with sample data (confirm | held | overridden | sent | unknown | hint).</summary>
     public void ShowDemo(string kind)
     {
@@ -459,7 +504,7 @@ public sealed class LabGameViewModel : ObservableObject
         _changedOpen = false;
         _demoPost = null;
         _postDetailsFor = null;
-        _moreOpen = false;
+        _toolsOpen = false;
         _healthLoaded = false;
         _demoHint = null;
         _demoStatus = null;
@@ -552,7 +597,7 @@ public sealed class LabGameViewModel : ObservableObject
                     LabRequest = new LabIssue(14, "Demo", "https://github.com/", true, [], LabStatus.NeedsEvidence, null, null, null),
                 };
                 break;
-            case "health-muted": _demoMuted = true; _moreOpen = true; break;
+            case "health-muted": _demoMuted = true; _toolsOpen = true; break;
             case "health-updated":
                 _demoInputs = Inputs() with
                 {
@@ -587,7 +632,49 @@ public sealed class LabGameViewModel : ObservableObject
                     LabRequest = new LabIssue(12, "Demo", "https://github.com/", true, [], LabStatus.NeedsEvidence, null, null, null),
                 };
                 break;
-            case "health-more": _moreOpen = true; break;
+            case "health-more": _toolsOpen = true; break;
+            // the guided checklist, one scene per situation
+            case "steps-nopresets": _demoInputs = Inputs() with { HasPresets = false }; break;
+            case "steps-labworking":
+                _demoInputs = Inputs() with
+                {
+                    HasPresets = false,
+                    LabRequest = new LabIssue(12, "Demo", "https://github.com/", true, [], LabStatus.Researching, null, null, null),
+                };
+                break;
+            case "steps-play": _demoInputs = Inputs() with { Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-1) } }; break;
+            case "steps-fix":
+            case "steps-fix-mapped":
+            {
+                var before = Session(4, CaptureAnswer.DontSave, sec: 120);
+                before.Utc = DateTime.UtcNow.AddDays(-1);
+                var run = Session(10, CaptureAnswer.NotAsked);
+                var inputs = Inputs() with { Recent = [before, run] };
+                if (kind == "steps-fix-mapped") inputs = inputs with { Mapping = new ProbeRecord { Utc = DateTime.UtcNow.AddDays(-1), SuggestSetInGame = false } };
+                Post(inputs, run);
+                break;
+            }
+            case "steps-sync":
+                _demoInputs = Inputs() with
+                {
+                    Recent = [Played(5), Played(3), Played(1)],
+                    CloudSync = new CloudSyncReport { GameId = "demo", Device = "desktop", HasExternalChanges = true, Confidence = SyncConfidence.Low },
+                };
+                break;
+            case "steps-allset": _demoInputs = Inputs() with { Recent = [Played(5), Played(3), Played(1)] }; break;
+            case "steps-updated":
+                _demoInputs = Inputs() with
+                {
+                    Recent = [Played(5), Played(3)], Presets = new PresetsMark { MadeUtc = DateTime.UtcNow.AddDays(-30), BuildId = "steam:100" },
+                    CurrentBuild = "steam:200",
+                };
+                break;
+            case "steps-setingame":
+                _userFlag = _flag = GameFlags.Create(GameFlags.VerifySuggestionReason(2), issue: 12);
+                _demoStatus = GameFlags.StatusLine(_flag);
+                _demoResearchDone = true;
+                _demoInputs = Inputs() with { Flag = _flag, HasUserFlag = true, ResearchFinished = true };
+                break;
             // the post-session card, one scene per kind
             case "post-held":
             {
@@ -743,55 +830,157 @@ public sealed class LabGameViewModel : ObservableObject
             ? new LabIssue(n, a.Name, url, true, [], LabStatus.Queued, null, null, null)
             : null;
 
-    /// <summary>The status line: "Working. Presets held on your last 3 launches.", "Not checked on this device yet"...</summary>
-    public string HealthText => Health.Headline;
+    // ---------------------------------------------------------------- the guided checklist ("Step X of N")
 
-    /// <summary>The one dim line under it saying why; empty when there is nothing to add.</summary>
-    public string HealthWhy => Health.Why ?? "";
+    /// <summary>The guided checklist of this game on this device (<see cref="LabSteps.Build"/>), built from the same inputs as <see cref="Health"/>.</summary>
+    public LabJourney Journey
+    {
+        get
+        {
+            _ = Health; // reads the inputs once per refresh
+            var inputs = _inputs!;
+            if (_journey is null || !ReferenceEquals(_journeyInputs, inputs))
+            {
+                _journey = LabSteps.Build(inputs);
+                _journeyInputs = inputs;
+            }
+            return _journey;
+        }
+    }
 
-    // The post-session card says the same thing in more detail, so the why line steps aside while it shows.
-    public bool HasHealthWhy => HealthWhy.Length > 0 && !HasPostSession;
+    /// <summary>The panel header's right-hand text: "Step 2 of 3", "All set" or "Set in-game".</summary>
+    public string ProgressText => Journey.ProgressText;
+
+    /// <summary>The checklist shows (a step is current).</summary>
+    public bool ShowSteps => Journey.Kind == LabJourneyKind.Steps;
+
+    /// <summary>"All set" or the flag's status line shows instead of the step rows.</summary>
+    public bool ShowSummary => Journey.Kind != LabJourneyKind.Steps;
+
+    /// <summary>The progress bar shows: a checklist, or one that is finished.</summary>
+    public bool ShowProgress => Journey.Kind != LabJourneyKind.SetInGame && Journey.Count > 0;
+
+    public bool IsAllSet => Journey.Kind == LabJourneyKind.AllSet;
+    public string SummaryHeadline => Journey.Headline;
+    public string SummaryDetail => Journey.Detail;
+    public bool HasSummaryDetail => Journey.Detail.Length > 0;
+
+    private StepButton? _summaryButton;
+    private string _summaryKey = "";
+
+    /// <summary>The one button of a summary ("Manage settings again" on a set-in-game page, "Map this game" while the lab waits for it), when it is on offer.</summary>
+    public StepButton? SummaryButton
+    {
+        get
+        {
+            var action = LabPanelPlan.ForJourneyAction(Journey, Offers);
+            var key = action.ToString();
+            if (key != _summaryKey)
+            {
+                _summaryKey = key;
+                _summaryButton = action == LabStepAction.None ? null : ButtonFor(action, primary: true);
+            }
+            return _summaryButton;
+        }
+    }
+
+    public bool HasSummaryButton => SummaryButton is not null;
+
+    /// <summary>The checklist's rows (done: one line with its summary; current: expanded with its buttons; upcoming: one dim line). The same list while nothing changed, so a refresh never rebuilds the buttons under the player's focus.</summary>
+    public IReadOnlyList<StepRow> StepRows
+    {
+        get
+        {
+            var j = Journey;
+            if (j.Kind == LabJourneyKind.SetInGame) return _rows = [];
+            var buttons = LabPanelPlan.ForStep(j.Current, Offers, SeparateCard, _flagConfirming, HasResult);
+            var keeping = IsKeepConfirming;
+            var owned = LabPanelPlan.FixStepOwnsCard(j.Current, PostCard);
+            var rows = new List<StepRow>();
+            for (var k = 0; k < j.Steps.Count; k++)
+            {
+                var s = j.Steps[k];
+                var current = s.State == StepState.Current;
+                var detail = s.Detail;
+                StepButton? primary = null;
+                List<StepButton> secondary = [];
+                if (current && keeping && s.IsFix)
+                {
+                    detail = PostSession.KeepConfirmText;
+                    primary = new StepButton(PostSession.KeepConfirmAction, ConfirmKeepCommand, true, "A", "Save and use", null);
+                    secondary.Add(new StepButton("Cancel", CancelKeepCommand, false, "B", "Cancel", null));
+                }
+                else if (current)
+                {
+                    if (buttons.Primary != LabStepAction.None) primary = ButtonFor(buttons.Primary, primary: true);
+                    secondary.AddRange(buttons.Secondary.Select(a => ButtonFor(a, primary: false)));
+                }
+                rows.Add(new StepRow(k + 1, s.Id, s.State, s.Title, detail, s.DoneSummary, primary, secondary, current && s.IsFix && !keeping, current && s.IsFix && !keeping && owned));
+            }
+            var key = string.Join('\n', rows.Select(r => r.Key));
+            if (key != _rowsKey)
+            {
+                _rowsKey = key;
+                _rows = rows;
+            }
+            return _rows;
+        }
+    }
+
+    /// <summary>The step's button as the panel shows it: text, the existing command behind it, A glyph on the main one.</summary>
+    private StepButton ButtonFor(LabStepAction action, bool primary)
+    {
+        var glyph = primary ? "A" : null;
+        return action switch
+        {
+            LabStepAction.RequestPresets => new StepButton(RequestText, RequestCommand, primary, glyph, "Request presets", null),
+            LabStepAction.Play => new StepButton("Play", StepPlayCommand, primary, glyph, "Play", null),
+            LabStepAction.MapThisGame => new StepButton("Map this game", MapCommand, primary, glyph, "Map this game",
+                "Launch the game twice, once changing nothing and once changing many graphics options, to find where its settings live."),
+            LabStepAction.RefreshPresets => new StepButton(GameHealth.ActionText(HealthAction.RefreshPresets), RefreshPresetsCommand, primary, glyph, "Ask the game lab to re-check", null),
+            LabStepAction.RecheckSync => new StepButton(GameHealth.ActionText(HealthAction.SyncCheck), SyncCheckCommand, primary, glyph, "Re-check settings sync", null),
+            LabStepAction.KeepAsManualSave => new StepButton("Keep my changes as a manual save", KeepChangesCommand, primary, glyph, "Keep my changes as a manual save",
+                "Keep the settings the game left as a manual save."),
+            LabStepAction.FlagSetInGame => new StepButton(GameHealth.ActionText(HealthAction.FlagSetInGame), FlagCommand, primary, glyph, "Flag as set in-game", SuggestLine is { Length: > 0 } tip ? tip : null),
+            LabStepAction.ManageAgain => new StepButton(GameHealth.ActionText(HealthAction.ManageAgain), ManageAgainCommand, primary, glyph, "Manage settings again", GameHealth.ManageAgainCaption),
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, null),
+        };
+    }
+
+    /// <summary>The post-session card that still shows as a card (the consent question, the "asked the lab" note); the others are the checklist's job.</summary>
+    private PostSessionCard? SeparateCard => LabPanelPlan.CardStaysSeparate(PostCard) ? PostCard : null;
+
+    private bool DemoPlay =>
+#if DEBUG
+        _demo;
+#else
+        false;
+#endif
+
+    /// <summary>The game's settings can be saved as a manual save (a session exists and the game has a config).</summary>
+    private bool CanKeep =>
+#if DEBUG
+        _demo ||
+#endif
+        (_main.Session is not null && Ctx.GameId is not null);
+
+    // ---------------------------------------------------------------- health lines (read-only)
 
     /// <summary>Which lab actions are on offer for this game right now (<see cref="LabPanelPlan"/> places each once).</summary>
-    public PanelOffers Offers => new()
-    {
-        Request = ShowRequest, Refresh = ShowRefresh, SyncCheck = ShowSyncCheck, Test = ShowTest && !IsFlagged, Map = ShowMap,
-        ManageAgain = ShowManageAgain, Flag = SuggestionReason is not null, VerifyNext = CanVerifyNext,
-    };
-
-    /// <summary>The state's suggested action, when its command is on offer here; otherwise none.</summary>
-    public HealthAction Suggested
+    public PanelOffers Offers
     {
         get
         {
 #if DEBUG
-            if (_demo) return Health.Suggested;
+            if (_demo) return DemoOffers();
 #endif
-            return LabPanelPlan.Suggested(Health.Suggested, Offers);
+            return new PanelOffers
+            {
+                Request = ShowRequest, Refresh = ShowRefresh, SyncCheck = ShowSyncCheck, Test = ShowTest && !IsFlagged, Map = ShowMap,
+                ManageAgain = ShowManageAgain, Flag = SuggestionReason is not null, VerifyNext = CanVerifyNext, Play = _play is not null, Keep = CanKeep,
+            };
         }
     }
-
-    /// <summary>The existing command behind the suggested action (its confirm card opens as from "More").</summary>
-    public ICommand? SuggestedCommand => Suggested switch
-    {
-        HealthAction.RequestPresets => RequestCommand,
-        HealthAction.RefreshPresets => RefreshPresetsCommand,
-        HealthAction.TestPreset => TestCommand,
-        HealthAction.MapGame => MapCommand,
-        HealthAction.FlagSetInGame => FlagCommand,
-        HealthAction.ManageAgain => ManageAgainCommand,
-        HealthAction.SyncCheck => SyncCheckCommand,
-        HealthAction.VerifyNextLaunch => VerifyNextCommand,
-        _ => null,
-    };
-
-    public string SuggestedText => Suggested == HealthAction.RequestPresets ? RequestText : GameHealth.ActionText(Suggested);
-
-    /// <summary>
-    /// The suggested button; "Flag as set in-game" steps aside while its confirm card or a test result (which has its own) is open, and any
-    /// suggestion steps aside while the post-session card offers the same action (<see cref="LabPanelPlan.ShowSuggested"/>).
-    /// </summary>
-    public bool ShowSuggested => LabPanelPlan.ShowSuggested(Suggested, PostCard, _flagConfirming, HasResult);
 
     // ---------------------------------------------------------------- "Also check presets on my next launch" (a manual opt-in per game)
 
@@ -839,7 +1028,7 @@ public sealed class LabGameViewModel : ObservableObject
         : "Your own next launch checks the preset, no extra launch: change nothing in-game that time. It doesn't ask to keep changes afterwards.";
 
     /// <summary>The dim line while it is on, unless the health's why line says it already.</summary>
-    public bool ShowVerifyNextLine => VerifyNextArmed && CanVerifyNext && HealthWhy != GameHealth.VerifyNextLine;
+    public bool ShowVerifyNextLine => VerifyNextArmed && CanVerifyNext;
 
     public string VerifyNextLine => GameHealth.VerifyNextLine;
 
@@ -895,8 +1084,9 @@ public sealed class LabGameViewModel : ObservableObject
 
     // ---------------------------------------------------------------- "See which": every setting behind "The game changed some settings"
 
-    /// <summary>The run behind <see cref="HealthState.GameChangedSettings"/>, unless the post-session card lists the same run.</summary>
-    private RunResult? ChangedRun => Health.ChangedRun is { } r && !(PostCard is { Kind: PostSessionKind.Changed } c && c.Run.Utc == r.Utc) ? r : null;
+    /// <summary>The run behind the fix step (what the game changed), for "See which" and "Keep my changes".</summary>
+    private RunResult? ChangedRun => Journey.ChangedRun;
+    private RunResult? FixRun => Journey.ChangedRun;
 
     public bool ShowChangedWhich => ChangedRun is not null;
     public string ChangedWhichText => _changedOpen ? "Hide the list" : "See which";
@@ -917,6 +1107,34 @@ public sealed class LabGameViewModel : ObservableObject
         OnPropertyChanged(nameof(ChangedLines));
         OnPropertyChanged(nameof(ChangedMore));
         OnPropertyChanged(nameof(HasChangedMore));
+    }
+
+    // ---------------------------------------------------------------- "Keep my changes as a manual save" (the fix step; asks once on the step)
+
+    /// <summary>Pressed once: the fix step asks before it saves (A = Save and use, B = Cancel), since the files may have changed since the session.</summary>
+    private void BeginKeep()
+    {
+        if (FixRun is not { } run) return;
+        ClearTransient(); // one question at a time
+        _keepConfirmFor = run.Utc;
+        RaisePost();
+    }
+
+    /// <summary>"Save and use": the game's settings as they are now become a manual save and the active setting; the session's card is done with.</summary>
+    private async Task ConfirmKeepAsync()
+    {
+        if (!IsKeepConfirming) return;
+#if DEBUG
+        if (_demo)
+        {
+            ClosePost(snooze: false); // a debug scene never saves a real manual save
+            return;
+        }
+#endif
+        if (PostCard is { } card && !LabPanelPlan.CardStaysSeparate(card)) ClosePost(snooze: false);
+        else _keepConfirmFor = null;
+        await SaveResultAsync();
+        RaisePost();
     }
 
     // ---------------------------------------------------------------- post-session card: inline, once, B = Not now
@@ -950,12 +1168,13 @@ public sealed class LabGameViewModel : ObservableObject
         }
     }
 
-    public bool HasPostSession => PostCard is not null;
+    /// <summary>A post-session card still shows as a card (<see cref="LabPanelPlan.CardStaysSeparate"/>); the others are the checklist's job.</summary>
+    public bool HasPostSession => LabPanelPlan.CardStaysSeparate(PostCard);
     public string PostSessionText => PostCard?.Text ?? "";
-    public string PostSessionWhy => IsKeepConfirming ? PostSession.KeepConfirmText : PostCard?.Why ?? "";
+    public string PostSessionWhy => PostCard?.Why ?? "";
 
     /// <summary>"Keep these" was pressed once: the card asks before it saves (A = Save and use, B = Cancel).</summary>
-    public bool IsKeepConfirming => PostCard is { } c && _keepConfirmFor == c.Run.Utc;
+    public bool IsKeepConfirming => _keepConfirmFor is { } t && FixRun is { } r && r.Utc == t;
 
     /// <summary>
     /// Keyboard or gamepad focus is inside the card (set by the panel). Only then does B close it: a card below the fold or on a page the player
@@ -987,7 +1206,7 @@ public sealed class LabGameViewModel : ObservableObject
     /// <summary>B: "Not now" keeps this kind of card away for a few days; the one-off "kept all" card just closes.</summary>
     public string PostDismissText => IsKeepConfirming ? "Cancel" : PostCard is { CanSnooze: false } ? "OK" : "Not now";
 
-    /// <summary>"Don't ask again": no more post-session cards for this game on this device (More turns them back on).</summary>
+    /// <summary>"Don't ask again": no more post-session cards for this game on this device (Manual tools turn them back on).</summary>
     public bool ShowPostMute => PostCard is { CanSnooze: true } && !IsKeepConfirming;
 
     /// <summary>The player chose "Don't ask again" on a post-session card of this game (<see cref="LabState.Muted"/>).</summary>
@@ -1013,7 +1232,7 @@ public sealed class LabGameViewModel : ObservableObject
         }
     }
 
-    public bool ShowUnmuteInMore => IsMuted;
+    public bool ShowUnmuteInTools => IsMuted;
     public string UnmuteCaption => "You chose “Don't ask again” on a card after a session. This shows those cards for this game again.";
 
     private void MutePost()
@@ -1033,7 +1252,7 @@ public sealed class LabGameViewModel : ObservableObject
         if (PostSession.KeepsSession(card.Kind)) _lab.AnswerConsent(id, snooze: false); // it asked once either way
         _lab.MuteSessions(id, true);
         _mutedLoaded = false;
-        _main.Notify($"No more cards after sessions of {Ctx.Name}. More on its page turns them back on.");
+        _main.Notify($"No more cards after sessions of {Ctx.Name}. Manual tools on its page turn them back on.");
         OnPropertyChanged(string.Empty);
     }
 
@@ -1071,7 +1290,6 @@ public sealed class LabGameViewModel : ObservableObject
 
     private bool CanRunPost(PostSessionAction? action) => action switch
     {
-        PostSessionAction.KeepThese => _main.Session is not null && Ctx.GameId is not null,
         PostSessionAction.SeeWhich => true,
         PostSessionAction.FlagSetInGame => FlagCommand.CanExecute(null),
         PostSessionAction.AskLab => RefreshPresetsCommand.CanExecute(null),
@@ -1086,8 +1304,8 @@ public sealed class LabGameViewModel : ObservableObject
     };
 
     /// <summary>
-    /// A card button: "See which" opens the list in place; "Keep these" first asks on the card (<see cref="PostSession.Confirms"/>) and saves on
-    /// the second press; every other one closes the card and runs the existing action (its confirm card opens).
+    /// A button of a card that stays a card (the consent question, the asked-the-lab note): "See which" opens the list in place; every other one
+    /// closes the card and runs the existing action (its confirm card opens). The other cards are the checklist's fix step now.
     /// </summary>
     private async Task RunPostAsync(PostSessionAction action)
     {
@@ -1098,13 +1316,6 @@ public sealed class LabGameViewModel : ObservableObject
             RaisePost();
             return;
         }
-        if (PostSession.Confirms(action) && !IsKeepConfirming)
-        {
-            ClearTransient(); // one card asks at a time
-            _keepConfirmFor = card.Run.Utc;
-            RaisePost();
-            return;
-        }
         var asked = Ctx.GameId is { } askedId ? _lab.AskedFor(askedId) : null;
         ClosePost(snooze: false);
         switch (action)
@@ -1112,7 +1323,6 @@ public sealed class LabGameViewModel : ObservableObject
             case PostSessionAction.OpenIssue:
                 if (asked?.Url is { } url) _lab.OpenUrl(url);
                 break;
-            case PostSessionAction.KeepThese: await SaveResultAsync(); break;
             case PostSessionAction.FlagSetInGame: Run(FlagCommand); break;
             case PostSessionAction.AskLab: Run(RefreshPresetsCommand); break;
             case PostSessionAction.MapGame: Run(MapCommand); break;
@@ -1167,50 +1377,41 @@ public sealed class LabGameViewModel : ObservableObject
 
     private void RaisePost()
     {
-        foreach (var n in new[]
-                 {
-                     nameof(PostCard), nameof(HasPostSession), nameof(HasHealthWhy), nameof(PostSessionText), nameof(PostSessionWhy), nameof(HasPostSessionWhy), nameof(ShowPostLines),
-                     nameof(PostLines), nameof(PostLinesMore), nameof(HasPostLinesMore), nameof(ShowPostPrimary), nameof(PostPrimaryText), nameof(ShowPostSecondary),
-                     nameof(PostSecondaryText), nameof(PostDismissText), nameof(IsKeepConfirming), nameof(ShowSuggested), nameof(ShowPostMute),
-                     nameof(ShowRequestInMore), nameof(ShowRefreshInMore), nameof(ShowTestInMore), nameof(ShowMapInMore), nameof(ShowManageAgainInMore),
-                     nameof(ShowFlagInMore), nameof(ShowSyncCheckInMore), nameof(ShowVerifyNextInMore), nameof(HasMore), nameof(ShowChangedWhich),
-                     nameof(ShowChangedLines), nameof(ChangedLines),
-                 })
-            OnPropertyChanged(n);
+        OnPropertyChanged(string.Empty);
         CommandManager.InvalidateRequerySuggested();
     }
 
-    // ---------------------------------------------------------------- More: every other action, each once, with a caption
+    // ---------------------------------------------------------------- Manual tools: every other action, each once, with a caption
 
-    public bool IsMoreOpen
+    public bool IsToolsOpen
     {
-        get => _moreOpen;
+        get => _toolsOpen;
         set
         {
-            if (!Set(ref _moreOpen, value)) return;
-            OnPropertyChanged(nameof(MoreText));
+            if (!Set(ref _toolsOpen, value)) return;
+            OnPropertyChanged(nameof(ToolsText));
         }
     }
 
-    public string MoreText => _moreOpen ? "Less" : "More";
+    public string ToolsText => "Manual tools";
 
-    // each action once: not under More while the suggested button or the post-session card offers it (it comes back when the card closes)
-    private bool InMore(HealthAction action) =>
-        LabPanelPlan.InMore(action, Offers, Suggested, PostCard, _flagConfirming, HasResult);
+    // each action once: not under Manual tools while the current step or the separate post-session card offers it (it comes back when they move on)
+    private bool InTools(HealthAction action) =>
+        LabPanelPlan.InTools(action, Offers, Journey, PostCard, _flagConfirming, HasResult);
 
-    public bool ShowRequestInMore => InMore(HealthAction.RequestPresets);
-    public bool ShowRefreshInMore => InMore(HealthAction.RefreshPresets);
-    public bool ShowSyncCheckInMore => InMore(HealthAction.SyncCheck);
-    public bool ShowTestInMore => InMore(HealthAction.TestPreset);
-    public bool ShowVerifyNextInMore => InMore(HealthAction.VerifyNextLaunch);
-    public bool ShowMapInMore => InMore(HealthAction.MapGame);
-    public bool ShowManageAgainInMore => InMore(HealthAction.ManageAgain);
+    public bool ShowRequestInTools => InTools(HealthAction.RequestPresets);
+    public bool ShowRefreshInTools => InTools(HealthAction.RefreshPresets);
+    public bool ShowSyncCheckInTools => InTools(HealthAction.SyncCheck);
+    public bool ShowTestInTools => InTools(HealthAction.TestPreset);
+    public bool ShowVerifyNextInTools => InTools(HealthAction.VerifyNextLaunch);
+    public bool ShowMapInTools => InTools(HealthAction.MapGame);
+    public bool ShowManageAgainInTools => InTools(HealthAction.ManageAgain);
 
-    /// <summary>"Flag as set in-game" while it is suggested by the evidence but not the state's own suggestion (the state shows a stronger one).</summary>
-    public bool ShowFlagInMore => InMore(HealthAction.FlagSetInGame);
+    /// <summary>"Flag as set in-game" while the evidence suggests it but no step offers it.</summary>
+    public bool ShowFlagInTools => InTools(HealthAction.FlagSetInGame);
 
-    public bool HasMore => ShowRequestInMore || ShowRefreshInMore || ShowSyncCheckInMore || ShowTestInMore || ShowVerifyNextInMore || ShowMapInMore ||
-                           ShowManageAgainInMore || ShowFlagInMore || ShowUnmuteInMore;
+    public bool HasTools => ShowRequestInTools || ShowRefreshInTools || ShowSyncCheckInTools || ShowTestInTools || ShowVerifyNextInTools || ShowMapInTools ||
+                            ShowManageAgainInTools || ShowFlagInTools || ShowUnmuteInTools;
 
     public string RequestCaption => "Claude researches the game's settings and writes presets for this device. Takes a few minutes.";
     public string RefreshCaption => "Asks the game lab to research this game again. Use after a big update or if the presets look wrong.";
@@ -1393,9 +1594,9 @@ public sealed class LabGameViewModel : ObservableObject
         OnPropertyChanged(nameof(FlagWhy));
         OnPropertyChanged(nameof(ShowSuggest));
         OnPropertyChanged(nameof(ShowResultSuggest));
-        OnPropertyChanged(nameof(ShowSuggested));
-        OnPropertyChanged(nameof(ShowFlagInMore));
-        OnPropertyChanged(nameof(HasMore));
+        OnPropertyChanged(nameof(StepRows));
+        OnPropertyChanged(nameof(ShowFlagInTools));
+        OnPropertyChanged(nameof(HasTools));
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -1615,14 +1816,14 @@ public sealed class LabGameViewModel : ObservableObject
 
     /// <summary>
     /// B / Esc: closes the top card only. A confirmation (request, test or "send the test result") goes first; the test result
-    /// underneath closes on the next press, then the post-session card ("Not now", only while focus is in it), then an open "More" collapses.
+    /// underneath closes on the next press, then "Not now" on the fix step or the post-session card (only while focus is in it), then an open "Manual tools" collapses.
     /// True when something was closed.
     /// </summary>
     public bool CancelTransient()
     {
         // only while focus is in the post-session card: one the player has not reached (below the fold, an old session) never takes B or snoozes unseen
         var confirming = IsConfirming || _testConfirming || _forgetConfirming || _flagConfirming || IsKeepConfirming;
-        switch (LabPanelPlan.NextCancel(confirming, _result is not null, _testing, HasPostSession && PostCardHasFocus, _moreOpen))
+        switch (LabPanelPlan.NextCancel(confirming, _result is not null, _testing, (HasPostSession || LabPanelPlan.FixStepOwnsCard(Journey.Current, PostCard)) && PostCardHasFocus, _toolsOpen))
         {
             case CancelStep.CloseConfirmation:
                 ClearTransient();
@@ -1634,8 +1835,8 @@ public sealed class LabGameViewModel : ObservableObject
             case CancelStep.DismissPostCard:
                 DismissPost();
                 return true;
-            case CancelStep.CollapseMore:
-                IsMoreOpen = false;
+            case CancelStep.CollapseTools:
+                IsToolsOpen = false;
                 return true;
             default:
                 return false;
@@ -1645,10 +1846,10 @@ public sealed class LabGameViewModel : ObservableObject
     /// <summary>Closes confirmation cards but keeps a test result on screen (another panel on the game page is opening).</summary>
     public bool CloseCards() => ClearTransient();
 
-    /// <summary>The page is left (or opened afresh): fold "More" away so a hidden panel never keeps it open to swallow B.</summary>
-    public void CollapseMore()
+    /// <summary>The page is left (or opened afresh): fold "Manual tools" away so a hidden panel never keeps it open to swallow B.</summary>
+    public void CollapseTools()
     {
-        if (_moreOpen) IsMoreOpen = false;
+        if (_toolsOpen) IsToolsOpen = false;
     }
 
     private bool ClearTransient()
@@ -1674,9 +1875,9 @@ public sealed class LabGameViewModel : ObservableObject
             OnPropertyChanged(nameof(IsFlagConfirming));
             OnPropertyChanged(nameof(ShowSuggest));
             OnPropertyChanged(nameof(ShowResultSuggest));
-            OnPropertyChanged(nameof(ShowSuggested));
-            OnPropertyChanged(nameof(ShowFlagInMore));
-            OnPropertyChanged(nameof(HasMore));
+            OnPropertyChanged(nameof(StepRows));
+            OnPropertyChanged(nameof(ShowFlagInTools));
+            OnPropertyChanged(nameof(HasTools));
         }
         Preview = null;
         PreviewError = null;

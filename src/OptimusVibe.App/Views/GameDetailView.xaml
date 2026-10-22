@@ -369,18 +369,17 @@
 
                 <!-- status block: game lab across the full width, settings sync and the per-game options below it -->
                 <Grid x:Name="StatusBlock" Margin="{DynamicResource BlockGapMd}">
+                    <Grid.Resources>
+                        <sys:Double x:Key="LabMaxWidth">Infinity</sys:Double>   <!-- the game lab runs full width on the game page -->
+                    </Grid.Resources>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                <!-- game lab: the game's health, one suggested action, the rest under More -->
+                <!-- game lab: the guided "Step X of N" checklist, every other action under Manual tools -->
                 <views:LabGamePanel DataContext="{Binding Lab}" HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding DataContext.HasGame, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}">
-                    <views:LabGamePanel.Resources>
-                        <sys:Double x:Key="LabMaxWidth">Infinity</sys:Double>   <!-- full width on the game page -->
-                    </views:LabGamePanel.Resources>
-                </views:LabGamePanel>
+                                    Visibility="{Binding DataContext.HasGame, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource VisibleWhen}}" />
 
                 <StackPanel Grid.Row="1" Margin="{DynamicResource BlockGapMd}">
                 <!-- settings sync: do this game's graphics settings travel between machines? -->

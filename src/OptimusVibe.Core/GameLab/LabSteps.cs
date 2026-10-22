@@ -32,7 +32,7 @@ public enum LabStepId
     CheckSync,
 }
 
-public enum LabStepState { Done, Current, Upcoming }
+public enum StepState { Done, Current, Upcoming }
 
 /// <summary>The button a step offers. Each is one of the game page's existing commands; <see cref="LabPanelPlan"/> says which are on offer.</summary>
 public enum LabStepAction
@@ -64,7 +64,7 @@ public sealed record LabStep
 
     /// <summary>One line saying what to do (the current step) or what comes (an upcoming one).</summary>
     public required string Detail { get; init; }
-    public required LabStepState State { get; init; }
+    public required StepState State { get; init; }
 
     /// <summary>One line for a done step: "Done Oct 20: played with the preset". Empty for the others.</summary>
     public string DoneSummary { get; init; } = "";
@@ -112,7 +112,7 @@ public sealed record LabJourney
         get
         {
             for (var k = 0; k < Steps.Count; k++)
-                if (Steps[k].State == LabStepState.Current) return k;
+                if (Steps[k].State == StepState.Current) return k;
             return -1;
         }
     }
@@ -233,12 +233,12 @@ public static class LabSteps
         var steps = drafts.Select((d, k) =>
         {
             if (d.Done)
-                return new LabStep { Id = d.Id, Title = d.Title, Detail = d.UpcomingDetail, State = LabStepState.Done, DoneSummary = d.DoneSummary };
+                return new LabStep { Id = d.Id, Title = d.Title, Detail = d.UpcomingDetail, State = StepState.Done, DoneSummary = d.DoneSummary };
             if (k != current)
-                return new LabStep { Id = d.Id, Title = d.Title, Detail = d.UpcomingDetail, State = LabStepState.Upcoming };
+                return new LabStep { Id = d.Id, Title = d.Title, Detail = d.UpcomingDetail, State = StepState.Upcoming };
             return new LabStep
             {
-                Id = d.Id, Title = d.Title, Detail = d.Detail ?? d.UpcomingDetail, State = LabStepState.Current, Primary = d.Primary,
+                Id = d.Id, Title = d.Title, Detail = d.Detail ?? d.UpcomingDetail, State = StepState.Current, Primary = d.Primary,
                 Secondary = d.Secondary ?? [], IsFix = d.IsFix,
             };
         }).ToList();
