@@ -117,6 +117,14 @@ public partial class GameDetailView : UserControl
         UpdateIntentOverlay();
     }
 
+    // Debug scenes (Debug builds only) take screenshots without the on-screen keyboard in the way.
+    private static bool InDebugScene =>
+#if DEBUG
+        Services.DebugScenes.Scene is not null;
+#else
+        false;
+#endif
+
     private void OnIntentModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(GameDetailViewModel.IsEditingIntent))
@@ -126,7 +134,7 @@ public partial class GameDetailView : UserControl
             if (editing)
             {
                 // controller in hand: bring up the on-screen keyboard right away, like the capture prompt does
-                if (_intentWindow is { } w && Input.PadState.GetIsConnected(w) && Services.DebugScenes.Scene is null)
+                if (_intentWindow is { } w && Input.PadState.GetIsConnected(w) && !InDebugScene)
                     Dispatcher.BeginInvoke(new Action(Input.TouchKeyboard.Show), System.Windows.Threading.DispatcherPriority.Input);
             }
             else
