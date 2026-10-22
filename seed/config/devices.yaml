@@ -18,7 +18,7 @@
 # display: the mode used when a game preset says `display: inherit` (a preset can also override parts of it).
 # defaultPreset: the recommended preset (games/<id>.yaml `presets.<device>.<name>`) a game uses on this device until
 #          one is picked in the app or with `optimus-vibe use <game> <preset>`. If a game lacks it, its first preset
-#          is used. Conventions: desktop = quality | performance; handheld = performance | battery.
+#          is used. Conventions: desktop = quality | performance; handheld = quality | performance | battery.
 # driver:  nvidia | amd | none. Picks the driver-settings backend (the `nvidia:` / `amd:` blocks in game presets).
 #          Derived from the detected GPUs when omitted, but set it explicitly when a CPU also exposes an iGPU.
 # presetsFrom: another device id whose recommended presets this device uses for games that have none of their own

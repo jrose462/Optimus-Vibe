@@ -1,6 +1,7 @@
 # Preset guidelines
 
-Six presets per game: two per device for its own screen, plus `big-picture` on each device for a big TV. Names are
+Seven presets per game: two on the desktop and three on the handheld for their own screens, plus `big-picture` on each
+device for a big TV. Names are
 fixed (the app orders and remembers them by name). `desktop` and `ally-x` are the conventional device ids from the
 starter `devices.yaml`; use the ids and hardware in the user's own `config/devices.yaml` (a desktop-class device gets
 the desktop rows, a handheld the ally-x rows). Fps caps quoted below as 162 assume a 165 Hz display: use the device
@@ -11,8 +12,18 @@ otherwise assume a 4K (3840x2160) 120 Hz TV with VRR and HDR viewed from a couch
 |---|---|---|---|---|
 | desktop | `quality` (default) | Best visuals at a smooth framerate | 100-120 (90 acceptable for path tracing showcases) | 162 |
 | desktop | `performance` | High fps / competitive | 162 | 162 |
+| ally-x | `quality` | Best handheld visuals when plugged in | 40 (30 for very heavy games) | 40 / 30 |
 | ally-x | `performance` (default) | 60+ fps, sustained (honest lower target for very heavy games) | 60 (45 or 40 if 60 is unreachable) | 60, or per "Frame caps" below |
 | ally-x | `battery` | Longest playable battery life | 40 (30 for very heavy games) | 40 / 30 |
+
+**Handheld resolution model.** On the handheld, the *output* resolution and the *rendered* resolution are separate
+choices. A game with a good temporal upscaler (FSR 2+, XeSS, TSR, or DLSS-class) keeps a 1080p output and renders lower
+through the upscaler (1080p Quality = 1280x720, Balanced ~1114x626, Performance = 960x540). A game **without** one
+(no upscaler, only FSR 1 / a spatial "resolution scale", or a poor implementation) can only cut its load by lowering the
+**output**: use 1600x900 or 1280x720 and turn on AMD Radeon Super Resolution for the session (`amd: { RsrEnabled: true,
+RsrSharpness: 60 }`, see hardware.md) so the driver upscales to the panel. Say which model a preset uses in its
+`description` ("1080p output, FSR Performance (540p)" or "720p output + RSR"). Never stack RSR on top of an in-game
+temporal upscaler.
 | desktop | `big-picture` | 4K TV, streamed (Apollo/Sunshine → Moonlight); couch distance | 120 (60 for very heavy games) | 120 / 60 |
 | ally-x | `big-picture` | 4K TV, docked and plugged in; couch distance | 60 (40 for heavy games) | 60 / 40 |
 
@@ -48,10 +59,22 @@ assumption on ally-x), `targetFps`.
 - Competitive games: also motion blur/DOF/film grain/CA off (usually already in base), lowest-latency options.
 - Target 162 fps.
 
+## ally-x / quality
+
+- For plugged-in or Turbo play when visuals matter more than fps. Output 1920x1080 @ 120 Hz, borderless.
+- Upscaler: native 1080p (or the game's AA at 100%) for light/older games that hold 40 natively; FSR/XeSS **Quality**
+  (720p rendered) for modern games. No RSR (the output is native).
+- Settings: Medium/High; keep the handheld exceptions (RT off, hardware Lumen off, volumetrics one notch down).
+  Textures High where VRAM allows.
+- Cap **40** (divides 120 Hz; inside the VRR range). Heavy games that can't hold 40: cap 30 and say so.
+- Driver frame generation (AFMF) off: the 40 base is too low for it (hardware.md).
+- Assumes 30-35 W (Armoury Crate Turbo, plugged in); say so in `description`.
+
 ## ally-x / performance
 
 - Output 1920x1080 @ 120 Hz (`display: { width: 1920, height: 1080, refresh: 120 }`), borderless unless the game
-  needs exclusive fullscreen.
+  needs exclusive fullscreen, **when the game has a good temporal upscaler** (see the handheld resolution model).
+  Without one: output **1600x900 @ 120** (or 1280x720 for heavy games) with `RsrEnabled: true`.
 - Upscaler: FSR or XeSS **Performance** from 1080p (960x540 internal) for heavy UE5/modern games; **Balanced**
   or **Quality** for older/lighter games that still hold 60. TSR is fine in UE5 if FSR/XeSS look worse. Prefer
   the game's built-in "Steam Deck"/"handheld" preset as a starting point when it exists.
@@ -68,8 +91,11 @@ assumption on ally-x), `targetFps`.
 
 ## ally-x / battery
 
-- Same output; upscaler **Performance** (never Ultra Performance at 1080p). Lower internal resolution or the
-  game's lowest preset before dropping below 30.
+- Output **1280x720 @ 120** (`display: { width: 1280, height: 720, refresh: 120 }`) for every game: post-processing,
+  HUD and the upscaler itself cost per output pixel, and the 7" screen hides the difference. With a good temporal
+  upscaler use its **Quality** mode at 720p (~480p rendered; Balanced for very heavy games, never below ~400p); without
+  one, render at 720p native. Turn on `RsrEnabled: true` only when the game has no temporal upscaler (never stack them).
+  Use the game's lowest preset before dropping below 30.
 - Cap **40** (divides 120 Hz). Use 30 only for games that cannot hold 40 at ~13 W. Refresh stays **120** (see
   "Frame caps").
 - Disable everything that is expensive per pixel and invisible on a 7" screen: volumetrics, SSR, SSAO
