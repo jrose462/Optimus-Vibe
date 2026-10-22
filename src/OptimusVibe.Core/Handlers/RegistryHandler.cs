@@ -98,12 +98,16 @@ public sealed class RegistryHandler : SettingsHandler
         return RegistryValueKind.String;
     }
 
-    private static string Format(object raw, RegistryValueKind kind) => kind switch
+    /// <remarks>
+    /// The declared kind and the data type can disagree (Unity PlayerPrefs and similar write a REG_DWORD whose
+    /// data comes back as bytes), so the format follows the runtime type of the data, not the kind.
+    /// </remarks>
+    internal static string Format(object raw, RegistryValueKind kind) => raw switch
     {
-        RegistryValueKind.DWord => unchecked((uint)(int)raw).ToString(CultureInfo.InvariantCulture),
-        RegistryValueKind.QWord => unchecked((ulong)(long)raw).ToString(CultureInfo.InvariantCulture),
-        RegistryValueKind.Binary => Convert.ToHexString((byte[])raw),
-        RegistryValueKind.MultiString => string.Join("\n", (string[])raw),
+        int i => unchecked((uint)i).ToString(CultureInfo.InvariantCulture),
+        long l => unchecked((ulong)l).ToString(CultureInfo.InvariantCulture),
+        byte[] b => Convert.ToHexString(b),
+        string[] m => string.Join("\n", m),
         _ => raw.ToString() ?? "",
     };
 
@@ -111,7 +115,7 @@ public sealed class RegistryHandler : SettingsHandler
     {
         RegistryValueKind.DWord => unchecked((int)ParseUnsigned(value)),
         RegistryValueKind.QWord => unchecked((long)ParseUnsigned(value)),
-        RegistryValueKind.Binary => Convert.FromHexString(value.Replace(" ", "").Replace(",", "")),
+        RegistryValueKind.Binary or RegistryValueKind.None => Convert.FromHexString(value.Replace(" ", "").Replace(",", "")),
         RegistryValueKind.MultiString => value.Split('\n'),
         _ => value,
     };

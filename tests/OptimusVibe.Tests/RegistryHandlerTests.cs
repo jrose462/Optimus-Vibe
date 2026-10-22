@@ -159,6 +159,30 @@ public sealed class RegistryHandlerTests : IDisposable
         Assert.True(_h.Exists(KeyPath));
     }
 
+    [Fact]
+    public void Format_FollowsDataType_WhenKindDisagrees()
+    {
+        Assert.Equal("0102", RegistryHandler.Format(new byte[] { 1, 2 }, RegistryValueKind.None));
+        Assert.Equal("0102", RegistryHandler.Format(new byte[] { 1, 2 }, RegistryValueKind.DWord));
+        Assert.Equal("5", RegistryHandler.Format(5, RegistryValueKind.DWord));
+    }
+
+    [Fact]
+    public void SnapshotRestore_RegNoneValue_RoundTrips()
+    {
+        using (var k = Registry.CurrentUser.CreateSubKey(_sub, writable: true))
+            k.SetValue("NoneVal", new byte[] { 0x01, 0x02 }, RegistryValueKind.None);
+
+        var snap = _h.Snapshot(KeyPath);
+        Assert.NotNull(snap);
+        Registry.CurrentUser.DeleteSubKeyTree(_sub);
+        _h.RestoreSnapshot(KeyPath, snap);
+
+        using var r = Registry.CurrentUser.OpenSubKey(_sub)!;
+        Assert.Equal(RegistryValueKind.None, r.GetValueKind("NoneVal"));
+        Assert.Equal(new byte[] { 0x01, 0x02 }, r.GetValue("NoneVal"));
+    }
+
     [Theory]
     [InlineData(@"HKCU\Software\X", @"Software\X")]
     [InlineData(@"HKEY_CURRENT_USER/Software/X/", @"Software\X")]
