@@ -66,8 +66,7 @@
         </Style>
 
         <!-- the three summary metrics: one row beside the title, in both densities -->
-        <Style x:Key="SummaryMetrics" TargetType="WrapPanel">
-            <Setter Property="Orientation" Value="Horizontal" />
+        <Style x:Key="SummaryMetrics" TargetType="views:TrimFirstPanel">
             <Setter Property="Grid.Column" Value="1" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Margin" Value="22,0,0,0" />
@@ -328,42 +327,32 @@
                                 <Run Text="Active on this" />
                                 <Run Text="{Binding DeviceFriendly, Mode=OneWay}" />
                             </TextBlock>
-                            <WrapPanel Style="{StaticResource SummaryMetrics}">
-                                <views:MetricRow Glyph="&#xE735;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding ActivePresetLabel}" Unit="preset" />
+                            <!-- one row, always: a long preset name trims with an ellipsis, fps and settings stay whole -->
+                            <views:TrimFirstPanel Style="{StaticResource SummaryMetrics}">
+                                <views:MetricRow Glyph="&#xE735;" IconBrush="{DynamicResource MetricGreenBrush}" Value="{Binding ActivePresetLabel}" Unit="preset"
+                                                 ToolTip="{Binding ActivePresetLabel}" AutomationProperties.Name="{Binding ActivePresetLabel}" />
                                 <views:MetricRow Glyph="&#xE9D9;" IconBrush="{DynamicResource MetricCyanBrush}" Value="{Binding TargetFpsValue}" Unit="fps target" />
                                 <views:MetricRow Glyph="&#xE713;" IconBrush="{DynamicResource MetricPurpleBrush}" Value="{Binding SettingsCountValue}" Unit="settings" Margin="0" />
-                            </WrapPanel>
+                            </views:TrimFirstPanel>
                         </Grid>
                     </Border>
-                    <Border Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="{DynamicResource IntentCardWidth}"
+                    <Border x:Name="IntentCard" Grid.Column="1" Style="{StaticResource Card.Feature}" Margin="16,0,0,0" Width="{DynamicResource IntentCardWidth}"
                             Visibility="{Binding HasIntent, Converter={StaticResource VisibleWhen}}">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Top" Text="What you want from it" Style="{StaticResource IntentTitle}" />
-                            <Grid>
-                                <!-- the text; click / A edits it -->
-                                <Button Style="{StaticResource Button.Quiet}" Command="{Binding EditIntentCommand}" Padding="0"
-                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Stretch"
-                                        AutomationProperties.Name="Edit what you want from it" ToolTip="{Binding IntentDisplay}"
-                                        Visibility="{Binding IsEditingIntent, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
-                                    <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource IntentText}" TextWrapping="Wrap" />
-                                </Button>
-                                <!-- editing -->
-                                <StackPanel VerticalAlignment="Bottom" Visibility="{Binding IsEditingIntent, Converter={StaticResource VisibleWhen}}">
-                                    <TextBox Text="{Binding IntentDraft, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding IntentMaxLength, Mode=OneTime}"
-                                             TextWrapping="Wrap" AcceptsReturn="False" MinHeight="64" Margin="0,12,0,0"
-                                             AutomationProperties.Name="What you want from it" input:FocusCue.FocusWhenShown="True">
-                                        <TextBox.InputBindings>
-                                            <KeyBinding Key="Enter" Command="{Binding SaveIntentCommand}" />
-                                        </TextBox.InputBindings>
-                                    </TextBox>
-                                    <WrapPanel Margin="0,10,0,0">
-                                        <Button Style="{StaticResource Button.Primary}" Content="Save" Command="{Binding SaveIntentCommand}" MinWidth="96"
-                                                AutomationProperties.Name="Save what you want from it" Margin="0,0,6,0" />
-                                        <Button Style="{StaticResource Button.Quiet}" Content="Cancel" Command="{Binding CancelIntentCommand}" />
-                                    </WrapPanel>
-                                </StackPanel>
-                            </Grid>
-                        </DockPanel>
+                        <!-- the collapsed card: two lines of the text; click / A edits it. Focus (or editing) expands it into IntentOverlay below. -->
+                        <Button x:Name="IntentButton" Command="{Binding EditIntentCommand}" Padding="0"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Stretch"
+                                AutomationProperties.Name="Edit what you want from it" ToolTip="{Binding IntentDisplay}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource Button.Quiet}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsEditingIntent}" Value="True">
+                                            <Setter Property="Visibility" Value="Hidden" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource IntentText}" TextWrapping="Wrap" />
+                        </Button>
                     </Border>
                 </Grid>
 
@@ -562,6 +551,37 @@
                 </TabControl>
             </StackPanel>
         </ScrollViewer>
+
+        <!-- ============================================================ intent overlay
+             While the intent card has keyboard / gamepad focus, or is being edited, it opens over the top third of the window (full width, no reflow),
+             right above the on-screen keyboard. GameDetailView.xaml.cs sizes and shows it. -->
+        <Border x:Name="IntentOverlay" Style="{StaticResource Card.Feature}" Visibility="Collapsed" VerticalAlignment="Top" Panel.ZIndex="5"
+                MouseLeftButtonUp="OnIntentOverlayClick">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="What you want from it" Style="{StaticResource Text.H2}" Margin="0,0,0,6" />
+                <!-- reading: the whole text; click edits -->
+                <ScrollViewer x:Name="IntentReader" VerticalScrollBarVisibility="Auto" Focusable="False"
+                              Visibility="{Binding IsEditingIntent, Converter={StaticResource VisibleWhen}, ConverterParameter=invert}">
+                    <TextBlock Text="{Binding IntentDisplay}" Style="{StaticResource Text.Body}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource FeatureTextBrush}" />
+                </ScrollViewer>
+                <!-- editing: the box fills the space, Save / Cancel under it -->
+                <DockPanel Visibility="{Binding IsEditingIntent, Converter={StaticResource VisibleWhen}}">
+                    <WrapPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <Button Style="{StaticResource Button.Primary}" Content="Save" Command="{Binding SaveIntentCommand}" MinWidth="96"
+                                AutomationProperties.Name="Save what you want from it" Margin="0,0,6,0" />
+                        <Button Style="{StaticResource Button.Quiet}" Content="Cancel" Command="{Binding CancelIntentCommand}" />
+                    </WrapPanel>
+                    <TextBox x:Name="IntentBox" Text="{Binding IntentDraft, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding IntentMaxLength, Mode=OneTime}"
+                             TextWrapping="Wrap" AcceptsReturn="False" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
+                             AutomationProperties.Name="What you want from it" input:FocusCue.FocusWhenShown="True">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Enter" Command="{Binding SaveIntentCommand}" />
+                        </TextBox.InputBindings>
+                    </TextBox>
+                </DockPanel>
+            </DockPanel>
+        </Border>
 
         <!-- ============================================================ diff / confirm panel -->
         <Grid x:Name="Overlay" DataContext="{Binding Preview}" KeyboardNavigation.TabNavigation="Cycle"

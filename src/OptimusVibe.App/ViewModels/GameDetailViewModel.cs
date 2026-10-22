@@ -162,9 +162,23 @@ public sealed class GameDetailViewModel : ObservableObject
         get
         {
             var ctx = _snap.Context;
+            if (_debugPresetLabel is not null) return _debugPresetLabel;
             if (ctx is null || ctx.Profile.IsEmpty) return "None";
             return ctx.Preset?.Kind == PresetKind.Manual ? $"Manual: {ctx.Save?.Name ?? ctx.Preset.Name}" : ctx.Profile.Label ?? ctx.Preset?.Name ?? "None";
         }
+    }
+
+    private string? _debugPresetLabel, _debugIntent;
+
+    /// <summary>Debug scenes only: pretend the active preset has a long name and / or the intent has this text.</summary>
+    internal void DebugOverride(string? presetLabel, string? intent)
+    {
+        _debugPresetLabel = presetLabel;
+        _debugIntent = intent;
+        OnPropertyChanged(nameof(ActivePresetLabel));
+        OnPropertyChanged(nameof(Lead));
+        OnPropertyChanged(nameof(IntentText));
+        OnPropertyChanged(nameof(IntentDisplay));
     }
 
     public string TargetFpsValue => _snap.Context?.Profile.TargetFps is { } f ? f.ToString() : "\u2013";
@@ -174,7 +188,9 @@ public sealed class GameDetailViewModel : ObservableObject
     public string? ActivePresetName => _snap.Context?.Preset?.Name;
 
     /// <summary>The user's stated goal for this device; null when unset or still the skill's "EDIT ME" placeholder.</summary>
-    public string? IntentText =>
+    public string? IntentText => _debugIntent ?? StoredIntent;
+
+    private string? StoredIntent =>
         _snap.Game?.Intent.GetValueOrDefault(DeviceName) is { Length: > 0 } t && !t.TrimStart().StartsWith("EDIT ME", StringComparison.OrdinalIgnoreCase)
             ? t.Trim()
             : null;
