@@ -76,6 +76,9 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     private string _setupStep = "choose";
     private string? _setupConfigRoot;
     private IReadOnlyList<LaunchOptionChange>? _steamChanges;
+    private bool _signInRejected;
+    private bool _signInDismissed;
+    private string _signInHealthText = "";
     private LibraryTileViewModel? _launching;
     private bool _gamepad;
     private GameDetailViewModel? _hookedDetail;
@@ -101,6 +104,8 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         ApplySteamCommand = new AsyncRelayCommand(ApplySteamAsync, () => !IsBusy && HasSteamBanner);
         ReviewSteamCommand = new RelayCommand(OpenSteamReview, () => !IsBusy && HasSteamBanner);
         DismissSteamCommand = new RelayCommand(() => SteamChanges = null);
+        SignInAgainCommand = new RelayCommand(SignInAgain);
+        DismissSignInCommand = new RelayCommand(() => SetSignInBanner(rejected: _signInRejected, dismissed: true));
         ToastActionCommand = new RelayCommand(() =>
         {
             var action = _toastAction;
@@ -398,6 +403,50 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         ? $"{n} Steam launch option{(n == 1 ? "" : "s")} to update so your presets are used. Optimus-Vibe closes Steam, makes the change, checks it and leaves Steam as it was."
         : "";
 
+    // ---------------------------------------------------------------- GitHub sign-in banner
+
+    /// <summary>GitHub refused the saved sign-in and the user has not chosen "Later" this session.</summary>
+    public bool HasSignInBanner => _signInRejected && !_signInDismissed;
+
+    public string SignInHealthText => _signInHealthText;
+
+    public ICommand SignInAgainCommand { get; }
+    public ICommand DismissSignInCommand { get; }
+
+    private static void OnUi(Action action)
+    {
+        var d = System.Windows.Application.Current?.Dispatcher;
+        if (d is null || d.CheckAccess()) action(); else d.BeginInvoke(action);
+    }
+
+    private void SetSignInBanner(bool rejected, bool dismissed)
+    {
+        _signInRejected = rejected;
+        _signInDismissed = dismissed;
+        _signInHealthText = SignInHealth.Describe();
+        OnPropertyChanged(nameof(HasSignInBanner));
+        OnPropertyChanged(nameof(SignInHealthText));
+    }
+
+    /// <summary>Opens Settings at the GitHub account and starts the existing device sign-in there (the banner goes away once it succeeds).</summary>
+    private void SignInAgain()
+    {
+        OpenSettings("account");
+        if (Account.SignInCommand.CanExecute(null)) Account.SignInCommand.Execute(null);
+    }
+
+#if DEBUG
+    /// <summary>Debug scene "signin-rejected": the banner with a sample summary line.</summary>
+    public void ShowSignInDemo()
+    {
+        _signInRejected = true;
+        _signInDismissed = false;
+        _signInHealthText = "rejected since 2026-10-22 08:14 (request id 4C2A:1F3B:9D7E:5A60): saved 2026-10-21 18:02 via device sign-in, last worked 2026-10-21 22:37";
+        OnPropertyChanged(nameof(HasSignInBanner));
+        OnPropertyChanged(nameof(SignInHealthText));
+    }
+#endif
+
     // ---------------------------------------------------------------- launch overlay
 
     public LibraryTileViewModel? Launching
@@ -516,6 +565,14 @@ public sealed class MainViewModel : ObservableObject, IAppShell
     }
 
     /// <summary>B / Escape: close whatever is open on the current page. False when nothing was (manage list: B then focuses the list).</summary>
+    /// <summary>B on the library with nothing else to close dismisses the sign-in banner, like "Later".</summary>
+    private bool DismissSignInBanner()
+    {
+        if (!HasSignInBanner) return false;
+        SetSignInBanner(rejected: _signInRejected, dismissed: true);
+        return true;
+    }
+
     public bool CancelTransient()
     {
         if (SteamReview.IsOpen)
@@ -547,7 +604,7 @@ public sealed class MainViewModel : ObservableObject, IAppShell
                 if (!closed) CloseDetail();
                 return true;
             case AppPage.Library:
-                return false;
+                return DismissSignInBanner();
             default:
                 return SelectedDetail?.CancelTransient(back: true) ?? false;
         }

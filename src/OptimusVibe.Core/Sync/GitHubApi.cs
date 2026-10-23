@@ -34,11 +34,14 @@ public sealed partial class GitHubApi
     private static readonly SocketsHttpHandler SharedHandler = new() { PooledConnectionLifetime = TimeSpan.FromMinutes(5) };
 
     private readonly HttpClient _http;
+    private readonly SignInHealth? _health;
 
-    public GitHubApi(string token) : this(token, SharedHandler) { }
+    /// <param name="trackSignIn">False for a token that is not (yet) the saved sign-in (a candidate being checked, the bug-report token): its answers stay out of <see cref="SignInHealth"/>.</param>
+    public GitHubApi(string token, bool trackSignIn = true) : this(token, SharedHandler, trackSignIn ? SignInHealth.Default : null) { }
 
-    internal GitHubApi(string token, HttpMessageHandler handler)
+    internal GitHubApi(string token, HttpMessageHandler handler, SignInHealth? health = null)
     {
+        _health = health;
         ArgumentException.ThrowIfNullOrWhiteSpace(token);
         Token = token.Trim();
         _http = new HttpClient(handler, disposeHandler: false)
@@ -77,7 +80,7 @@ public sealed partial class GitHubApi
         for (var page = 0; url is not null && page < MaxRepoPages; page++)
         {
             using var resp = await SendAsync(HttpMethod.Get, url, null, ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, null, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) throw await FailAsync(resp, null, ct).ConfigureAwait(false);
             var json = await ReadJsonAsync(resp, ct).ConfigureAwait(false);
             foreach (var r in json.AsArray())
             {
@@ -117,7 +120,7 @@ public sealed partial class GitHubApi
                 ? $"A repo named '{name}' already exists on this account — pick another name, or use it with `github use`."
                 : $"GitHub refused to create '{name}': {TryMessage(text) ?? "validation failed"}");
         }
-        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, null, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw await FailAsync(resp, null, ct).ConfigureAwait(false);
         return ToRepoInfo(await ReadJsonAsync(resp, ct).ConfigureAwait(false));
     }
 
@@ -182,7 +185,7 @@ public sealed partial class GitHubApi
             throw new GitHubApiException(HttpStatusCode.NotFound, $"Branch '{branch}' not found in {repo}, or this account can't access the repo.");
         if (resp.StatusCode == HttpStatusCode.Conflict)
             throw new GitHubApiException(HttpStatusCode.Conflict, $"{repo} is empty — it has no commits yet.");
-        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw await FailAsync(resp, repo, ct).ConfigureAwait(false);
         var json = await ReadJsonAsync(resp, ct).ConfigureAwait(false);
         return json["object"]?["sha"]?.GetValue<string>() ?? throw new GitHubApiException(null, "GitHub returned a ref without a sha.");
     }
@@ -251,7 +254,7 @@ public sealed partial class GitHubApi
         var body = new JsonObject { ["sha"] = sha, ["force"] = false };
         using var resp = await SendAsync(HttpMethod.Patch, $"repos/{RepoPath(repo)}/git/refs/heads/{BranchPath(branch)}", body, ct).ConfigureAwait(false);
         if (resp.StatusCode == HttpStatusCode.UnprocessableEntity) return false;
-        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw await FailAsync(resp, repo, ct).ConfigureAwait(false);
         return true;
     }
 
@@ -266,7 +269,7 @@ public sealed partial class GitHubApi
         bool throwOnError = true, CancellationToken ct = default)
     {
         using var resp = await SendAsync(method, url, body, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode && throwOnError) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode && throwOnError) throw await FailAsync(resp, repo, ct).ConfigureAwait(false);
         var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         JsonNode? json = null;
         if (!string.IsNullOrWhiteSpace(text))
@@ -322,14 +325,14 @@ public sealed partial class GitHubApi
     private async Task<JsonNode> GetJsonAsync(string url, string? repo, CancellationToken ct)
     {
         using var resp = await SendAsync(HttpMethod.Get, url, null, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw await FailAsync(resp, repo, ct).ConfigureAwait(false);
         return await ReadJsonAsync(resp, ct).ConfigureAwait(false);
     }
 
     private async Task<JsonNode> SendJsonAsync(HttpMethod method, string url, JsonNode body, string? repo, CancellationToken ct)
     {
         using var resp = await SendAsync(method, url, body, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw await FailAsync(resp, repo, ct).ConfigureAwait(false);
         return await ReadJsonAsync(resp, ct).ConfigureAwait(false);
     }
 
@@ -339,7 +342,9 @@ public sealed partial class GitHubApi
         if (body is not null) req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
         try
         {
-            return await _http.SendAsync(req, ct).ConfigureAwait(false);
+            var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode) _health?.Ok();
+            return resp;
         }
         catch (HttpRequestException ex)
         {
@@ -362,6 +367,14 @@ public sealed partial class GitHubApi
         {
             throw new GitHubApiException(resp.StatusCode, "GitHub returned a response that isn't JSON.", ex);
         }
+    }
+
+    /// <summary>Like <see cref="ErrorAsync"/>, and notes a 401 in <see cref="SignInHealth"/>.</summary>
+    private async Task<GitHubApiException> FailAsync(HttpResponseMessage resp, string? repo, CancellationToken ct)
+    {
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            _health?.Reject(resp.Headers.TryGetValues("X-GitHub-Request-Id", out var id) ? id.FirstOrDefault() : null);
+        return await ErrorAsync(resp, repo, ct).ConfigureAwait(false);
     }
 
     internal static async Task<GitHubApiException> ErrorAsync(HttpResponseMessage resp, string? repo, CancellationToken ct)

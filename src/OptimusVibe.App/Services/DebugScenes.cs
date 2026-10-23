@@ -157,7 +157,7 @@ public static class DebugScenes
     }
 
     /// <summary>
-    /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: settings-lab, settings-lab-auto (its
+    /// Runs the named scene against the main window once it is ready, saves the screenshot and exits. Scenes: signin-rejected (the GitHub sign-in banner), settings-lab, settings-lab-auto (its
     /// "Automatic" toggles), library-chips (tile health chips, sample health), game-request,
     /// map-first (the request card offering "Map this game first"), map-intro | map-launch2 | map-summary | map-summary-kept | map-summary-none |
     /// map-sent | map-failed | map-passive (the full-screen "Map this game" window, sample data; the lab panel's Map this game button shows in every verify-* scene),
@@ -192,6 +192,11 @@ public static class DebugScenes
         switch (scene)
         {
             case "library":
+                break;
+            case "signin-rejected":
+                // the "GitHub sign-in stopped working" banner under the header, with a sample summary line
+                vm.ShowSignInDemo();
+                await Task.Delay(500);
                 break;
             case "library-focus":
                 window.FocusDefault();

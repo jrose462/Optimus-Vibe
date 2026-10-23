@@ -134,7 +134,37 @@
                          Visibility="{Binding IsBusy, Converter={StaticResource VisibleWhen}}" />
 
             <!-- ============================================================ steam banner (non-modal) -->
-            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="{DynamicResource BannerMargin}" Padding="{DynamicResource BannerPadding}" CornerRadius="{DynamicResource BannerRadius}"
+            <StackPanel Grid.Row="2">
+            <!-- GitHub refused the saved sign-in (issue #85): sync and the game lab are paused until the user signs in again -->
+            <Border Style="{StaticResource Card}" Margin="{DynamicResource BannerMargin}" Padding="{DynamicResource BannerPadding}" CornerRadius="{DynamicResource BannerRadius}"
+                    Visibility="{Binding HasSignInBanner, Converter={StaticResource VisibleWhen}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Dot.Attention}" Margin="0,0,14,0" VerticalAlignment="Top" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <TextBlock Text="GitHub sign-in stopped working" Style="{StaticResource Text.H3}" />
+                        <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="GitHub no longer accepts this device's sign-in, so sync and the game lab are paused. Sign in again to resume." />
+                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,0" Text="{Binding SignInHealthText}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="SignInAgainButton" Style="{StaticResource Button.Primary}" Command="{Binding SignInAgainCommand}"
+                                input:FocusCue.FocusWhenShown="True" AutomationProperties.Name="Sign in again">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="A" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Sign in again" /></StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Button.Quiet}" Command="{Binding DismissSignInCommand}" Margin="6,0,0,0"
+                                ToolTip="Hide this until the app restarts" AutomationProperties.Name="Later">
+                            <StackPanel Orientation="Horizontal"><views:ButtonGlyph Kind="B" Size="Small" Margin="0,0,8,0" /><TextBlock Text="Later" /></StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="{DynamicResource BannerMargin}" Padding="{DynamicResource BannerPadding}" CornerRadius="{DynamicResource BannerRadius}"
                     Visibility="{Binding HasSteamBanner, Converter={StaticResource VisibleWhen}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -154,6 +184,7 @@
                     </StackPanel>
                 </Grid>
             </Border>
+            </StackPanel>
 
             <!-- ============================================================ content -->
             <Grid Grid.Row="3">
