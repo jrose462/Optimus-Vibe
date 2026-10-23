@@ -259,6 +259,25 @@ public sealed class GitHubAccountViewModel : ObservableObject
         SignInError = null;
         try
         {
+            // Every device-flow sign-in mints a token and GitHub keeps only 10 per account and app, so a saved sign-in that still works is kept.
+            var saved = await Task.Run(LoadSavedToken);
+            var check = await SignInDecision.CheckAsync(saved, t => new GitHubApi(t).GetLoginAsync(cts.Token));
+            if (check.AlreadySignedIn)
+            {
+                await SettingsStore.UpdateAsync(s => s.GitHubLogin = check.Login);
+                Login = check.Login;
+                Log.Info($"GitHub: already signed in as {check.Login}; no new sign-in made");
+                _main.Notify($"Already signed in to GitHub as {check.Login} — no new sign-in needed (each new sign-in can sign out another device).");
+                return;
+            }
+            if (saved is not null)
+            {
+                // GitHub refused it: drop it so nothing keeps retrying with a dead token while the code is entered.
+                await Task.Run(GitHubAuth.ClearToken);
+                Login = null;
+                Log.Info("GitHub: the saved sign-in was rejected; removed it before signing in again");
+            }
+
             DeviceCode = await StartDeviceFlowAsync(clientId, cts.Token);
             Log.Info($"GitHub device flow started ({DeviceCode.VerificationUri})");
             CopyCode();
@@ -282,6 +301,12 @@ public sealed class GitHubAccountViewModel : ObservableObject
             DeviceCode = null;
             IsSigningIn = false;
         }
+    }
+
+    private static string? LoadSavedToken()
+    {
+        try { return GitHubAuth.LoadToken(); }
+        catch (NotImplementedException) { return null; }
     }
 
     private static Task<DeviceCode> StartDeviceFlowAsync(string clientId, CancellationToken ct)

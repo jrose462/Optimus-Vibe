@@ -519,7 +519,8 @@ public static class Program
         var gh = new Command("github", "Sign in to GitHub and sync the config repo through the GitHub API (no git needed).");
 
         var clientId = new Option<string?>("--client-id") { Description = "Client id of a GitHub OAuth App with Device Flow enabled (remembered in settings)." };
-        var login = new Command("login", "Sign in with a one-time code (GitHub device flow).") { clientId };
+        var force = new Option<bool>("--force") { Description = "Sign in again even if the saved sign-in still works (each new sign-in can sign out another device)." };
+        var login = new Command("login", "Sign in with a one-time code (GitHub device flow).") { clientId, force };
         login.SetAction(Guard(pr =>
         {
             var dataDir = AppPaths.DefaultDataDir;
@@ -528,6 +529,17 @@ public static class Program
             if (string.IsNullOrWhiteSpace(id))
                 throw new ConfigException("No GitHub OAuth App client id in this build. Register one (github.com/settings/developers, enable Device Flow) and pass " +
                                           "--client-id <id> (or set OPTIMUSVIBE_GITHUB_CLIENT_ID), or store a personal access token with `github token <pat>`.");
+
+            // Every device-flow sign-in mints a token and GitHub keeps only 10 per account and app: keep a saved one that still works.
+            if (!pr.GetValue(force))
+            {
+                var check = SignInDecision.CheckAsync(GitHubAuth.LoadToken(), t => new GitHubApi(t).GetLoginAsync()).GetAwaiter().GetResult();
+                if (check.AlreadySignedIn)
+                {
+                    Console.WriteLine($"Already signed in as {check.Login}; no new sign-in made. Use --force to sign in again anyway.");
+                    return 0;
+                }
+            }
 
             using var cts = new CancellationTokenSource();
             ConsoleCancelEventHandler onCancel = (_, e) => { e.Cancel = true; cts.Cancel(); };

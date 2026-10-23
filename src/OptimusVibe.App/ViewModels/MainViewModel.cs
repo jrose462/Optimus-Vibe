@@ -134,6 +134,10 @@ public sealed class MainViewModel : ObservableObject, IAppShell
         Outbox.Service.Changed += Library.RefreshQueueNote;
         Lab.IssuesChanged += Library.RefreshQueueNote;
         Lab.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(GameLabViewModel.IsReady)) Library.RefreshQueueNote(); };
+        // The "sign in again" banner follows GitHub's answers: up on the first refusal, gone once a sign-in works again.
+        SignInHealth.Rejected += () => OnUi(() => SetSignInBanner(rejected: true, dismissed: false));
+        SignInHealth.Recovered += () => OnUi(() => SetSignInBanner(rejected: false, dismissed: false));
+        if (SignInHealth.IsRejected) SetSignInBanner(rejected: true, dismissed: false);
     }
 
     public LibraryViewModel Library { get; }
