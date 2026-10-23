@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using OptimusVibe.Config;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace OptimusVibe.Handlers;
 
@@ -45,7 +47,13 @@ public sealed class RegistryHandler : SettingsHandler
             var kind = key.GetValueNames().Contains(name, StringComparer.OrdinalIgnoreCase)
                 ? key.GetValueKind(name)
                 : KindForNewValue(value);
-            key.SetValue(name, ParseValue(value, kind), kind);
+            var existing = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+            if (existing is not null && Mismatched(existing, kind))
+                SetRaw(key, name, kind, existing is long
+                    ? BitConverter.GetBytes(unchecked((long)ParseUnsigned(value)))
+                    : FromHex(value));
+            else
+                key.SetValue(name, ParseValue(value, kind), kind);
         }
     }
 
@@ -53,9 +61,13 @@ public sealed class RegistryHandler : SettingsHandler
     {
         using var key = Open(path, writable: false);
         if (key is null) return null;
-        var dump = key.GetValueNames().ToDictionary(n => n, n => new RegValue(
-            key.GetValueKind(n).ToString(),
-            Format(key.GetValue(n, null, RegistryValueOptions.DoNotExpandEnvironmentNames)!, key.GetValueKind(n))));
+        var dump = key.GetValueNames().ToDictionary(n => n, n =>
+        {
+            var kind = key.GetValueKind(n);
+            var raw = key.GetValue(n, null, RegistryValueOptions.DoNotExpandEnvironmentNames)!;
+            return new RegValue(kind.ToString(), Format(raw, kind),
+                Mismatched(raw, kind) ? Convert.ToHexString(RawBytes(raw)) : null);
+        });
         return JsonSerializer.SerializeToUtf8Bytes(dump);
     }
 
@@ -76,13 +88,15 @@ public sealed class RegistryHandler : SettingsHandler
         foreach (var (name, v) in dump)
         {
             var kind = Enum.Parse<RegistryValueKind>(v.Kind);
-            key.SetValue(name, ParseValue(v.Data, kind), kind);
+            if (v.Raw is not null) SetRaw(key, name, kind, FromHex(v.Raw));
+            else key.SetValue(name, ParseValue(v.Data, kind), kind);
         }
     }
 
     public override void SetReadOnly(string path, bool readOnly) { }
 
-    private sealed record RegValue(string Kind, string Data);
+    /// <summary>One snapshotted value. <c>Raw</c> holds the exact bytes (hex) when the data doesn't fit the kind.</summary>
+    private sealed record RegValue(string Kind, string Data, string? Raw = null);
 
     private static string ValueName(string key) => key == "(default)" ? "" : key;
 
@@ -98,12 +112,17 @@ public sealed class RegistryHandler : SettingsHandler
         return RegistryValueKind.String;
     }
 
-    private static string Format(object raw, RegistryValueKind kind) => kind switch
+    /// <remarks>
+    /// The declared kind and the data type can disagree (Unity PlayerPrefs stores a float as an 8-byte REG_DWORD,
+    /// which .NET returns as a long; other odd sizes come back as bytes), so the format follows the runtime type of
+    /// the data, not the kind.
+    /// </remarks>
+    internal static string Format(object raw, RegistryValueKind kind) => raw switch
     {
-        RegistryValueKind.DWord => unchecked((uint)(int)raw).ToString(CultureInfo.InvariantCulture),
-        RegistryValueKind.QWord => unchecked((ulong)(long)raw).ToString(CultureInfo.InvariantCulture),
-        RegistryValueKind.Binary => Convert.ToHexString((byte[])raw),
-        RegistryValueKind.MultiString => string.Join("\n", (string[])raw),
+        int i => unchecked((uint)i).ToString(CultureInfo.InvariantCulture),
+        long l => unchecked((ulong)l).ToString(CultureInfo.InvariantCulture),
+        byte[] b => Convert.ToHexString(b),
+        string[] m => string.Join("\n", m),
         _ => raw.ToString() ?? "",
     };
 
@@ -111,10 +130,37 @@ public sealed class RegistryHandler : SettingsHandler
     {
         RegistryValueKind.DWord => unchecked((int)ParseUnsigned(value)),
         RegistryValueKind.QWord => unchecked((long)ParseUnsigned(value)),
-        RegistryValueKind.Binary => Convert.FromHexString(value.Replace(" ", "").Replace(",", "")),
+        RegistryValueKind.Binary or RegistryValueKind.None => FromHex(value),
         RegistryValueKind.MultiString => value.Split('\n'),
         _ => value,
     };
+
+    private static byte[] FromHex(string value) => Convert.FromHexString(value.Replace(" ", "").Replace(",", ""));
+
+    /// <summary>True when the data isn't the size the kind declares (e.g. an 8-byte REG_DWORD).</summary>
+    private static bool Mismatched(object raw, RegistryValueKind kind) =>
+        (kind == RegistryValueKind.DWord && raw is not int) || (kind == RegistryValueKind.QWord && raw is not long);
+
+    private static byte[] RawBytes(object raw) => raw switch
+    {
+        int i => BitConverter.GetBytes(i),
+        long l => BitConverter.GetBytes(l),
+        byte[] b => b,
+        _ => throw new InvalidOperationException($"Unexpected registry data type {raw.GetType().Name}"),
+    };
+
+    /// <summary>
+    /// Writes exact bytes under a kind. <see cref="RegistryKey.SetValue(string, object, RegistryValueKind)"/> can't
+    /// write a REG_DWORD that isn't 4 bytes, and rewriting it as 4 bytes would corrupt the game's value.
+    /// </summary>
+    internal static void SetRaw(RegistryKey key, string name, RegistryValueKind kind, byte[] data)
+    {
+        int rc = RegSetValueExW(key.Handle, name, 0, (int)kind, data, data.Length);
+        if (rc != 0) throw new IOException($"Could not write registry value {name} (error {rc})");
+    }
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode)]
+    private static extern int RegSetValueExW(SafeRegistryHandle key, string? name, int reserved, int type, byte[] data, int size);
 
     private static ulong ParseUnsigned(string value)
     {
