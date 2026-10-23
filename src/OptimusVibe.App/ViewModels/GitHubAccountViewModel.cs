@@ -338,8 +338,9 @@ public sealed class GitHubAccountViewModel : ObservableObject
     /// <summary>Validate the token (GetLogin) before storing it, remember the login, then list repos.</summary>
     private async Task CompleteSignInAsync(string token, string how)
     {
-        var login = await Task.Run(() => new GitHubApi(token).GetLoginAsync());
+        var login = await Task.Run(() => new GitHubApi(token, trackSignIn: false).GetLoginAsync());
         await Task.Run(() => GitHubAuth.SaveToken(token));
+        SignInHealth.RecordSaved(how == "token" ? SignInHealth.ViaToken : SignInHealth.ViaDevice);
         await SettingsStore.UpdateAsync(s => s.GitHubLogin = login);
         Login = login;
         SignInError = null;

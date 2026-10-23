@@ -34,6 +34,9 @@ public sealed class BugReportContext
     public string? GameId { get; init; }
     public string? Preset { get; init; }
 
+    /// <summary>One line on the saved GitHub sign-in (<see cref="SignInHealth.Describe"/>): when it was saved, last worked, rejected since.</summary>
+    public string? SignIn { get; init; }
+
     /// <summary>Recent log lines, oldest first (see <see cref="BugReport.ReadRecentLog"/>).</summary>
     public IReadOnlyList<string> LogLines { get; init; } = [];
 
@@ -65,8 +68,15 @@ public sealed class BugReportContext
             ConfigRepo = github ? $"{settings.GitHubRepo ?? "(none)"} ({settings.GitHubBranch})" : settings.ConfigRoot,
             GameId = gameId,
             Preset = preset,
+            SignIn = SafeSignIn(dataDir),
             LogLines = BugReport.ReadRecentLog(Path.Combine(dataDir, "logs"), logLines),
         };
+    }
+
+    private static string? SafeSignIn(string dataDir)
+    {
+        try { return new SignInHealth(dataDir).Summary(); }
+        catch (Exception) { return null; }
     }
 }
 
@@ -112,6 +122,7 @@ public static partial class BugReport
         Row("GPU", ctx.Gpus.Count == 0 ? null : string.Join("; ", ctx.Gpus));
         Row("Sync", ctx.SyncProvider is null ? null : ctx.SyncProvider + (ctx.ConfigRepo is null ? "" : $" — {ctx.ConfigRepo}"));
         Row("Game", ctx.GameId is null ? null : ctx.GameId + (ctx.Preset is null ? "" : $" (preset {ctx.Preset})"));
+        Row("GitHub sign-in", ctx.SignIn);
         sb.Append('\n');
 
         var log = ctx.LogLines.Select(S).ToList();
@@ -175,7 +186,7 @@ public static partial class BugReport
     /// hidden marker is what the triage workflow keys on. Never logs a token. Throws <see cref="GitHubException"/>.
     /// </summary>
     public static Task<string> SubmitAsync(BugReportDraft draft, string? userToken = null, CancellationToken ct = default, string? dataDir = null) =>
-        SubmitCoreAsync(draft, userToken, BugReportToken.Get(), t => new GitHubApi(t), enforceLimit: true, ct, dataDir);
+        SubmitCoreAsync(draft, userToken, BugReportToken.Get(), t => new GitHubApi(t, trackSignIn: false), enforceLimit: true, ct, dataDir);
 
     /// <summary>
     /// Sends a report that was queued in the offline outbox. Identical to <see cref="SubmitAsync(BugReportDraft, string?, CancellationToken, string?)"/>
@@ -183,7 +194,7 @@ public static partial class BugReport
     /// (<see cref="OptimusVibe.Outbox.OutboxFlow.QueueBugReport"/>).
     /// </summary>
     public static Task<string> SubmitQueuedAsync(BugReportDraft draft, string? userToken = null, CancellationToken ct = default) =>
-        SubmitCoreAsync(draft, userToken, BugReportToken.Get(), t => new GitHubApi(t), enforceLimit: false, ct, null);
+        SubmitCoreAsync(draft, userToken, BugReportToken.Get(), t => new GitHubApi(t, trackSignIn: false), enforceLimit: false, ct, null);
 
     internal static async Task<string> SubmitCoreAsync(BugReportDraft draft, string? userToken, string? builtIn, Func<string, GitHubApi> api,
         bool enforceLimit, CancellationToken ct, string? dataDir)
@@ -359,6 +370,7 @@ public static partial class BugReport
             if (n.Length >= 3) s = Regex.Replace(s, @"(?<![A-Za-z0-9_])" + Regex.Escape(n) + @"(?![A-Za-z0-9_])", "[USER]", RegexOptions.IgnoreCase);
         return s;
     }
+
 
     private static string? SafeUserName() { try { return Environment.UserName; } catch (Exception) { return null; } }
     private static string? SafeMachineName() { try { return Environment.MachineName; } catch (Exception) { return null; } }

@@ -9,13 +9,19 @@ namespace OptimusVibe.GameLab;
 /// <summary>REST error conversion for already-read responses (<see cref="GitHubResponse"/>).</summary>
 internal static class LabHttp
 {
+    private static GitHubApiException Rejected(GitHubResponse r)
+    {
+        SignInHealth.RecordRejected(r.Headers.GetValueOrDefault("X-GitHub-Request-Id"));
+        return new GitHubApiException(r.Status, "GitHub rejected the saved sign-in (token revoked, expired or invalid). Sign in to GitHub again.");
+    }
+
     public static GitHubApiException Error(GitHubResponse r, string? repo)
     {
         var message = r.Json?["message"]?.GetValue<string>();
         var target = repo is null ? "" : $" ({repo})";
         return r.Status switch
         {
-            HttpStatusCode.Unauthorized => new GitHubApiException(r.Status, "GitHub rejected the saved sign-in (token revoked, expired or invalid). Sign in to GitHub again."),
+            HttpStatusCode.Unauthorized => Rejected(r),
             HttpStatusCode.Forbidden => new GitHubApiException(r.Status, $"GitHub refused access{target}: {message ?? "forbidden"}. The token may lack a scope or permission (see `lab setup`)."),
             HttpStatusCode.NotFound => new GitHubApiException(r.Status, $"GitHub: not found{target}{(message is null ? "" : $" ({message})")}."),
             _ => new GitHubApiException(r.Status, $"GitHub API error {(int)r.Status}{target}: {message ?? r.Status.ToString()}"),

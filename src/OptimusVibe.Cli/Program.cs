@@ -538,8 +538,9 @@ public static class Program
                 Console.WriteLine($"Open {code.VerificationUri} and enter the code:  {code.UserCode}");
                 Console.WriteLine($"Waiting for approval (expires in {code.ExpiresInSeconds / 60} min; Ctrl+C to cancel)...");
                 var token = GitHubAuth.PollForTokenAsync(id, code, cts.Token).GetAwaiter().GetResult();
-                var user = new GitHubApi(token).GetLoginAsync().GetAwaiter().GetResult();
+                var user = new GitHubApi(token, trackSignIn: false).GetLoginAsync().GetAwaiter().GetResult();
                 GitHubAuth.SaveToken(token);
+                SignInHealth.RecordSaved(SignInHealth.ViaDevice);
                 settings.GitHubLogin = user;
                 settings.GitHubClientId = id;
                 AppPaths.SaveSettings(dataDir, settings);
@@ -562,8 +563,9 @@ public static class Program
         token.SetAction(Guard(pr =>
         {
             var pat = pr.GetValue(patArg)!.Trim();
-            var user = new GitHubApi(pat).GetLoginAsync().GetAwaiter().GetResult();
+            var user = new GitHubApi(pat, trackSignIn: false).GetLoginAsync().GetAwaiter().GetResult();
             GitHubAuth.SaveToken(pat);
+            SignInHealth.RecordSaved(SignInHealth.ViaToken);
             var dataDir = AppPaths.DefaultDataDir;
             var settings = AppPaths.LoadSettings(dataDir);
             settings.GitHubLogin = user;
@@ -640,6 +642,7 @@ public static class Program
                 try { Console.WriteLine($"yes, as {new GitHubApi(tokenValue).GetLoginAsync().GetAwaiter().GetResult()}"); }
                 catch (GitHubException ex) { Console.WriteLine($"token stored{(settings.GitHubLogin is { } l ? $" ({l})" : "")}, but: {ex.Message}"); }
             }
+            Console.WriteLine($"Sign-in health: {SignInHealth.Describe()}");
             if (settings.GitHubRepo is { Length: > 0 } cfgRepo)
             {
                 var mirror = new GitHubMirror(AppPaths.MirrorDir(dataDir, cfgRepo), cfgRepo, settings.GitHubBranch, null);
