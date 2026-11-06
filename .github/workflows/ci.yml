@@ -21,7 +21,8 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
 
 jobs:
-  # Defence in depth next to branch protection + CODEOWNERS: only the repo owner may change .github/** (workflows, prompts).
+  # Defence in depth next to branch protection + CODEOWNERS: only the repo owner may change .github/** (workflows, prompts),
+  # except that Dependabot may move a commit pin on an existing `uses:` line. Those PRs still need the owner's review.
   # Uses the read-only GITHUB_TOKEN and the REST API only; it never checks out or runs PR code.
   protect-github-dir:
     name: Protect .github
@@ -39,6 +40,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           OWNER: ${{ github.repository_owner }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
           hits=$(printf '%s\n' "$files" | grep -iE '^\.github/' || true)
@@ -46,7 +48,17 @@ jobs:
           if [ "${AUTHOR,,}" = "${OWNER,,}" ]; then
             echo "::notice::PR touches .github/** and is authored by the repo owner; allowed."; exit 0
           fi
-          echo "::error::Only the repository owner may change .github/**. Touched:"
+          if [ "$AUTHOR" = "dependabot[bot]" ] && [ "$HEAD_REPO" = "$GH_REPO" ]; then
+            other=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | select(.status != "modified" or .patch == null or (.filename | test("^[.]github/workflows/[^/]+[.]ya?ml$") | not)) | .filename')
+            patches=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .patch // empty')
+            changed=$(printf '%s\n' "$patches" | grep -E '^[-+]' || true)
+            pin='^[-+] *(- )?uses: [A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}( # [^ ]+)?$'
+            action() { printf '%s\n' "$changed" | grep -E "^[$1]" | sed -E 's/^.//; s/@[0-9a-f]{40}.*$//'; }
+            if [ -z "$other" ] && [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE "$pin" && [ "$(action -)" = "$(action +)" ]; then
+              echo "::notice::Dependabot PR only moves commit pins on existing uses: lines; allowed."; exit 0
+            fi
+          fi
+          echo "::error::Only the repository owner may change .github/** (Dependabot may only move uses: pins). Touched:"
           printf '%s\n' "$hits"
           exit 1
 
